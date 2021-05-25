@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS=-fsanitize=address
+FLAGS=-fsanitize=address -g
 
 server: server.c
 	${CC} server.c serverutils.c logger.c -o server ${FLAGS}
