@@ -42,16 +42,16 @@ int main(int argc, char **argv) {
 	int readyFds;
 	int clients = 0;
 
-	sigset_t sigMask;
-	sigemptyset(&sigMask);
-	sigaddset(&sigMask, SIGINT);
+	// sigset_t sigMask;
+	// sigemptyset(&sigMask);
+	// sigaddset(&sigMask, SIGINT);
 
 	while (1) {
-		
+
 		readFdSet[TMP] = readFdSet[BASE];
 		writeFdSet[TMP] = writeFdSet[BASE];
 
-		readyFds = pselect(maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
+		readyFds = pselect(maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, NULL);
 		if (readyFds == -1) {
 			// FIX ERROR HANDLING
 			perror("[ERROR] : Error en pselect() - main() - server.c");
@@ -91,12 +91,11 @@ int main(int argc, char **argv) {
 					char auxBuff[BUFFER_SIZE] = {0};
 					int bytesRecv = recv(fd, auxBuff, BUFFER_SIZE - bytesToRead, 0);
 					printf("[INFO] : SERVER RECEIVED %s\n", auxBuff);
-					if (bytesRecv == -1) {
-						// FIX ERROR HANDLING
-						perror("[ERROR] : Error en recv() - main() - server.c");
-					} else if (bytesRecv == 0) {
+					if (bytesRecv <= 0) {
+						if (bytesRecv == -1)
+							perror("[ERROR] : Error en recv() - main() - server.c");
 						closeConnection(i, writeFdSet, readFdSet);
-                        break;
+						break;
 					} else {
 						copyToBuffer(auxBuff, i, bytesRecv);
 						connections[i]->bytesToRead += bytesRecv;
@@ -104,17 +103,16 @@ int main(int argc, char **argv) {
 				}
 				readyFds--;
 			}
-			
+
 			if (FD_ISSET(fd, &writeFdSet[TMP])) {
 				// escribir
 				int bytesSent = send(fd, "Echo from pepe", 15, 0);
 				printf("[INFO] : SERVER SENT Echo from pepe\n");
-				if (bytesSent == -1) {
-					// FIX ERROR HANDLING
-					perror("[ERROR] : Error en send() - main() - server.c");
-				} else if (bytesSent == 0) {
+				if (bytesSent <= 0) {
+					if (bytesSent == -1)
+						perror("[ERROR] : Error en send() - main() - server.c");
 					closeConnection(i, writeFdSet, readFdSet);
-                    break;
+					break;
 				} else {
 					readyFds--;
 				}
