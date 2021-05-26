@@ -11,9 +11,9 @@ PROXY_UTILS_SOURCE=$(wildcard src/proxy/utils/*.c)
 all: proxy 
 
 proxy: ${PROXY_SOURCE} ${PROXY_UTILS_SOURCE} ${SOURCE}
-	${CC} ${PROXY_SOURCE} ${PROXY_UTILS_SOURCE} ${SOURCE} -o proxyServer ${FLAGS} ${FSANITIZE}
+	${CC} ${PROXY_SOURCE} ${PROXY_UTILS_SOURCE} ${SOURCE} -o httpd ${FLAGS} ${FSANITIZE}
 
 clean: 
-	rm -rf proxyServer
+	rm -rf httpd
 
 .PHONY: all proxy clean

@@ -11,10 +11,27 @@
 #define TMP 1
 #define FD_SET_ARRAY_SIZE 2
 
+#include "connection.h"
+#include <stddef.h>
+
 int setupPassiveSocket(const char *service);
 
 int setupClientSocket(const char *host, const char *service);
 
 int acceptConnection(int passiveSock);
+
+typedef enum { WRITE, READ } OPERATION;
+typedef enum { CLIENT, SERVER } PEER;
+
+static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
+
+static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
+
+void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
+					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
+
+size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
+					   OPERATION operation);
+
 
 #endif

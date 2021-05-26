@@ -8,6 +8,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include "connection.h"
+
+ConnectionHeader connections = {0};
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -117,4 +120,117 @@ int setupClientSocket(const char *host, const char *service) {
 
 	freeaddrinfo(servAddr); 
 	return sock;
+}
+
+static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes) {
+	for (int j = 0; j < bytes; j++) {
+		target[(startIndex + j) % BUFFER_SIZE] = source[j];
+	}
+}
+
+static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes) {
+	for (int j = 0; j < bytes; j++) {
+		target[j] = source[(startIndex + j) % BUFFER_SIZE];
+	}
+}
+
+void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
+					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer) {
+	int operation[2], *bytes[2];
+	PEER toPeer;
+	int fd[2], *pos[2];
+	char *buffer[2] = {0};
+
+	fd[CLIENT] = node->data.clientSock;
+	fd[SERVER] = node->data.serverSock;
+	bytes[CLIENT] = &node->data.bytesForServer;
+	bytes[SERVER] = &node->data.bytesForClient;
+	buffer[CLIENT] = node->data.clientToServerBuffer;
+	buffer[SERVER] = node->data.serverToClientBuffer;
+	pos[CLIENT] = &node->data.clientToServerPos;
+	pos[SERVER] = &node->data.serverToClientPos;
+
+	switch (peer) {
+	case CLIENT:
+		toPeer = SERVER;
+		break;
+	case SERVER:
+		toPeer = CLIENT;
+		break;
+	default:
+		// TODO: ERROR
+		break;
+	}
+
+	if (readFdSet != NULL && FD_ISSET(fd[peer], &readFdSet[TMP])) {
+		if (*bytes[peer] < BUFFER_SIZE) {
+			operation[READ] = handleOperation(node, prev, fd[peer], buffer[peer], *pos[peer], BUFFER_SIZE - (*bytes[peer]), READ);
+			if (operation[READ] == -1) {
+				// CLOSE CONNECTION
+				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+			}
+			*bytes[peer] += operation[READ];
+			//activo la escritura hacia el otro punto
+			FD_SET(fd[toPeer], &writeFdSet[BASE]);
+		}else{
+			//desactivo la lectura desde este punto
+			FD_CLR(fd[peer], &readFdSet[BASE]);
+		}
+	}
+
+	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
+		if (*bytes[toPeer] > 0) {
+			operation[WRITE] = handleOperation(node, prev, fd[peer], buffer[toPeer], *pos[toPeer], *bytes[toPeer], WRITE);
+			if (operation[WRITE] == -1) {
+				// CLOSE CONNECTION
+				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+			}
+			*bytes[toPeer] -= operation[WRITE];
+			*pos[toPeer] = (operation[WRITE] + *pos[toPeer]) % BUFFER_SIZE;
+			//activo la lectura del servidor por si se habia desactivado por buffer lleno
+			FD_SET(node->data.serverSock, &readFdSet[BASE]);
+			if (*bytes[toPeer] == 0)
+				FD_CLR(fd[peer], &writeFdSet[BASE]);
+		}
+	}
+}
+
+size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
+					   OPERATION operation) {
+	char auxBuff[BUFFER_SIZE] = {0};
+	size_t operationBytes;
+	switch (operation) {
+		case WRITE:
+			copyToLinearBuffer(auxBuff, buffer, pos, bytes);
+			operationBytes = send(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en send() - main() - server.c");
+
+				// TODO: check 0 error?
+				return -1;
+			}
+			break;
+		case READ:
+			operationBytes = recv(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en recv() - main() - server.c");
+				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+				return -1;
+			}
+			//debug
+			char msg[BUFFER_SIZE+1];
+			strncpy(msg, auxBuff, operationBytes);
+			msg[operationBytes] = '\0';
+			printf("[INFO] : RECEIVED %s FROM fd %d\n", msg, fd);
+			
+			copyToCircularBuffer(buffer, auxBuff, pos + bytes, operationBytes);
+			break;
+		default:
+			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
+			return -1;
+			break;
+	}
+	return operationBytes;
 }
