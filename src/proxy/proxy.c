@@ -137,7 +137,11 @@ void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdS
 				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
 			}
 			*bytes[peer] += operation[READ];
+			//activo la escritura hacia el otro punto
 			FD_SET(fd[toPeer], &writeFdSet[BASE]);
+		}else{
+			//desactivo la lectura desde este punto
+			FD_CLR(fd[peer], &readFdSet[BASE]);
 		}
 	}
 
@@ -149,6 +153,9 @@ void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdS
 				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
 			}
 			*bytes[toPeer] -= operation[WRITE];
+			pos[toPeer] = (operation[WRITE] + pos[toPeer]) % BUFFER_SIZE;
+			//activo la lectura del servidor por si se habia desactivado por buffer lleno
+			FD_SET(node->data.serverSock, &readFdSet[BASE]);
 			if (*bytes[toPeer] == 0)
 				FD_CLR(fd[peer], &writeFdSet[BASE]);
 		}
@@ -160,32 +167,37 @@ size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char 
 	char auxBuff[BUFFER_SIZE] = {0};
 	size_t operationBytes;
 	switch (operation) {
-	case WRITE:
-		copyToLinearBuffer(auxBuff, buffer, pos, bytes);
-		operationBytes = send(fd, buffer, bytes, 0);
-		if (operationBytes <= 0) {
-			if (operationBytes == -1)
-				perror("[ERROR] : Error en send() - main() - server.c");
+		case WRITE:
+			copyToLinearBuffer(auxBuff, buffer, pos, bytes);
+			operationBytes = send(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en send() - main() - server.c");
 
-			// TODO: check 0 error?
+				// TODO: check 0 error?
+				return -1;
+			}
+			break;
+		case READ:
+			operationBytes = recv(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en recv() - main() - server.c");
+				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+				return -1;
+			}
+			//debug
+			char msg[BUFFER_SIZE+1];
+			strncpy(msg, auxBuff, operationBytes);
+			msg[operationBytes] = '\0';
+			printf("[INFO] : RECEIVED %s FROM fd %d\n", msg, fd);
+			
+			copyToCircularBuffer(buffer, auxBuff, pos, operationBytes);
+			break;
+		default:
+			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
 			return -1;
-		}
-		break;
-	case READ:
-		operationBytes = recv(fd, auxBuff, bytes, 0);
-		if (operationBytes <= 0) {
-			if (operationBytes == -1)
-				perror("[ERROR] : Error en recv() - main() - server.c");
-			printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
-			return -1;
-		}
-		printf("[INFO] : SERVER RECEIVED %s\n", auxBuff);
-		copyToCircularBuffer(buffer, auxBuff, pos, operationBytes);
-		break;
-	default:
-		printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
-		return -1;
-		break;
+			break;
 	}
 	return operationBytes;
 }
