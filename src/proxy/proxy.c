@@ -1,7 +1,7 @@
+#include "proxy.h"
 #include "../logger.h"
 #include "utils/connection.h"
 #include "utils/proxyutils.h"
-#include "proxy.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -13,8 +13,14 @@
 #include <unistd.h>
 #include <sys/select.h>
 
+static enum OPERATION { WRITE, READ };
+static enum PEER { CLIENT, SERVER };
 static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
 static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
+void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
+					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], enum PEER peer);
+size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
+					   enum OPERATION operation);
 
 ConnectionHeader connections = {0};
 
@@ -63,7 +69,7 @@ int main(int argc, char **argv) {
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// abrir conexiones con cliente y servidor
 			int clientSock = acceptConnection(passiveSock);
-            int serverSock = setupClientSocket(serverHost, serverPort);
+			int serverSock = setupClientSocket(serverHost, serverPort);
 			FD_SET(clientSock, &readFdSet[BASE]);
 			FD_SET(serverSock, &readFdSet[BASE]);
 			readyFds--;
@@ -77,134 +83,8 @@ int main(int argc, char **argv) {
 
 		// TODO: Pasar cada operacion de lectura y escritura a funciones auxiliares
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL; previous = node, node = node->next) {
-			
-			// Leer de cliente
-			int clientFd = node->data.clientSock;
-			if (FD_ISSET(clientFd, &readFdSet[TMP])) {
-				int bytesForServer = node->data.bytesForServer;
-				// si el buffer esta lleno, no puedo recibir el mensaje
-				if (bytesForServer < BUFFER_SIZE) {
-					// leemos en un buffer lineal auxiliar y lo copiamos al buffer circular global
-					char auxBuff[BUFFER_SIZE - bytesForServer];
-					int bytesRecv = recv(clientFd, auxBuff, BUFFER_SIZE - bytesForServer, 0);
-					
-					if (bytesRecv <= 0) {
-						if (bytesRecv == -1)
-							perror("[ERROR] : Error en recv() - main() - server.c");
-						
-						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
-						break;
-					} else {
-						//debug
-						char msg[bytesRecv+1];
-						strncpy(msg, auxBuff, bytesRecv);
-						msg[bytesRecv] = '\0';
-						printf("[INFO] : SERVER RECEIVED %s FROM\n", msg);
-						
-						copyToCircularBuffer(node->data.clientToServerBuffer, auxBuff, node->data.clientToServerPos, bytesRecv);
-						node->data.bytesForServer += bytesRecv;
-
-						// comenzamos a ver si el server acepta escritura desde select
-						FD_SET(node->data.serverSock, &writeFdSet[BASE]);
-					}
-				}else{
-					//desactivo la lectura
-					FD_CLR(clientFd, &readFdSet[BASE]);
-				}
-				readyFds--;
-			}
-			
-			// Escribir al cliente
-			if (FD_ISSET(clientFd, &writeFdSet[TMP])) {
-				int bytesForClient = node->data.bytesForClient;
-				// si no hay nada para escribir, no escribo
-				if(bytesForClient > 0){
-					// enviamos el mensaje mediante un buffer lineal auxiliar 
-					char auxBuff[bytesForClient];
-					copyToLinearBuffer(auxBuff, node->data.serverToClientBuffer, node->data.serverToClientPos, bytesForClient);
-
-					int bytesSent = send(clientFd, auxBuff, bytesForClient, 0);
-
-					if (bytesSent <= 0) {
-						if (bytesSent == -1)
-							perror("[ERROR] : Error en send() - main() - server.c");
-							
-						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
-						break;
-					} else {
-						node->data.bytesForClient -= bytesSent;
-						node->data.serverToClientPos = (bytesSent + node->data.serverToClientPos) % BUFFER_SIZE;
-						//activo la lectura del servidor por si se habia desactivado por buffer lleno
-						FD_SET(node->data.serverSock, &readFdSet[BASE]);
-						if(node->data.bytesForClient == 0)
-							FD_CLR(clientFd, &writeFdSet[BASE]);
-					}
-				}
-				readyFds--;
-			}
-
-			// Leer de server
-			int serverFd = node->data.serverSock;
-			if (FD_ISSET(serverFd, &readFdSet[TMP])) {
-				int bytesForClient = node->data.bytesForClient;
-				// si el buffer esta lleno, no puedo recibir el mensaje
-				if (bytesForClient < BUFFER_SIZE) {
-					// leemos en un buffer lineal auxiliar y lo copiamos al buffer circular global
-					char auxBuff[BUFFER_SIZE - bytesForClient];
-					int bytesRecv = recv(serverFd, auxBuff, BUFFER_SIZE - bytesForClient, 0);
-					
-					if (bytesRecv <= 0) {
-						if (bytesRecv == -1)
-							perror("[ERROR] : Error en recv() - main() - server.c");
-						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
-						break;
-					} else {
-						//debug
-						char msg[bytesRecv+1];
-						strncpy(msg, auxBuff, bytesRecv);
-						msg[bytesRecv] = '\0';
-						printf("[INFO] : SERVER RECEIVED %s FROM\n", msg);
-						
-						copyToCircularBuffer(node->data.serverToClientBuffer, auxBuff, node->data.serverToClientPos, bytesRecv);
-						node->data.bytesForClient += bytesRecv;
-
-						// comenzamos a ver si el server acepta escritura desde select
-						FD_SET(node->data.clientSock, &writeFdSet[BASE]);
-					}
-				}else{
-					//desactivo la lectura
-					FD_CLR(serverFd, &readFdSet[BASE]);
-				}
-				readyFds--;
-			}
-			
-			// Escribir al server
-			if (FD_ISSET(serverFd, &writeFdSet[TMP])) {
-				int bytesForServer = node->data.bytesForServer;
-				// si no hay nada para escribir, no escribo
-				if(bytesForServer > 0){
-					// enviamos el mensaje mediante un buffer lineal auxiliar 
-					char auxBuff[bytesForServer];
-					copyToLinearBuffer(auxBuff, node->data.clientToServerBuffer, node->data.clientToServerPos, bytesForServer);
-
-					int bytesSent = send(serverFd, auxBuff, bytesForServer, 0);
-
-					if (bytesSent <= 0) {
-						if (bytesSent == -1)
-							perror("[ERROR] : Error en send() - main() - server.c");
-						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
-						break;
-					} else {
-						node->data.bytesForServer -= bytesSent;
-						node->data.clientToServerPos = (bytesSent + node->data.clientToServerPos) % BUFFER_SIZE;
-						//activo la lectura del cliente por si se habia desactivado por buffer lleno
-						FD_SET(node->data.clientSock, &readFdSet[BASE]);
-						if(node->data.bytesForServer == 0)
-							FD_CLR(serverFd, &writeFdSet[BASE]);
-					}
-				}
-				readyFds--;
-			}
+			handleConnection(node, previous, readFdSet, writeFdSet, CLIENT);
+			handleConnection(node, previous, readFdSet, writeFdSet, SERVER);
 		}
 	}
 	// FREE y close de todo?
@@ -220,4 +100,105 @@ static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE
 	for (int j = 0; j < bytes; j++) {
 		target[j] = source[(startIndex + j) % BUFFER_SIZE];
 	}
+}
+
+void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
+					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], enum PEER peer) {
+	int operation[2], *bytes[2];
+	enum PEER toPeer;
+	int fd[2], pos[2];
+	char *buffer[2] = {0};
+
+	fd[CLIENT] = node->data.clientSock;
+	fd[SERVER] = node->data.serverSock;
+	bytes[CLIENT] = &node->data.bytesForServer;
+	bytes[SERVER] = &node->data.bytesForClient;
+	buffer[CLIENT] = node->data.clientToServerBuffer;
+	buffer[SERVER] = node->data.serverToClientBuffer;
+	pos[CLIENT] = node->data.clientToServerPos;
+	pos[SERVER] = node->data.serverToClientPos;
+
+	switch (peer) {
+	case CLIENT:
+		toPeer = SERVER;
+		break;
+	case SERVER:
+		toPeer = CLIENT;
+		break;
+	default:
+		// TODO: ERROR
+		break;
+	}
+
+	if (readFdSet != NULL && FD_ISSET(fd[peer], &readFdSet[TMP])) {
+		if (*bytes[peer] < BUFFER_SIZE) {
+			operation[READ] = handleOperation(node, prev, fd[peer], buffer[peer], pos[peer], BUFFER_SIZE - (*bytes[peer]), READ);
+			if (operation[READ] == -1) {
+				// CLOSE CONNECTION
+				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+			}
+			*bytes[peer] += operation[READ];
+			//activo la escritura hacia el otro punto
+			FD_SET(fd[toPeer], &writeFdSet[BASE]);
+		}else{
+			//desactivo la lectura desde este punto
+			FD_CLR(fd[peer], &readFdSet[BASE]);
+		}
+	}
+
+	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
+		if (*bytes[toPeer] > 0) {
+			operation[WRITE] = handleOperation(node, prev, fd[peer], buffer[toPeer], pos[toPeer], *bytes[toPeer], WRITE);
+			if (operation[WRITE] == -1) {
+				// CLOSE CONNECTION
+				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+			}
+			*bytes[toPeer] -= operation[WRITE];
+			pos[toPeer] = (operation[WRITE] + pos[toPeer]) % BUFFER_SIZE;
+			//activo la lectura del servidor por si se habia desactivado por buffer lleno
+			FD_SET(node->data.serverSock, &readFdSet[BASE]);
+			if (*bytes[toPeer] == 0)
+				FD_CLR(fd[peer], &writeFdSet[BASE]);
+		}
+	}
+}
+
+size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
+					   enum OPERATION operation) {
+	char auxBuff[BUFFER_SIZE] = {0};
+	size_t operationBytes;
+	switch (operation) {
+		case WRITE:
+			copyToLinearBuffer(auxBuff, buffer, pos, bytes);
+			operationBytes = send(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en send() - main() - server.c");
+
+				// TODO: check 0 error?
+				return -1;
+			}
+			break;
+		case READ:
+			operationBytes = recv(fd, auxBuff, bytes, 0);
+			if (operationBytes <= 0) {
+				if (operationBytes == -1)
+					perror("[ERROR] : Error en recv() - main() - server.c");
+				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+				return -1;
+			}
+			//debug
+			char msg[BUFFER_SIZE+1];
+			strncpy(msg, auxBuff, operationBytes);
+			msg[operationBytes] = '\0';
+			printf("[INFO] : RECEIVED %s FROM fd %d\n", msg, fd);
+			
+			copyToCircularBuffer(buffer, auxBuff, pos, operationBytes);
+			break;
+		default:
+			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
+			return -1;
+			break;
+	}
+	return operationBytes;
 }
