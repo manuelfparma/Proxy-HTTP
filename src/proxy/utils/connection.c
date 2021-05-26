@@ -9,15 +9,16 @@ extern ConnectionHeader connections;
 void setupConnectionResources(int clientSock, int serverSock) {
 	// asignacion de recursos para la conexion
 	ConnectionNode *new = malloc(sizeof(ConnectionNode));
+	new->next = NULL;
 	new->data.clientSock = clientSock;
 	new->data.serverSock = serverSock;
-	new->data.clientToServerBuffer = malloc(BUFFER_SIZE * sizeof(char));
-	new->data.serverToClientBuffer = malloc(BUFFER_SIZE * sizeof(char));
-	new->data.bytesForServer = 0;
-	new->data.bytesForClient = 0;
-	new->data.serverToClientPos = 0;
-	new->data.clientToServerPos = 0;
-	new->next = NULL;
+
+	new->data.clientToServerBuffer = malloc(sizeof(buffer));
+	new->data.clientToServerBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	new->data.serverToClientBuffer = malloc(sizeof(buffer));
+	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
+	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
 
 	//	busqueda para la insercion
 	ConnectionNode *last = connections.first;
@@ -38,6 +39,8 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 		serverFd = node->data.serverSock;
 	printf("[INFO] : Cliente en socket %d desconectado\n", clientFd);
 	printf("[INFO] : Server en socket %d desconectado\n", serverFd);
+	free(node->data.serverToClientBuffer->data);
+	free(node->data.clientToServerBuffer->data);
 	free(node->data.clientToServerBuffer);
 	free(node->data.serverToClientBuffer);
 

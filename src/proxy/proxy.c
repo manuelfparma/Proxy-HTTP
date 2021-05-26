@@ -60,8 +60,8 @@ int main(int argc, char **argv) {
 			readyFds--;
 
 			// aloco recursos para estructura de conexion cliente-servidor
-			setupConnectionResources(clientSock, serverSock);
 
+			setupConnectionResources(clientSock, serverSock);
 			// actualizacion de FD maximo para select
 			if (serverSock >= maxFd) maxFd = serverSock + 1;
 		}

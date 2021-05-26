@@ -23,15 +23,9 @@ int acceptConnection(int passiveSock);
 typedef enum { WRITE, READ } OPERATION;
 typedef enum { CLIENT, SERVER } PEER;
 
-static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
-
-static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
-
 int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
-					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
+					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
 
-size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
-					   OPERATION operation);
-
+size_t handleOperation(int fd, buffer *buffer, OPERATION operation);
 
 #endif

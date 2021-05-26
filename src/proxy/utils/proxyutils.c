@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <syslog.h>
 #include <unistd.h>
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
@@ -39,6 +39,12 @@ int setupPassiveSocket(const char *service) {
 			logger(INFO, "socket() failed, trying next address", STDOUT_FILENO);
 			continue; // Socket creation failed; try next address
 		}
+
+		if (setsockopt(passiveSock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
+			perror("setsockopt");
+			continue;
+		}
+
 		// Bind to All the address and set socket to listen
 		if ((bind(passiveSock, addr->ai_addr, addr->ai_addrlen) == 0) && (listen(passiveSock, MAX_PENDING) == 0)) {
 			// Print local address of socket
@@ -115,33 +121,18 @@ int setupClientSocket(const char *host, const char *service) {
 	return sock;
 }
 
-static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes) {
-	for (int j = 0; j < bytes; j++) {
-		target[(startIndex + j) % BUFFER_SIZE] = source[j];
-	}
-}
-
-static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes) {
-	for (int j = 0; j < bytes; j++) {
-		target[j] = source[(startIndex + j) % BUFFER_SIZE];
-	}
-}
-
 int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
 					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer) {
-	int operation[2], *bytes[2], returnValue = 0;
+	size_t resultBytes[2];
+	int returnValue = 0;
 	PEER toPeer;
-	int fd[2], *pos[2];
-	char *buffer[2] = {0};
+	int fd[2];
+	buffer *buffer[2];
 
 	fd[CLIENT] = node->data.clientSock;
 	fd[SERVER] = node->data.serverSock;
-	bytes[CLIENT] = &node->data.bytesForServer;
-	bytes[SERVER] = &node->data.bytesForClient;
 	buffer[CLIENT] = node->data.clientToServerBuffer;
 	buffer[SERVER] = node->data.serverToClientBuffer;
-	pos[CLIENT] = &node->data.clientToServerPos;
-	pos[SERVER] = &node->data.serverToClientPos;
 
 	switch (peer) {
 		case CLIENT:
@@ -154,38 +145,38 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			return -2;
 	}
 
+	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
+	// (siempre y cuando haya espacio en el buffer)
 	if (readFdSet != NULL && FD_ISSET(fd[peer], &readFdSet[TMP])) {
-		if (*bytes[peer] < BUFFER_SIZE) {
-			operation[READ] = handleOperation(node, prev, fd[peer], buffer[peer], *pos[peer], BUFFER_SIZE - (*bytes[peer]), READ);
-			if (operation[READ] == -1) {
-				// CLOSE CONNECTION
+		if (buffer_can_write(buffer[peer])) {
+			resultBytes[READ] = handleOperation(fd[peer], buffer[peer], READ);
+			if (resultBytes[READ] <= 0) { // EOF o ERROR
 				closeConnection(node, prev, writeFdSet, readFdSet);
 				return -1;
-			} else {
-				*bytes[peer] += operation[READ];
-				// activo la escritura hacia el otro punto
+			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer
 				FD_SET(fd[toPeer], &writeFdSet[BASE]);
 			}
 		} else {
-			// desactivo la lectura desde este punto
+			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd[peer], &readFdSet[BASE]);
 		}
 		returnValue++;
 	}
 
+	// Si un socket se activa para escritura, leo de la otra punta y
+	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
-		if (*bytes[toPeer] > 0) {
-			operation[WRITE] = handleOperation(node, prev, fd[peer], buffer[toPeer], *pos[toPeer], *bytes[toPeer], WRITE);
-			if (operation[WRITE] == -1) {
-				// CLOSE CONNECTION
+		if (buffer_can_read(buffer[toPeer])) {
+			resultBytes[WRITE] = handleOperation(fd[peer], buffer[toPeer], WRITE);
+			if (resultBytes[WRITE] <= 0) {
 				closeConnection(node, prev, writeFdSet, readFdSet);
 				return -1;
 			} else {
-				*bytes[toPeer] -= operation[WRITE];
-				*pos[toPeer] = (operation[WRITE] + *pos[toPeer]) % BUFFER_SIZE;
-				// activo la lectura del servidor por si se habia desactivado por buffer lleno
-				FD_SET(node->data.serverSock, &readFdSet[BASE]);
-				if (*bytes[toPeer] == 0) FD_CLR(fd[peer], &writeFdSet[BASE]);
+				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
+				FD_SET(fd[toPeer], &readFdSet[BASE]);
+
+				// si el buffer de salida se vacio, no nos interesa intentar escribir
+				if (!buffer_can_read(buffer[toPeer])) FD_CLR(fd[peer], &writeFdSet[BASE]);
 			}
 		}
 		returnValue++;
@@ -194,40 +185,35 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 	return returnValue;
 }
 
-size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
-					   OPERATION operation) {
-	char auxBuff[BUFFER_SIZE] = {0};
-	size_t operationBytes;
+// Leer o escribir a un socket
+size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
+	ssize_t resultBytes;
+	size_t bytesToSend;
 	switch (operation) {
-		case WRITE:
-			copyToLinearBuffer(auxBuff, buffer, pos, bytes);
-			operationBytes = send(fd, auxBuff, bytes, 0);
-			if (operationBytes <= 0) {
-				if (operationBytes == -1) perror("[ERROR] : Error en send() - main() - server.c");
+		case WRITE: // escribir a un socket
+			bytesToSend = buffer->write - buffer->read;
+			resultBytes = send(fd, buffer->data, bytesToSend, 0);
 
-				// TODO: check 0 error?
-				return -1;
-			}
+			if (resultBytes <= 0) {
+				if (resultBytes == -1) perror("[ERROR] : Error en send() - main() - server.c");
+				break;
+			} else
+				buffer_read_adv(buffer, resultBytes);
+
 			break;
-		case READ:
-			operationBytes = recv(fd, auxBuff, bytes, 0);
-			if (operationBytes <= 0) {
-				if (operationBytes == -1) perror("[ERROR] : Error en recv() - main() - server.c");
-				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
-				return -1;
-			}
-			// debug
-			char msg[BUFFER_SIZE + 1];
-			strncpy(msg, auxBuff, operationBytes);
-			msg[operationBytes] = '\0';
-			printf("[INFO] : RECEIVED %s FROM fd %d\n", msg, fd);
+		case READ: // leer de un socket
+			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
+			buffer_write_adv(buffer, resultBytes);
 
-			copyToCircularBuffer(buffer, auxBuff, pos + bytes, operationBytes);
+			if (resultBytes <= 0) {
+				if (resultBytes == -1) perror("[ERROR] : Error en recv() - main() - server.c");
+				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+			}
 			break;
 		default:
 			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
-			return -1;
-			break;
+			resultBytes = -1;
 	}
-	return operationBytes;
+
+	return resultBytes;
 }
