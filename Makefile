@@ -1,5 +1,6 @@
 CC=gcc
 FLAGS=-fsanitize=address -g
+#--std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough
 
 server: server.c
 	${CC} server.c serverutils.c logger.c -o server ${FLAGS}

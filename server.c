@@ -62,7 +62,6 @@ int main(int argc, char **argv) {
 			// abrir conexion
 			int activeSock = acceptConnection(passiveSock);
 			FD_SET(activeSock, &readFdSet[BASE]);
-			FD_SET(activeSock, &writeFdSet[BASE]);
 			readyFds--;
 
 			// asignacion de recursos para la conexion
@@ -70,6 +69,10 @@ int main(int argc, char **argv) {
 			connections[clients]->sockFd = activeSock;
 			connections[clients]->inputBuffer = malloc(BUFFER_SIZE * sizeof(char));
 			connections[clients]->outputBuffer = malloc(BUFFER_SIZE * sizeof(char));
+			connections[clients]->bytesToRead = 0;
+			connections[clients]->bytesToWrite = 0;
+			connections[clients]->writePos = 0;
+			connections[clients]->readPos = 0;
 			clients++;
 			// actualizacion de FD maximo para select
 			if (activeSock >= maxFd)
@@ -99,6 +102,7 @@ int main(int argc, char **argv) {
 					} else {
 						copyToBuffer(auxBuff, i, bytesRecv);
 						connections[i]->bytesToRead += bytesRecv;
+						FD_SET(fd, &writeFdSet[BASE]);
 					}
 				}
 				readyFds--;
@@ -114,10 +118,12 @@ int main(int argc, char **argv) {
 					closeConnection(i, writeFdSet, readFdSet);
 					break;
 				} else {
+					//connections[i]->bytesToWrite -= bytesSent;
+					//if(connections[i]->bytesToWrite == 0)
+						FD_CLR(fd, &writeFdSet[BASE]);
+					
 					readyFds--;
 				}
-			} else {
-				logger(INFO, "write not ready", STDERR_FILENO);
 			}
 		}
 	}
