@@ -4,7 +4,9 @@
 #include "connection.h"
 #include "proxyutils.h"
 
-void setupConnectionResources(int clientSock, int serverSock, ConnectionHeader *connections) {
+extern ConnectionHeader connections;
+
+void setupConnectionResources(int clientSock, int serverSock) {
 	// asignacion de recursos para la conexion
 	ConnectionNode *new = malloc(sizeof(ConnectionNode));
 	new->data.clientSock = clientSock;
@@ -18,20 +20,20 @@ void setupConnectionResources(int clientSock, int serverSock, ConnectionHeader *
 	new->next = NULL;
 
 	//	busqueda para la insercion
-	ConnectionNode *last = connections->first;
+	ConnectionNode *last = connections.first;
 	if(last != NULL) {
 		while(last->next != NULL) {
 			last = last->next;
 		}
 		last->next = new;
 	} else {
-		connections->first = new;
+		connections.first = new;
 	}
 
-	connections->clients++;
+	connections.clients++;
 }
 
-void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet, ConnectionHeader *connections) {
+void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet) {
 	int clientFd = node->data.clientSock,
 		serverFd = node->data.serverSock;
 	printf("[INFO] : Cliente en socket %d desconectado\n", clientFd);
@@ -41,7 +43,7 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 
 	if(previous == NULL) {
 		// Caso primer nodo
-		connections->first = node->next;
+		connections.first = node->next;
 	} else {
 		previous->next = node->next;
 	}
@@ -55,5 +57,5 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 	close(clientFd);
 	close(serverFd);
 
-	connections->clients--;
+	connections.clients--;
 }

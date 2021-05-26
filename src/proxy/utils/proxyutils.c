@@ -1,16 +1,14 @@
 #include "proxyutils.h"
 #include "../../logger.h"
+#include "connection.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #include <sys/types.h>
-#include "connection.h"
-
-ConnectionHeader connections = {0};
+#include <unistd.h>
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -28,9 +26,7 @@ int setupPassiveSocket(const char *service) {
 
 	struct addrinfo *servAddr; // List of server addresses
 	int rtnVal = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) {
-		logger(FATAL, "getaddrinfo() failed", STDERR_FILENO);
-	}
+	if (rtnVal != 0) { logger(FATAL, "getaddrinfo() failed", STDERR_FILENO); }
 
 	int passiveSock = -1;
 	// Intentamos ponernos a escuchar en alguno de los puertos asociados al servicio
@@ -89,18 +85,16 @@ int acceptConnection(int passiveSock) {
 
 int setupClientSocket(const char *host, const char *service) {
 	// Tell the system what kind(s) of address info we want
-	struct addrinfo addrCriteria;                   // Criteria for address match
+	struct addrinfo addrCriteria;					// Criteria for address match
 	memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
-	addrCriteria.ai_family = AF_UNSPEC;             // v4 or v6 is OK
-	addrCriteria.ai_socktype = SOCK_STREAM;         // Only streaming sockets
-	addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
+	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
+	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
+	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
 	int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) {
-		logger(ERROR, "getaddrinfo() failed", STDERR_FILENO);
-	}
+	if (rtnVal != 0) { logger(ERROR, "getaddrinfo() failed", STDERR_FILENO); }
 
 	int sock = -1;
 	for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
@@ -109,16 +103,15 @@ int setupClientSocket(const char *host, const char *service) {
 		if (sock >= 0) {
 			// Establish the connection to the echo server
 			if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
-                logger(INFO, "connect() failed, trying next address", STDOUT_FILENO);
+				logger(INFO, "connect() failed, trying next address", STDOUT_FILENO);
 				close(sock); // Socket connection failed; try next address
 				sock = -1;
 			}
 		} else
-            logger(INFO, "socket() failed, trying next address", STDOUT_FILENO);
-
+			logger(INFO, "socket() failed, trying next address", STDOUT_FILENO);
 	}
 
-	freeaddrinfo(servAddr); 
+	freeaddrinfo(servAddr);
 	return sock;
 }
 
@@ -134,9 +127,9 @@ static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE
 	}
 }
 
-void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
-					  fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer) {
-	int operation[2], *bytes[2];
+int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
+					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer) {
+	int operation[2], *bytes[2], returnValue = 0;
 	PEER toPeer;
 	int fd[2], *pos[2];
 	char *buffer[2] = {0};
@@ -151,15 +144,14 @@ void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdS
 	pos[SERVER] = &node->data.serverToClientPos;
 
 	switch (peer) {
-	case CLIENT:
-		toPeer = SERVER;
-		break;
-	case SERVER:
-		toPeer = CLIENT;
-		break;
-	default:
-		// TODO: ERROR
-		break;
+		case CLIENT:
+			toPeer = SERVER;
+			break;
+		case SERVER:
+			toPeer = CLIENT;
+			break;
+		default:
+			return -2;
 	}
 
 	if (readFdSet != NULL && FD_ISSET(fd[peer], &readFdSet[TMP])) {
@@ -167,15 +159,18 @@ void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdS
 			operation[READ] = handleOperation(node, prev, fd[peer], buffer[peer], *pos[peer], BUFFER_SIZE - (*bytes[peer]), READ);
 			if (operation[READ] == -1) {
 				// CLOSE CONNECTION
-				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+				closeConnection(node, prev, writeFdSet, readFdSet);
+				return -1;
+			} else {
+				*bytes[peer] += operation[READ];
+				// activo la escritura hacia el otro punto
+				FD_SET(fd[toPeer], &writeFdSet[BASE]);
 			}
-			*bytes[peer] += operation[READ];
-			//activo la escritura hacia el otro punto
-			FD_SET(fd[toPeer], &writeFdSet[BASE]);
-		}else{
-			//desactivo la lectura desde este punto
+		} else {
+			// desactivo la lectura desde este punto
 			FD_CLR(fd[peer], &readFdSet[BASE]);
 		}
+		returnValue++;
 	}
 
 	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
@@ -183,16 +178,20 @@ void handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdS
 			operation[WRITE] = handleOperation(node, prev, fd[peer], buffer[toPeer], *pos[toPeer], *bytes[toPeer], WRITE);
 			if (operation[WRITE] == -1) {
 				// CLOSE CONNECTION
-				closeConnection(node, prev, writeFdSet, readFdSet, &connections);
+				closeConnection(node, prev, writeFdSet, readFdSet);
+				return -1;
+			} else {
+				*bytes[toPeer] -= operation[WRITE];
+				*pos[toPeer] = (operation[WRITE] + *pos[toPeer]) % BUFFER_SIZE;
+				// activo la lectura del servidor por si se habia desactivado por buffer lleno
+				FD_SET(node->data.serverSock, &readFdSet[BASE]);
+				if (*bytes[toPeer] == 0) FD_CLR(fd[peer], &writeFdSet[BASE]);
 			}
-			*bytes[toPeer] -= operation[WRITE];
-			*pos[toPeer] = (operation[WRITE] + *pos[toPeer]) % BUFFER_SIZE;
-			//activo la lectura del servidor por si se habia desactivado por buffer lleno
-			FD_SET(node->data.serverSock, &readFdSet[BASE]);
-			if (*bytes[toPeer] == 0)
-				FD_CLR(fd[peer], &writeFdSet[BASE]);
 		}
+		returnValue++;
 	}
+
+	return returnValue;
 }
 
 size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char buffer[BUFFER_SIZE], int pos, size_t bytes,
@@ -204,8 +203,7 @@ size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char 
 			copyToLinearBuffer(auxBuff, buffer, pos, bytes);
 			operationBytes = send(fd, auxBuff, bytes, 0);
 			if (operationBytes <= 0) {
-				if (operationBytes == -1)
-					perror("[ERROR] : Error en send() - main() - server.c");
+				if (operationBytes == -1) perror("[ERROR] : Error en send() - main() - server.c");
 
 				// TODO: check 0 error?
 				return -1;
@@ -214,17 +212,16 @@ size_t handleOperation(ConnectionNode *node, ConnectionNode *prev, int fd, char 
 		case READ:
 			operationBytes = recv(fd, auxBuff, bytes, 0);
 			if (operationBytes <= 0) {
-				if (operationBytes == -1)
-					perror("[ERROR] : Error en recv() - main() - server.c");
+				if (operationBytes == -1) perror("[ERROR] : Error en recv() - main() - server.c");
 				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
 				return -1;
 			}
-			//debug
-			char msg[BUFFER_SIZE+1];
+			// debug
+			char msg[BUFFER_SIZE + 1];
 			strncpy(msg, auxBuff, operationBytes);
 			msg[operationBytes] = '\0';
 			printf("[INFO] : RECEIVED %s FROM fd %d\n", msg, fd);
-			
+
 			copyToCircularBuffer(buffer, auxBuff, pos + bytes, operationBytes);
 			break;
 		default:

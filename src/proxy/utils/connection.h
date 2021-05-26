@@ -24,8 +24,8 @@ typedef struct {
 	ConnectionNode *first;
 } ConnectionHeader;
 
-void setupConnectionResources(int clientSock, int serverSock, ConnectionHeader *connections);
+void setupConnectionResources(int clientSock, int serverSock);
 
-void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet, ConnectionHeader *connections);
+void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet);
 
 #endif

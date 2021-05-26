@@ -2,20 +2,14 @@
 #include "../logger.h"
 #include "utils/connection.h"
 #include "utils/proxyutils.h"
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <sys/select.h>
-#include <stddef.h>
+#include <unistd.h>
 
-extern ConnectionHeader connections;
-
+ConnectionHeader connections = {0};
 
 int main(int argc, char **argv) {
 	if (argc != 4) {
@@ -27,8 +21,7 @@ int main(int argc, char **argv) {
 	char *serverPort = argv[3];
 
 	int passiveSock = setupPassiveSocket(proxyPort);
-	if (passiveSock < 0)
-		logger(ERROR, "setupPassiveSocket() failed", STDERR_FILENO);
+	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed", STDERR_FILENO);
 
 	fd_set writeFdSet[FD_SET_ARRAY_SIZE];
 	fd_set readFdSet[FD_SET_ARRAY_SIZE];
@@ -48,7 +41,6 @@ int main(int argc, char **argv) {
 	// sigaddset(&sigMask, SIGINT);
 
 	while (1) {
-
 		readFdSet[TMP] = readFdSet[BASE];
 		writeFdSet[TMP] = writeFdSet[BASE];
 
@@ -60,23 +52,35 @@ int main(int argc, char **argv) {
 		}
 
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
-			// abrir conexiones con cliente y servidor
+			// abro conexiones con cliente y servidor
 			int clientSock = acceptConnection(passiveSock);
 			int serverSock = setupClientSocket(serverHost, serverPort);
 			FD_SET(clientSock, &readFdSet[BASE]);
 			FD_SET(serverSock, &readFdSet[BASE]);
 			readyFds--;
 
-			setupConnectionResources(clientSock, serverSock, &connections);
+			// aloco recursos para estructura de conexion cliente-servidor
+			setupConnectionResources(clientSock, serverSock);
 
 			// actualizacion de FD maximo para select
-			if (serverSock >= maxFd)
-				maxFd = serverSock + 1;
+			if (serverSock >= maxFd) maxFd = serverSock + 1;
 		}
 
-		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL; previous = node, node = node->next) {
-			handleConnection(node, previous, readFdSet, writeFdSet, CLIENT);
-			handleConnection(node, previous, readFdSet, writeFdSet, SERVER);
+		// itero por todas las conexiones cliente-servidor
+		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
+			 previous = node, node = node->next) {
+			int handle;
+			// manejo las conexiones mediante sockets de cliente y servidor
+			for (PEER peer = CLIENT; peer <= SERVER; peer++) {
+				handle = handleConnection(node, previous, readFdSet, writeFdSet, peer);
+
+				if (handle > -1) readyFds -= handle;
+				else if (handle == -1)
+					break; // Caso conexion cerrada
+				else if (handle == -2)
+					continue; // Caso argumento invalido
+			}
+			if (handle == -1) break;
 		}
 	}
 }
