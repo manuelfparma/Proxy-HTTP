@@ -26,7 +26,6 @@ int main(int argc, char **argv) {
 	int passiveSock = setupServerSocket(service);
 	if (passiveSock < 0)
 		logger(ERROR, "setupServerSocket() failed", STDERR_FILENO);
-	// https://gist.github.com/Alexey-N-Chernyshov/4634731
 
 	fd_set writeFdSet[FD_SET_ARRAY_SIZE];
 	fd_set readFdSet[FD_SET_ARRAY_SIZE];
@@ -128,42 +127,6 @@ int main(int argc, char **argv) {
 		}
 	}
 	// FREE y close de todo?
-}
-
-int handleClient(int clntSocket) {
-	char buffer[BUFFER_SIZE]; // Buffer for echo string
-	// Receive message from client
-	ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFFER_SIZE - 1, 0);
-	if (numBytesRcvd < 0) {
-		logger(ERROR, "recv() failed", STDERR_FILENO);
-		return -1; // TODO definir codigos de error
-	}
-	buffer[numBytesRcvd] = '\0';
-
-	// Send received string and receive again until end of stream
-	while (numBytesRcvd > 0) { // 0 indicates end of stream
-		printf("SERVER: received message: %s\n", buffer);
-		// Echo message back to client
-		ssize_t numBytesSent = send(clntSocket, buffer, numBytesRcvd, 0);
-		if (numBytesSent < 0) {
-			logger(ERROR, "send() failed", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		} else if (numBytesSent != numBytesRcvd) {
-			logger(ERROR, "send() sent unexpected number of bytes", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		}
-
-		// See if there is more data to receive
-		numBytesRcvd = recv(clntSocket, buffer, BUFFER_SIZE - 1, 0);
-		if (numBytesRcvd < 0) {
-			logger(ERROR, "recv() failed", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		}
-		buffer[numBytesRcvd] = '\0';
-	}
-
-	close(clntSocket);
-	return 0;
 }
 
 static void copyToBuffer(char auxBuff[BUFFER_SIZE], int fd, int bytesRecv) {
