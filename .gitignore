@@ -1,3 +1,15 @@
-.gdbinit
+# Executable
+httpd
+
+# VSCode
+.vscode/*
 *.json
-proxyServer
+
+# JetBrains
+.idea/*
+
+# GDB Config
+.gdbinit
+
+# Other
+*.dSYM
