@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/select.h>
 
 static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
 static void copyToLinearBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes);
@@ -45,14 +46,14 @@ int main(int argc, char **argv) {
 
 	sigset_t sigMask;
 	sigemptyset(&sigMask);
-	sigaddset(&sigMask, SIGINT);
+	// sigaddset(&sigMask, SIGINT);
 
 	while (1) {
 
 		readFdSet[TMP] = readFdSet[BASE];
 		writeFdSet[TMP] = writeFdSet[BASE];
 
-		readyFds = pselect(maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, NULL);
+		readyFds = pselect(maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
 		if (readyFds == -1) {
 			// FIX ERROR HANDLING
 			perror("[ERROR] : Error en pselect() - main() - server.c");
@@ -84,17 +85,21 @@ int main(int argc, char **argv) {
 				// si el buffer esta lleno, no puedo recibir el mensaje
 				if (bytesForServer < BUFFER_SIZE) {
 					// leemos en un buffer lineal auxiliar y lo copiamos al buffer circular global
-					char auxBuff[BUFFER_SIZE] = {0};
+					char auxBuff[BUFFER_SIZE - bytesForServer];
 					int bytesRecv = recv(clientFd, auxBuff, BUFFER_SIZE - bytesForServer, 0);
 					
 					if (bytesRecv <= 0) {
 						if (bytesRecv == -1)
 							perror("[ERROR] : Error en recv() - main() - server.c");
-							
+						
 						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
 						break;
 					} else {
-						printf("[INFO] : SERVER RECEIVED %s\n", auxBuff);
+						//debug
+						char msg[bytesRecv+1];
+						strncpy(msg, auxBuff, bytesRecv);
+						msg[bytesRecv] = '\0';
+						printf("[INFO] : SERVER RECEIVED %s FROM\n", msg);
 						
 						copyToCircularBuffer(node->data.clientToServerBuffer, auxBuff, node->data.clientToServerPos, bytesRecv);
 						node->data.bytesForServer += bytesRecv;
@@ -102,6 +107,9 @@ int main(int argc, char **argv) {
 						// comenzamos a ver si el server acepta escritura desde select
 						FD_SET(node->data.serverSock, &writeFdSet[BASE]);
 					}
+				}else{
+					//desactivo la lectura
+					FD_CLR(clientFd, &readFdSet[BASE]);
 				}
 				readyFds--;
 			}
@@ -112,7 +120,7 @@ int main(int argc, char **argv) {
 				// si no hay nada para escribir, no escribo
 				if(bytesForClient > 0){
 					// enviamos el mensaje mediante un buffer lineal auxiliar 
-					char auxBuff[BUFFER_SIZE] = {0};
+					char auxBuff[bytesForClient];
 					copyToLinearBuffer(auxBuff, node->data.serverToClientBuffer, node->data.serverToClientPos, bytesForClient);
 
 					int bytesSent = send(clientFd, auxBuff, bytesForClient, 0);
@@ -125,6 +133,9 @@ int main(int argc, char **argv) {
 						break;
 					} else {
 						node->data.bytesForClient -= bytesSent;
+						node->data.serverToClientPos = (bytesSent + node->data.serverToClientPos) % BUFFER_SIZE;
+						//activo la lectura del servidor por si se habia desactivado por buffer lleno
+						FD_SET(node->data.serverSock, &readFdSet[BASE]);
 						if(node->data.bytesForClient == 0)
 							FD_CLR(clientFd, &writeFdSet[BASE]);
 					}
@@ -139,7 +150,7 @@ int main(int argc, char **argv) {
 				// si el buffer esta lleno, no puedo recibir el mensaje
 				if (bytesForClient < BUFFER_SIZE) {
 					// leemos en un buffer lineal auxiliar y lo copiamos al buffer circular global
-					char auxBuff[BUFFER_SIZE] = {0};
+					char auxBuff[BUFFER_SIZE - bytesForClient];
 					int bytesRecv = recv(serverFd, auxBuff, BUFFER_SIZE - bytesForClient, 0);
 					
 					if (bytesRecv <= 0) {
@@ -148,7 +159,11 @@ int main(int argc, char **argv) {
 						closeConnection(node, previous, writeFdSet, readFdSet, &connections);
 						break;
 					} else {
-						printf("[INFO] : SERVER RECEIVED %s\n", auxBuff);
+						//debug
+						char msg[bytesRecv+1];
+						strncpy(msg, auxBuff, bytesRecv);
+						msg[bytesRecv] = '\0';
+						printf("[INFO] : SERVER RECEIVED %s FROM\n", msg);
 						
 						copyToCircularBuffer(node->data.serverToClientBuffer, auxBuff, node->data.serverToClientPos, bytesRecv);
 						node->data.bytesForClient += bytesRecv;
@@ -156,6 +171,9 @@ int main(int argc, char **argv) {
 						// comenzamos a ver si el server acepta escritura desde select
 						FD_SET(node->data.clientSock, &writeFdSet[BASE]);
 					}
+				}else{
+					//desactivo la lectura
+					FD_CLR(serverFd, &readFdSet[BASE]);
 				}
 				readyFds--;
 			}
@@ -166,7 +184,7 @@ int main(int argc, char **argv) {
 				// si no hay nada para escribir, no escribo
 				if(bytesForServer > 0){
 					// enviamos el mensaje mediante un buffer lineal auxiliar 
-					char auxBuff[BUFFER_SIZE] = {0};
+					char auxBuff[bytesForServer];
 					copyToLinearBuffer(auxBuff, node->data.clientToServerBuffer, node->data.clientToServerPos, bytesForServer);
 
 					int bytesSent = send(serverFd, auxBuff, bytesForServer, 0);
@@ -178,6 +196,9 @@ int main(int argc, char **argv) {
 						break;
 					} else {
 						node->data.bytesForServer -= bytesSent;
+						node->data.clientToServerPos = (bytesSent + node->data.clientToServerPos) % BUFFER_SIZE;
+						//activo la lectura del cliente por si se habia desactivado por buffer lleno
+						FD_SET(node->data.clientSock, &readFdSet[BASE]);
 						if(node->data.bytesForServer == 0)
 							FD_CLR(serverFd, &writeFdSet[BASE]);
 					}
@@ -187,42 +208,6 @@ int main(int argc, char **argv) {
 		}
 	}
 	// FREE y close de todo?
-}
-
-int handleClient(int clntSocket) {
-	char buffer[BUFFER_SIZE]; // Buffer for echo string
-	// Receive message from client
-	ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFFER_SIZE - 1, 0);
-	if (numBytesRcvd < 0) {
-		logger(ERROR, "recv() failed", STDERR_FILENO);
-		return -1; // TODO definir codigos de error
-	}
-	buffer[numBytesRcvd] = '\0';
-
-	// Send received string and receive again until end of stream
-	while (numBytesRcvd > 0) { // 0 indicates end of stream
-		printf("SERVER: received message: %s\n", buffer);
-		// Echo message back to client
-		ssize_t numBytesSent = send(clntSocket, buffer, numBytesRcvd, 0);
-		if (numBytesSent < 0) {
-			logger(ERROR, "send() failed", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		} else if (numBytesSent != numBytesRcvd) {
-			logger(ERROR, "send() sent unexpected number of bytes", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		}
-
-		// See if there is more data to receive
-		numBytesRcvd = recv(clntSocket, buffer, BUFFER_SIZE - 1, 0);
-		if (numBytesRcvd < 0) {
-			logger(ERROR, "recv() failed", STDERR_FILENO);
-			return -1; // TODO definir codigos de error
-		}
-		buffer[numBytesRcvd] = '\0';
-	}
-
-	close(clntSocket);
-	return 0;
 }
 
 static void copyToCircularBuffer(char target[BUFFER_SIZE], char source[BUFFER_SIZE], int startIndex, int bytes) {
