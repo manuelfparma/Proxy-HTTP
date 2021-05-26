@@ -1,28 +1,19 @@
 CC=gcc
-FLAGS=-g
-FSANITIZE=-fsanitize=address
+FLAGS=-g 
 #--std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough
+FSANITIZE=-fsanitize=address
 
-server: server.c
-	${CC} server.c serverutils.c logger.c -o server ${FLAGS}
 
-clientfs: client.c
-	${CC} client.c clientutils.c logger.c -o client ${FLAGS} ${FSANITIZE}
+SOURCE=$(wildcard src/*.c)
+PROXY_SOURCE=$(wildcard src/proxy/*.c)
+PROXY_UTILS_SOURCE=$(wildcard src/proxy/utils/*.c)
 
-serverfs: server.c
-	${CC} server.c serverutils.c logger.c -o server ${FLAGS} ${FSANITIZE}
+all: proxy 
 
-client: client.c
-	${CC} client.c clientutils.c logger.c -o client ${FLAGS}
-
-#proxy: proxy.c
-#	${CC} proxy.c clientutils.c serverutils.c -o proxy
-
-all: server client 
-
-allfs: serverfs clientfs
+proxy: ${PROXY_SOURCE} ${PROXY_UTILS_SOURCE} ${SOURCE}
+	${CC} ${PROXY_SOURCE} ${PROXY_UTILS_SOURCE} ${SOURCE} -o proxyServer ${FLAGS} ${FSANITIZE}
 
 clean: 
-	rm -r server client
+	rm -rf proxyServer
 
-.PHONY: clean all
+.PHONY: all proxy clean
