@@ -5,11 +5,14 @@ typedef enum {DEBUG = 0, INFO, ERROR, FATAL} LEVEL;
 
 char * getLevelDescription(LEVEL level);
 
-#define logger(level, fmt, ...)    	{	        																				\
-    fprintf(stderr, "%s : In file %s in %s() at line %d. ", getLevelDescription(level), __FILE__ , __FUNCTION__, __LINE__); 	\
-    fprintf(stderr, (fmt), ##__VA_ARGS__);  																					\
-    fprintf(stderr, "\n");                                 																		\
-    if(level == FATAL) exit(EXIT_FAILURE);											                                			\
+#define logger(level, fmt, ...)    	{ 																\
+	char * description = getLevelDescription(level);     											\
+	fprintf(stderr, "%s : ", description);               											\
+	fprintf(stderr, (fmt), ##__VA_ARGS__);  														\
+    if(level != INFO)                                             									\
+			fprintf(stderr, " at %s(%s:%d)", __FUNCTION__,  __FILE__, __LINE__); 					\
+    fprintf(stderr, "\n");                                 											\
+    if(level == FATAL) exit(EXIT_FAILURE);											                \
 	}
 
 #define loggerPeer(peer, ftm, ...)		{ 	\

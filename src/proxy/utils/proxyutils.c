@@ -5,10 +5,10 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <stdlib.h>
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -92,7 +92,6 @@ int setupClientSocket(const char *host, const char *service) {
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
-
 
 	int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
 	if (rtnVal != 0) { logger(ERROR, "getaddrinfo() failed"); }
