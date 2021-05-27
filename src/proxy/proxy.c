@@ -45,13 +45,13 @@ int main(int argc, char **argv) {
 	connections.maxFd = passiveSock + 1;
 
 	while (1) {
+		// resetear fd_set
 		readFdSet[TMP] = readFdSet[BASE];
 		writeFdSet[TMP] = writeFdSet[BASE];
 
 		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
 		if (readyFds == -1) {
-			// FIX ERROR HANDLING
-			perror("[ERROR] : Error en pselect() - main() - server.c");
+			logger(ERROR, "pselect(): %s", strerror(errno));
 			continue;
 		}
 
@@ -74,15 +74,14 @@ int main(int argc, char **argv) {
 				args->host = hostCopy;
 				args->service = serviceCopy;
 				args->connection = newConnection;
-				int ret = pthread_create(&thread, NULL, setupClientSocket, (void *)args);
 
+				int ret = pthread_create(&thread, NULL, setupClientSocket, (void *)args);
 				if (ret != 0) {
 					logger(ERROR, "pthread_create(): %s", strerror(errno));
 					close(clientSock);
 					free(newConnection);
 				} else {
 					FD_SET(clientSock, &readFdSet[BASE]);
-
 					addToConnections(newConnection);
 					if (clientSock >= connections.maxFd) connections.maxFd = clientSock + 1;
 				}
@@ -96,6 +95,7 @@ int main(int argc, char **argv) {
 			int handle;
 			// manejo las conexiones mediante sockets de cliente y servidor
 			for (PEER peer = CLIENT; peer <= SERVER; peer++) {
+
 				handle = handleConnection(node, previous, readFdSet, writeFdSet, peer);
 
 				if (handle > -1) readyFds -= handle;

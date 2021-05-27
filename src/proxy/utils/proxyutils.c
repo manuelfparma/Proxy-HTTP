@@ -30,7 +30,7 @@ int setupPassiveSocket(const char *service) {
 
 	struct addrinfo *servAddr; // List of server addresses
 	int rtnVal = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) { logger(FATAL, "getaddrinfo() failed"); }
+	if (rtnVal != 0) logger(FATAL, "getaddrinfo(): %s", strerror(errno));
 
 	int passiveSock = -1;
 	// Intentamos ponernos a escuchar en alguno de los puertos asociados al servicio
@@ -45,7 +45,12 @@ int setupPassiveSocket(const char *service) {
 		}
 
 		if (setsockopt(passiveSock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-			perror("setsockopt");
+			logger(INFO, "setsockopt(): %s", strerror(errno));
+			continue;
+		}
+		// Non blocking socket
+		if(fcntl(passiveSock, F_SETFL, O_NONBLOCK) == -1){
+			logger(INFO, "fcntl(): %s", strerror(errno));
 			continue;
 		}
 		// Bind to All the address and set socket to listen
@@ -62,8 +67,6 @@ int setupPassiveSocket(const char *service) {
 			passiveSock = -1;
 		}
 	}
-	// Non blocking socket
-	fcntl(passiveSock, F_SETFL, O_NONBLOCK);
 
 	freeaddrinfo(servAddr);
 	return passiveSock;
@@ -83,7 +86,6 @@ int acceptConnection(int passiveSock) {
 	fcntl(clntSock, F_SETFL, O_NONBLOCK);
 	// clntSock is connected to a client!
 	logger(INFO, "Handling client with socket fd: %d", clntSock);
-
 	return clntSock;
 }
 
@@ -108,16 +110,15 @@ void *setupClientSocket(void *args) {
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
 	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
-
 	if (addrInfoResult != 0) {
-		logger(ERROR, "getaddrinfo() failed");
+		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
 		*sock = -1;
+		free(host);
+		free(service);
+		free(threadArgs);
+		freeaddrinfo(servAddr);
 		return NULL;
 	}
-
-	free(host);
-	free(service);
-	free(threadArgs);
 
 	for (struct addrinfo *addr = servAddr; addr != NULL && *sock == -1; addr = addr->ai_next) {
 		// Create a reliable, stream socket using TCP
@@ -125,12 +126,12 @@ void *setupClientSocket(void *args) {
 		if (*sock >= 0) {
 			// Establish the connection to the echo server
 			if (connect(*sock, addr->ai_addr, addr->ai_addrlen) != 0) {
-				logger(INFO, "connect() failed, trying next address");
+				logger(INFO, "Connect() failed, trying next address");
 				close(*sock); // Socket connection failed; try next address
 				*sock = -1;
 			}
 			else
-				logger(INFO, "Socket connected");
+				logger(INFO, "Socket with fd %d connected", *sock);
 		}
 		else
 			logger(INFO, "Socket() failed, trying next address");
@@ -138,19 +139,24 @@ void *setupClientSocket(void *args) {
 
 	}
 
+	loggerPeer(SERVER, "Connected to %s at %s port", host, service);
+	free(host);
+	free(service);
+	free(threadArgs);
 	freeaddrinfo(servAddr);
 
+	// seteamos el cliente como listo
 	node->data.addrInfoState = ADDR_INFO_READY;
 
 	return (void *)sock;
 }
 
+// derivada cada operacion en funciones auxiliares, tomando un lado (peer) en particular
 int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
 					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer) {
 	size_t resultBytes[2];
-	int returnValue = 0;
+	int returnValue = 0, fd[2];
 	PEER toPeer;
-	int fd[2];
 	buffer *buffer[2];
 
 	fd[CLIENT] = node->data.clientSock;
@@ -196,8 +202,9 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 		}
 		if (buffer_can_write(buffer[peer])) {
 			resultBytes[READ] = handleOperation(fd[peer], buffer[peer], READ);
-			if (resultBytes[READ] <= 0) { // EOF o ERROR
+			if (resultBytes[READ] <= 0) {
 				closeConnection(node, prev, writeFdSet, readFdSet);
+				logger(INFO, "handleOperation() READ with no bytes in fd: %d", fd[peer]);
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				if(fd[toPeer] != -1) {
@@ -218,6 +225,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			resultBytes[WRITE] = handleOperation(fd[peer], buffer[toPeer], WRITE);
 			if (resultBytes[WRITE] <= 0) {
 				closeConnection(node, prev, writeFdSet, readFdSet);
+				logger(INFO, "handleOperation() WRITE with no bytes in fd: %d", fd[toPeer]);
 				return -1;
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
@@ -241,12 +249,11 @@ size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
 			resultBytes = send(fd, buffer->read, bytesToSend, 0);
-
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) perror("[ERROR] : Error en send() - main() - server.c");
+				if (resultBytes == -1) logger(ERROR, "send(): %s", strerror(errno));
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
-				loggerPeer(SERVER, "Sended on fd: %d", fd);
+				logger(INFO, "Sended info on fd: %d", fd);
 				// loggerPeer(SERVER, "Sended %s to fd %d", buffer->read, fd);
 				buffer_read_adv(buffer, resultBytes);
 			}
@@ -254,18 +261,17 @@ size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) logger(ERROR, "recv() failed");
-				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+				if (resultBytes == -1) logger(ERROR, "recv(): %s", strerror(errno));
+				logger(INFO, "Socket with fd %d: %s", fd, strerror(errno));
 			}else{
 				// TODO pasar a arreglo auxiliar (con strncpy)
-				loggerPeer(SERVER, "Received info on fd: %d", fd);
+				logger(INFO, "Received info on fd: %d", fd);
 				// loggerPeer(SERVER, "Received %s from fd %d", buffer->write, fd)
 				buffer_write_adv(buffer, resultBytes);
 			}
-
 			break;
 		default:
-			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
+			logger(ERROR, "Unknown operation on socket with fd: %d", fd);
 			resultBytes = -1;
 	}
 

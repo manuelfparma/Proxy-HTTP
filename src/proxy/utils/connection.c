@@ -52,8 +52,8 @@ void addToConnections(ConnectionNode *node) {
 
 void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet) {
 	int clientFd = node->data.clientSock, serverFd = node->data.serverSock;
-	printf("[INFO] : Cliente en socket %d desconectado\n", clientFd);
-	printf("[INFO] : Server en socket %d desconectado\n", serverFd);
+	loggerPeer(CLIENT, "Socket with fd: %d disconnected", clientFd);
+	loggerPeer(SERVER, "Socket with fd: %d disconnected", serverFd);
 	free(node->data.serverToClientBuffer->data);
 	free(node->data.clientToServerBuffer->data);
 	free(node->data.clientToServerBuffer);
