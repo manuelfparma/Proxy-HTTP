@@ -14,9 +14,15 @@
 #include "connection.h"
 #include <stddef.h>
 
+typedef struct {
+	char *host;
+	char *service;
+	ConnectionNode *connection;
+} ThreadArgs;
+
 int setupPassiveSocket(const char *service);
 
-int setupClientSocket(const char *host, const char *service);
+void *setupClientSocket(void *args);
 
 int acceptConnection(int passiveSock);
 

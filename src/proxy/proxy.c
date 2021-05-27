@@ -2,10 +2,13 @@
 #include "../logger.h"
 #include "utils/connection.h"
 #include "utils/proxyutils.h"
+#include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
 
@@ -33,18 +36,19 @@ int main(int argc, char **argv) {
 
 	FD_SET(passiveSock, &readFdSet[BASE]);
 
-	int maxFd = passiveSock + 1;
 	int readyFds;
 
 	sigset_t sigMask;
 	sigemptyset(&sigMask);
 	// sigaddset(&sigMask, SIGINT);
 
+	connections.maxFd = passiveSock + 1;
+
 	while (1) {
 		readFdSet[TMP] = readFdSet[BASE];
 		writeFdSet[TMP] = writeFdSet[BASE];
 
-		readyFds = pselect(maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
+		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
 		if (readyFds == -1) {
 			// FIX ERROR HANDLING
 			perror("[ERROR] : Error en pselect() - main() - server.c");
@@ -54,16 +58,35 @@ int main(int argc, char **argv) {
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// abro conexiones con cliente y servidor
 			int clientSock = acceptConnection(passiveSock);
-			int serverSock = setupClientSocket(serverHost, serverPort);
-			FD_SET(clientSock, &readFdSet[BASE]);
-			FD_SET(serverSock, &readFdSet[BASE]);
+			if(clientSock > -1){
+				// aloco recursos para estructura de conexion cliente-servidor
+				// el socket del servidor se crea asincronicamente, por lo cual arranca en -1 inicialmente
+				pthread_t thread;
+				int serverSock = -1;
+				ConnectionNode *newConnection = setupConnectionResources(clientSock, serverSock);
+				ThreadArgs *args = malloc(sizeof(ThreadArgs));
+				char *hostCopy = malloc(strlen(serverHost) * sizeof(char) + 1);
+				char *serviceCopy = malloc(strlen(serverPort) * sizeof(char) + 1);
+				strcpy(hostCopy, serverHost);
+				strcpy(serviceCopy, serverPort);
+				args->host = hostCopy;
+				args->service = serviceCopy;
+				args->connection = newConnection;
+
+				int ret = pthread_create(&thread, NULL, setupClientSocket, (void *)args);
+
+				if (ret != 0) {
+					logger(ERROR, "pthread_create(): %s", strerror(errno));
+					close(clientSock);
+					free(newConnection);
+				} else {
+					FD_SET(clientSock, &readFdSet[BASE]);
+
+					addToConnections(newConnection);
+					if (clientSock >= connections.maxFd) connections.maxFd = clientSock + 1;
+				}
+			}
 			readyFds--;
-
-			// aloco recursos para estructura de conexion cliente-servidor
-
-			setupConnectionResources(clientSock, serverSock);
-			// actualizacion de FD maximo para select
-			if (serverSock >= maxFd) maxFd = serverSock + 1;
 		}
 
 		// itero por todas las conexiones cliente-servidor

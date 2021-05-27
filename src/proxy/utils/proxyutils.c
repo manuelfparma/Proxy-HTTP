@@ -2,13 +2,17 @@
 #include "../../logger.h"
 #include "connection.h"
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+extern ConnectionHeader connections;
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -72,7 +76,7 @@ int acceptConnection(int passiveSock) {
 	// Wait for a client to connect
 	int clntSock = accept(passiveSock, (struct sockaddr *)&clntAddr, &clntAddrLen);
 	if (clntSock < 0) {
-		logger(FATAL, "accept() failed");
+		logger(ERROR, "accept(): %s", strerror(errno));
 		return -1;
 	}
 	// Non blocking
@@ -83,36 +87,56 @@ int acceptConnection(int passiveSock) {
 	return clntSock;
 }
 
-int setupClientSocket(const char *host, const char *service) {
+void *setupClientSocket(void *args) {
+	ThreadArgs *threadArgs = (ThreadArgs *)args;
+	char *host = threadArgs->host;
+	char *service = threadArgs->service;
+	ConnectionNode *node = threadArgs->connection;
+	int *sock = &node->data.serverSock;
+
+	// asigno al nodo el ID del thread
+	node->data.addrInfoThread = pthread_self();
+
 	// Tell the system what kind(s) of address info we want
 	struct addrinfo addrCriteria;					// Criteria for address match
 	memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
 	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
 	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
+
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
+	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
 
-	int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) { logger(ERROR, "getaddrinfo() failed"); }
+	if (addrInfoResult != 0) {
+		logger(ERROR, "getaddrinfo() failed");
+		*sock = -1;
+		return NULL;
+	}
 
-	int sock = -1;
-	for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+	free(host);
+	free(service);
+	free(threadArgs);
+
+	node->data.addrInfoState = ADDR_INFO_READY;
+
+	for (struct addrinfo *addr = servAddr; addr != NULL && *sock == -1; addr = addr->ai_next) {
 		// Create a reliable, stream socket using TCP
-		sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (sock >= 0) {
+		*sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+		if (*sock < 0) {
 			// Establish the connection to the echo server
-			if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
+			if (connect(*sock, addr->ai_addr, addr->ai_addrlen) != 0) {
 				logger(INFO, "connect() failed, trying next address");
-				close(sock); // Socket connection failed; try next address
-				sock = -1;
+				close(*sock); // Socket connection failed; try next address
+				*sock = -1;
 			}
-		} else
 			logger(INFO, "socket() failed, trying next address");
+		}
 	}
 
 	freeaddrinfo(servAddr);
-	return sock;
+
+	return (void *)sock;
 }
 
 int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
@@ -125,6 +149,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 	fd[CLIENT] = node->data.clientSock;
 	fd[SERVER] = node->data.serverSock;
+
 	buffer[CLIENT] = node->data.clientToServerBuffer;
 	buffer[SERVER] = node->data.serverToClientBuffer;
 
@@ -142,6 +167,18 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (readFdSet != NULL && FD_ISSET(fd[peer], &readFdSet[TMP])) {
+
+		if (node->data.addrInfoState == ADDR_INFO_READY && node->data.serverSock != -1) {
+			// FIXME: verificar si la quedo el dns
+			int ans = pthread_cancel(node->data.addrInfoThread);
+			if (ans != 0) {
+				logger(ERROR, "pthread_cancel(): %s", strerror(errno));
+			} else {
+				// aca le cambio el estado
+				node->data.addrInfoState = ADDR_INFO_SET;
+				if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock;
+			}
+		}
 		if (buffer_can_write(buffer[peer])) {
 			resultBytes[READ] = handleOperation(fd[peer], buffer[peer], READ);
 			if (resultBytes[READ] <= 0) { // EOF o ERROR
