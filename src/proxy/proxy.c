@@ -16,9 +16,9 @@ ConnectionHeader connections = {0};
 
 int main(int argc, char **argv) {
 	if (argc != 4) {
-		fprintf(stderr, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]);
-		exit(EXIT_FAILURE);
+		logger(FATAL, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]);
 	}
+
 	char *proxyPort = argv[1];
 	char *serverHost = argv[2];
 	char *serverPort = argv[3];
@@ -60,10 +60,12 @@ int main(int argc, char **argv) {
 			int clientSock = acceptConnection(passiveSock);
 			if(clientSock > -1){
 				// aloco recursos para estructura de conexion cliente-servidor
-				// el socket del servidor se crea asincronicamente, por lo cual arranca en -1 inicialmente
+				// el socket del servidor (activo) se crea asincronicamente, por lo cual arranca en -1 inicialmente
 				pthread_t thread;
 				int serverSock = -1;
 				ConnectionNode *newConnection = setupConnectionResources(clientSock, serverSock);
+
+				// seteo los argumentos necesarios para conectarse al server
 				ThreadArgs *args = malloc(sizeof(ThreadArgs));
 				char *hostCopy = malloc(strlen(serverHost) * sizeof(char) + 1);
 				char *serviceCopy = malloc(strlen(serverPort) * sizeof(char) + 1);
@@ -72,7 +74,6 @@ int main(int argc, char **argv) {
 				args->host = hostCopy;
 				args->service = serviceCopy;
 				args->connection = newConnection;
-
 				int ret = pthread_create(&thread, NULL, setupClientSocket, (void *)args);
 
 				if (ret != 0) {

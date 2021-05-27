@@ -87,6 +87,7 @@ int acceptConnection(int passiveSock) {
 	return clntSock;
 }
 
+// function that setups active socket to connect to server peer
 void *setupClientSocket(void *args) {
 	ThreadArgs *threadArgs = (ThreadArgs *)args;
 	char *host = threadArgs->host;
@@ -118,23 +119,28 @@ void *setupClientSocket(void *args) {
 	free(service);
 	free(threadArgs);
 
-	node->data.addrInfoState = ADDR_INFO_READY;
-
 	for (struct addrinfo *addr = servAddr; addr != NULL && *sock == -1; addr = addr->ai_next) {
 		// Create a reliable, stream socket using TCP
 		*sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (*sock < 0) {
+		if (*sock >= 0) {
 			// Establish the connection to the echo server
 			if (connect(*sock, addr->ai_addr, addr->ai_addrlen) != 0) {
 				logger(INFO, "connect() failed, trying next address");
 				close(*sock); // Socket connection failed; try next address
 				*sock = -1;
 			}
-			logger(INFO, "socket() failed, trying next address");
+			else
+				logger(INFO, "Socket connected");
 		}
+		else
+			logger(INFO, "Socket() failed, trying next address");
+
+
 	}
 
 	freeaddrinfo(servAddr);
+
+	node->data.addrInfoState = ADDR_INFO_READY;
 
 	return (void *)sock;
 }
@@ -170,13 +176,22 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 		if (node->data.addrInfoState == ADDR_INFO_READY && node->data.serverSock != -1) {
 			// FIXME: verificar si la quedo el dns
-			int ans = pthread_cancel(node->data.addrInfoThread);
+			int ans = pthread_join(node->data.addrInfoThread, NULL);
 			if (ans != 0) {
-				logger(ERROR, "pthread_cancel(): %s", strerror(errno));
+				logger(ERROR, "pthread_join(): %s", strerror(errno));
 			} else {
 				// aca le cambio el estado
 				node->data.addrInfoState = ADDR_INFO_SET;
-				if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock;
+				if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
+
+				// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
+				// agrego como escritura el fd activo
+				if(buffer_can_read(buffer[peer])) {
+					FD_SET(fd[toPeer], &writeFdSet[BASE]);
+				}
+
+				// en caso que el server mande un primer mensaje, quiero leerlo
+				FD_SET(fd[toPeer], &readFdSet[BASE]);
 			}
 		}
 		if (buffer_can_write(buffer[peer])) {
@@ -184,8 +199,10 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			if (resultBytes[READ] <= 0) { // EOF o ERROR
 				closeConnection(node, prev, writeFdSet, readFdSet);
 				return -1;
-			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer
-				FD_SET(fd[toPeer], &writeFdSet[BASE]);
+			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
+				if(fd[toPeer] != -1) {
+					FD_SET(fd[toPeer], &writeFdSet[BASE]);
+				}
 			}
 		} else {
 			// si el buffer esta lleno, dejo de leer del socket
@@ -223,23 +240,29 @@ size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 	switch (operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
-			resultBytes = send(fd, buffer->data, bytesToSend, 0);
+			resultBytes = send(fd, buffer->read, bytesToSend, 0);
 
 			if (resultBytes <= 0) {
 				if (resultBytes == -1) perror("[ERROR] : Error en send() - main() - server.c");
-				break;
-			} else
+			} else {
+				// TODO pasar a arreglo auxiliar (con strncpy)
+				loggerPeer(SERVER, "Sended on fd: %d", fd);
+				// loggerPeer(SERVER, "Sended %s to fd %d", buffer->read, fd);
 				buffer_read_adv(buffer, resultBytes);
-
+			}
 			break;
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
-			buffer_write_adv(buffer, resultBytes);
-
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) perror("[ERROR] : Error en recv() - main() - server.c");
+				if (resultBytes == -1) logger(ERROR, "recv() failed");
 				printf("[INFO] : Socket with fd %d closed connection prematurely\n", fd);
+			}else{
+				// TODO pasar a arreglo auxiliar (con strncpy)
+				loggerPeer(SERVER, "Received info on fd: %d", fd);
+				// loggerPeer(SERVER, "Received %s from fd %d", buffer->write, fd)
+				buffer_write_adv(buffer, resultBytes);
 			}
+
 			break;
 		default:
 			printf("[ERROR] : Unknown operation on Socket with fd %d\n", fd);
