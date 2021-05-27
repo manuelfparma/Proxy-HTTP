@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <syslog.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 // static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -26,7 +26,7 @@ int setupPassiveSocket(const char *service) {
 
 	struct addrinfo *servAddr; // List of server addresses
 	int rtnVal = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) { logger(FATAL, "getaddrinfo() failed", STDERR_FILENO); }
+	if (rtnVal != 0) { logger(FATAL, "getaddrinfo() failed"); }
 
 	int passiveSock = -1;
 	// Intentamos ponernos a escuchar en alguno de los puertos asociados al servicio
@@ -36,7 +36,7 @@ int setupPassiveSocket(const char *service) {
 		// Create a TCP socket
 		passiveSock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		if (passiveSock < 0) {
-			logger(INFO, "socket() failed, trying next address", STDOUT_FILENO);
+			logger(INFO, "socket() failed, trying next address");
 			continue; // Socket creation failed; try next address
 		}
 
@@ -44,27 +44,24 @@ int setupPassiveSocket(const char *service) {
 			perror("setsockopt");
 			continue;
 		}
-
 		// Bind to All the address and set socket to listen
 		if ((bind(passiveSock, addr->ai_addr, addr->ai_addrlen) == 0) && (listen(passiveSock, MAX_PENDING) == 0)) {
 			// Print local address of socket
 			struct sockaddr_storage localAddr;
 			socklen_t addrSize = sizeof(localAddr);
 			if (getsockname(passiveSock, (struct sockaddr *)&localAddr, &addrSize) >= 0) {
-				logger(INFO, "Binding...", STDERR_FILENO);
+				logger(INFO, "Binding and listening...");
 			}
 		} else {
-			logger(INFO, "bind() or listen() failed, trying next address", STDOUT_FILENO);
+			logger(INFO, "bind() or listen() failed, trying next address");
 			close(passiveSock); // Close and try again
 			passiveSock = -1;
 		}
 	}
-
 	// Non blocking socket
 	fcntl(passiveSock, F_SETFL, O_NONBLOCK);
 
 	freeaddrinfo(servAddr);
-
 	return passiveSock;
 }
 
@@ -72,19 +69,16 @@ int acceptConnection(int passiveSock) {
 	struct sockaddr_storage clntAddr; // Client address
 	// Set length of client address structure (in-out parameter)
 	socklen_t clntAddrLen = sizeof(clntAddr);
-
 	// Wait for a client to connect
 	int clntSock = accept(passiveSock, (struct sockaddr *)&clntAddr, &clntAddrLen);
 	if (clntSock < 0) {
-		logger(FATAL, "accept() failed", STDERR_FILENO);
+		logger(FATAL, "accept() failed");
 		return -1;
 	}
-
 	// Non blocking
 	fcntl(clntSock, F_SETFL, O_NONBLOCK);
-
 	// clntSock is connected to a client!
-	logger(INFO, "Handling client", STDOUT_FILENO);
+	logger(INFO, "Handling client with socket fd: %d", clntSock);
 
 	return clntSock;
 }
@@ -96,11 +90,12 @@ int setupClientSocket(const char *host, const char *service) {
 	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
 	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
-
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
+
+
 	int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
-	if (rtnVal != 0) { logger(ERROR, "getaddrinfo() failed", STDERR_FILENO); }
+	if (rtnVal != 0) { logger(ERROR, "getaddrinfo() failed"); }
 
 	int sock = -1;
 	for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
@@ -109,12 +104,12 @@ int setupClientSocket(const char *host, const char *service) {
 		if (sock >= 0) {
 			// Establish the connection to the echo server
 			if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
-				logger(INFO, "connect() failed, trying next address", STDOUT_FILENO);
+				logger(INFO, "connect() failed, trying next address");
 				close(sock); // Socket connection failed; try next address
 				sock = -1;
 			}
 		} else
-			logger(INFO, "socket() failed, trying next address", STDOUT_FILENO);
+			logger(INFO, "socket() failed, trying next address");
 	}
 
 	freeaddrinfo(servAddr);

@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
 	char *serverPort = argv[3];
 
 	int passiveSock = setupPassiveSocket(proxyPort);
-	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed", STDERR_FILENO);
+	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed");
 
 	fd_set writeFdSet[FD_SET_ARRAY_SIZE];
 	fd_set readFdSet[FD_SET_ARRAY_SIZE];
