@@ -1,9 +1,12 @@
 #ifndef __LOGGER_H__
 #define __LOGGER_H__
 
+#include "proxy/utils/proxyutils.h"
 typedef enum {DEBUG = 0, INFO, ERROR, FATAL} LEVEL;
 
 char * getLevelDescription(LEVEL level);
+
+char *getPeerDescription(PEER peer);
 
 #define logger(level, fmt, ...)    	{ 																\
 	char * description = getLevelDescription(level);     											\
@@ -15,9 +18,10 @@ char * getLevelDescription(LEVEL level);
     if(level == FATAL) exit(EXIT_FAILURE);											                \
 	}
 
-#define loggerPeer(peer, ftm, ...)		{ 	\
+#define loggerPeer(peer, fmt, ...)		{ 					\
     fprintf(stderr, "%s : ", getPeerDescription(peer)); 	\
-    fprintf(stderr, (fmt), ##__VA_ARGS__);                  \
+    fprintf(stderr, (fmt), ##__VA_ARGS__); 					\
+    fprintf(stderr, "\n");                                  \
 	}
 
 #endif

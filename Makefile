@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS=-g 
+FLAGS=-g -pthread
 #--std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough
 FSANITIZE=-fsanitize=address
 
