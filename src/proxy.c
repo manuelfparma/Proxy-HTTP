@@ -1,8 +1,8 @@
-#include "proxy.h"
-#include "../logger.h"
-#include "utils/connection.h"
-#include "utils/proxyutils.h"
+#include <connection.h>
 #include <errno.h>
+#include <logger.h>
+#include <proxy.h>
+#include <proxyutils.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
@@ -15,9 +15,7 @@
 ConnectionHeader connections = {0};
 
 int main(int argc, char **argv) {
-	if (argc != 4) {
-		logger(FATAL, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]);
-	}
+	if (argc != 4) { logger(FATAL, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]); }
 
 	char *proxyPort = argv[1];
 	char *serverHost = argv[2];
@@ -58,7 +56,7 @@ int main(int argc, char **argv) {
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// abro conexiones con cliente y servidor
 			int clientSock = acceptConnection(passiveSock);
-			if(clientSock > -1){
+			if (clientSock > -1) {
 				// aloco recursos para estructura de conexion cliente-servidor
 				// el socket del servidor (activo) se crea asincronicamente, por lo cual arranca en -1 inicialmente
 				pthread_t thread;

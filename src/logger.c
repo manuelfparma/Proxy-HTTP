@@ -1,5 +1,5 @@
-#include "logger.h"
-#include "proxy/utils/proxyutils.h"
+#include "include/logger.h"
+#include "include/proxyutils.h"
 
 char *getLevelDescription(LEVEL level) {
 	char *description[] = {"[DEBUG]", "[INFO]", "[ERROR]", "[FATAL]"};

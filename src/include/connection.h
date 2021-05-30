@@ -1,7 +1,7 @@
 #ifndef _CONNECTION_H_
 #define _CONNECTION_H_
 
-#include "../../buffer.h"
+#include "buffer.h"
 #include <pthread.h>
 #include <sys/select.h>
 

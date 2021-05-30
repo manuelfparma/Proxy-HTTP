@@ -1,12 +1,11 @@
-#include "connection.h"
-#include "../../logger.h"
-#include "proxyutils.h"
+#include <connection.h>
 #include <errno.h>
+#include <logger.h>
+#include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "connection.h"
 
 extern ConnectionHeader connections;
 
@@ -21,7 +20,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.clientToServerBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
 	new->data.serverToClientBuffer = malloc(sizeof(buffer));
 	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	new->data.addrInfoState = NEEDS_ADDR_INFO;	// hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	new->data.addrInfoState = NEEDS_ADDR_INFO; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
 	if (new->data.clientToServerBuffer == NULL || new->data.clientToServerBuffer->data == NULL ||
 		new->data.serverToClientBuffer == NULL || new->data.serverToClientBuffer->data == NULL) {
@@ -38,8 +37,8 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 void addToConnections(ConnectionNode *node) {
 	//	busqueda para la insercion
 	ConnectionNode *last = connections.first;
-	if(last != NULL) {
-		while(last->next != NULL) {
+	if (last != NULL) {
+		while (last->next != NULL) {
 			last = last->next;
 		}
 		last->next = node;
@@ -48,7 +47,7 @@ void addToConnections(ConnectionNode *node) {
 	}
 
 	connections.clients++;
-};
+}
 
 void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet) {
 	int clientFd = node->data.clientSock, serverFd = node->data.serverSock;
@@ -59,7 +58,7 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 	free(node->data.clientToServerBuffer);
 	free(node->data.serverToClientBuffer);
 
-	if(previous == NULL) {
+	if (previous == NULL) {
 		// Caso primer nodo
 		connections.first = node->next;
 	} else {

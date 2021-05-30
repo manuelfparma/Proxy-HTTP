@@ -1,15 +1,17 @@
-#include "proxyutils.h"
-#include "../../logger.h"
-#include "connection.h"
+#define _POSIX_C_SOURCE 200112L
 #include <arpa/inet.h>
+#include <connection.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <logger.h>
 #include <netdb.h>
+#include <proxyutils.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 extern ConnectionHeader connections;
@@ -49,7 +51,7 @@ int setupPassiveSocket(const char *service) {
 			continue;
 		}
 		// Non blocking socket
-		if(fcntl(passiveSock, F_SETFL, O_NONBLOCK) == -1){
+		if (fcntl(passiveSock, F_SETFL, O_NONBLOCK) == -1) {
 			logger(INFO, "fcntl(): %s", strerror(errno));
 			continue;
 		}
@@ -129,14 +131,10 @@ void *setupClientSocket(void *args) {
 				logger(INFO, "Connect() failed, trying next address");
 				close(*sock); // Socket connection failed; try next address
 				*sock = -1;
-			}
-			else
+			} else
 				logger(INFO, "Socket with fd %d connected", *sock);
-		}
-		else
+		} else
 			logger(INFO, "Socket() failed, trying next address");
-
-
 	}
 
 	loggerPeer(SERVER, "Connected to %s at %s port", host, service);
@@ -192,9 +190,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 				// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
 				// agrego como escritura el fd activo
-				if(buffer_can_read(buffer[peer])) {
-					FD_SET(fd[toPeer], &writeFdSet[BASE]);
-				}
+				if (buffer_can_read(buffer[peer])) { FD_SET(fd[toPeer], &writeFdSet[BASE]); }
 
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd[toPeer], &readFdSet[BASE]);
@@ -207,9 +203,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 				logger(INFO, "handleOperation() READ with no bytes in fd: %d", fd[peer]);
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
-				if(fd[toPeer] != -1) {
-					FD_SET(fd[toPeer], &writeFdSet[BASE]);
-				}
+				if (fd[toPeer] != -1) { FD_SET(fd[toPeer], &writeFdSet[BASE]); }
 			}
 		} else {
 			// si el buffer esta lleno, dejo de leer del socket
@@ -263,7 +257,7 @@ size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 			if (resultBytes <= 0) {
 				if (resultBytes == -1) logger(ERROR, "recv(): %s", strerror(errno));
 				logger(INFO, "Socket with fd %d: %s", fd, strerror(errno));
-			}else{
+			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Received info on fd: %d", fd);
 				// loggerPeer(SERVER, "Received %s from fd %d", buffer->write, fd)
