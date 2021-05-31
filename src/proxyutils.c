@@ -18,7 +18,6 @@
 
 extern ConnectionHeader connections;
 
-// static char addrBuffer[MAX_ADDR_BUFFER];
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
@@ -173,11 +172,11 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			resultBytes[READ] = handleOperation(fd[peer], aux_buffer[peer], READ);
 			if (resultBytes[READ] <= 0) {
 				closeConnection(node, prev, writeFdSet, readFdSet);
-				logger(INFO, "handleOperation() READ with no bytes in fd: %d", fd[peer]);
+				logger(INFO, "closeConnection in fd: %d", fd[peer]);
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				if (node->data.addrInfoState == EMPTY) {
-					logger(INFO, "fetching addr");
+					// TODO: Implementar parser y mover esto
 					node->data.addrInfoState = FETCHING;
 					// hacemos la consulta dns
 					// creo los recursos para la resolucion DNS mediante thread nuevo
@@ -187,6 +186,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 						return -1; // TODO: ???????
 					}
 
+					logger(INFO, "parsing addr");
 					// TODO: PARSEAR REQUEST DEL CLIENTE. HARDCODEADO POR AHORA
 					args->host = malloc(1024 * sizeof(char));
 					args->service = malloc(5 * sizeof(char));
@@ -217,6 +217,33 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
+		if (peer == SERVER && node->data.addrInfoState == CONNECTING) {
+			socklen_t optlen = sizeof(int);
+			int ans = getsockopt(fd[peer], SOL_SOCKET, SO_ERROR, &(int){1}, &optlen);
+			if (ans <= -1) {
+				// en caso de error, chequear la señal, si la conexion fue rechazada, probar con la siguiente
+				if (errno == ECONNREFUSED) {
+					node->data.addr_info_current = node->data.addr_info_current->ai_next;
+					if (setup_connection(node, writeFdSet) == -1) {
+						logger(ERROR, "setup_connection(): %d", errno);
+						// FIXME: ?????
+						return -1;
+					}
+				} else {
+					// error de getsockopt
+					logger(ERROR, "getsockopt(): %s", strerror(errno));
+					FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+					return -1;
+				}
+			} else {
+				logger(INFO, "Connected to server for client with fd %d", node->data.clientSock);
+				node->data.addrInfoState = CONNECTED;
+				freeaddrinfo(node->data.addr_info_header);
+				node->data.addr_info_current = node->data.addr_info_header = NULL;
+				// en caso que el server mande un primer mensaje, quiero leerlo
+				FD_SET(node->data.serverSock, &readFdSet[BASE]);
+			}
+		}
 		if (buffer_can_read(aux_buffer[toPeer])) {
 			resultBytes[WRITE] = handleOperation(fd[peer], aux_buffer[toPeer], WRITE);
 			if (resultBytes[WRITE] <= 0) {
@@ -237,6 +264,53 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 	return returnValue;
 }
 
+int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
+	if (node->data.addr_info_current == NULL) {
+		logger(INFO, "No more addresses for client with fd %d", node->data.clientSock);
+		// FIXME: Liberar cliente
+		return -1;
+	}
+	if (node->data.serverSock != -1) FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+
+	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
+								   node->data.addr_info_current->ai_protocol);
+
+	if (node->data.serverSock >= 0) {
+		// configuracion para socket no bloqueante
+		if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
+			logger(INFO, "fcntl(): %s", strerror(errno));
+			// FIXME: PEPE???
+			return -1;
+		}
+
+		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
+
+		struct addrinfo aux_addr_info = *node->data.addr_info_current;
+		// Intento de connect
+		logger(INFO, "Trying to connect to server from client with fd: %d", node->data.clientSock);
+		if (connect(node->data.serverSock, aux_addr_info.ai_addr, aux_addr_info.ai_addrlen) != 0 && errno != EINPROGRESS) {
+			logger(ERROR, "connect(): %s", strerror((errno)));
+			// FIXME: QUE PASA CON EL CLIENTE MALLOQUEADO?
+			close(node->data.serverSock);
+			close(node->data.clientSock);
+			return -1;
+		} else {
+			// una vez conectado, liberamos la lista
+			logger(INFO, "Connecting to server from client with fd: %d", node->data.clientSock);
+			node->data.addrInfoState = CONNECTING;
+			// TODO: lista de estadisticas
+			// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
+			// agrego como escritura el fd activo
+			FD_SET(node->data.serverSock, &writeFdSet[BASE]);
+		}
+	} else {
+		logger(INFO, "Socket() failed");
+		// FIXME: OCTA ARREGLAME
+		return -1;
+	}
+	return 0;
+}
+
 // Leer o escribir a un socket
 size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 	ssize_t resultBytes;
@@ -249,20 +323,20 @@ size_t handleOperation(int fd, buffer *buffer, OPERATION operation) {
 				if (resultBytes == -1) logger(ERROR, "send(): %s", strerror(errno));
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
-				logger(INFO, "Sended info on fd: %d", fd);
-				// loggerPeer(SERVER, "Sended %s to fd %d", buffer->read, fd);
+				logger(INFO, "Sent info on fd: %d", fd);
 				buffer_read_adv(buffer, resultBytes);
 			}
 			break;
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) logger(ERROR, "recv(): %s", strerror(errno));
-				logger(INFO, "Socket with fd %d: %s", fd, strerror(errno));
+				if (resultBytes == -1 && errno != EWOULDBLOCK) {
+					logger(ERROR, "recv(): %s", strerror(errno));
+					return -1;
+				}
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Received info on fd: %d", fd);
-				// loggerPeer(SERVER, "Received %s from fd %d", buffer->write, fd)
 				buffer_write_adv(buffer, resultBytes);
 			}
 			break;

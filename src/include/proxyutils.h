@@ -35,4 +35,6 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 size_t handleOperation(int fd, buffer *buffer, OPERATION operation);
 
+int setup_connection(ConnectionNode *node, fd_set *writeFdSet);
+
 #endif

@@ -54,52 +54,24 @@ int main(int argc, char **argv) {
 
 		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
 		if (readyFds <= -1) {
-			logger(INFO, "PEPE");
 			// el select fue interrumpido por un thread que resolvio la consulta DNS
 			if (errno == EINTR) {
 				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
-				for (ConnectionNode *node = connections.first; node != NULL; node = node->next) {
+				int found = 0;
+				for (ConnectionNode *node = connections.first; node != NULL && !found; node = node->next) {
 					if (node->data.addrInfoState == READY) {
+						found = 1;
 						// FIXME: verificar si la quedo el dns
 						int ans = pthread_join(node->data.addrInfoThread, NULL);
 						if (ans != 0) {
 							logger(ERROR, "pthread_join(): %s", strerror(errno));
 						} else {
-							node->data.serverSock =
-								socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
-									   node->data.addr_info_current->ai_protocol);
-
-							// Non blocking socket
-							if (fcntl(passiveSock, F_SETFL, O_NONBLOCK) == -1) {
-								logger(INFO, "fcntl(): %s", strerror(errno));
-								continue;
+							if (setup_connection(node, writeFdSet) == -1) {
+								logger(INFO, "setup_connection()");
+								// FIXME: ?????
+								return -1;
 							}
-
-							if (node->data.serverSock >= 0) {
-								// aca le cambio el estado
-								if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
-								// CONNECT A PRIMER IP
-								logger(INFO, "Trying to connect");
-								if (connect(node->data.serverSock, node->data.addr_info_current->ai_addr,
-											node->data.addr_info_current->ai_addrlen) < 0) {
-									logger(ERROR, "connect(): %s", strerror((errno)));
-									node->data.addr_info_current = node->data.addr_info_current->ai_next;
-								} else {
-									// una vez conectado, liberamos la lista
-									logger(INFO, "Connected");
-									node->data.addrInfoState = CONNECTED;
-									// TODO: lista de estadisticas, discutir si se utiliza el addr_info_current luego de
-									// liberar
-									freeaddrinfo(node->data.addr_info_header);
-									node->data.addr_info_current = node->data.addr_info_header = NULL;
-									// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
-									// agrego como escritura el fd activo
-									FD_SET(node->data.serverSock, &writeFdSet[BASE]);
-									// en caso que el server mande un primer mensaje, quiero leerlo
-									FD_SET(node->data.serverSock, &readFdSet[BASE]);
-								}
-							} else
-								logger(INFO, "Socket() failed, trying next address");
+							logger(INFO, "trying setup_connection()");
 						}
 					}
 				}
@@ -142,6 +114,7 @@ int main(int argc, char **argv) {
 
 				if (handle > -1) readyFds -= handle;
 				else if (handle == -1) {
+					// se deberian restar 1 o 2 readyFds???
 					break; // Caso conexion cerrada
 				} else if (handle == -2)
 					continue; // Caso argumento invalido
