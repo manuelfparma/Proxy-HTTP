@@ -12,26 +12,49 @@ extern ConnectionHeader connections;
 ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	// asignacion de recursos para la conexion
 	ConnectionNode *new = malloc(sizeof(ConnectionNode));
+
+	if (new->data.clientToServerBuffer == NULL) goto ERROR;
+
 	new->next = NULL;
 	new->data.clientSock = clientSock;
 	new->data.serverSock = serverSock;
 
 	new->data.clientToServerBuffer = malloc(sizeof(buffer));
-	new->data.clientToServerBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	new->data.serverToClientBuffer = malloc(sizeof(buffer));
-	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	new->data.addrInfoState = NEEDS_ADDR_INFO; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	if (new->data.clientToServerBuffer == NULL) goto FREE_NEW;
 
-	if (new->data.clientToServerBuffer == NULL || new->data.clientToServerBuffer->data == NULL ||
-		new->data.serverToClientBuffer == NULL || new->data.serverToClientBuffer->data == NULL) {
-		logger(ERROR, "malloc(): %s", strerror(errno));
-		return NULL;
-	}
+	new->data.clientToServerBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.clientToServerBuffer->data == NULL) goto FREE_BUFFER_1;
+
+	new->data.serverToClientBuffer = malloc(sizeof(buffer));
+	if (new->data.serverToClientBuffer == NULL) goto FREE_BUFFER_1_DATA;
+
+	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.serverToClientBuffer->data == NULL) goto FREE_BUFFER_2;
+
+	// TODO: discutir si se necesita acceder a futuro
+	// new->data.addr_info_header = malloc(sizeof(struct addrinfo));
+	// if (new->data.addr_info_header == NULL) goto FREE_BUFFER_2_DATA;
+
+	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
 
 	return new;
+
+//FREE_BUFFER_2_DATA:
+//	free(new->data.serverToClientBuffer->data);
+FREE_BUFFER_2:
+	free(new->data.serverToClientBuffer);
+FREE_BUFFER_1_DATA:
+	free(new->data.clientToServerBuffer->data);
+FREE_BUFFER_1:
+	free(new->data.clientToServerBuffer);
+FREE_NEW:
+	free(new);
+ERROR:
+	logger(ERROR, "malloc(): %s", strerror(errno));
+	return NULL;
 }
 
 void addToConnections(ConnectionNode *node) {

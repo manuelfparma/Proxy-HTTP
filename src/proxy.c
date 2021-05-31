@@ -1,5 +1,6 @@
 #include <connection.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
@@ -18,8 +19,8 @@ int main(int argc, char **argv) {
 	if (argc != 4) { logger(FATAL, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]); }
 
 	char *proxyPort = argv[1];
-	char *serverHost = argv[2];
-	char *serverPort = argv[3];
+	//	char *serverHost = argv[2];
+	//	char *serverPort = argv[3];
 
 	int passiveSock = setupPassiveSocket(proxyPort);
 	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed");
@@ -35,10 +36,14 @@ int main(int argc, char **argv) {
 	FD_SET(passiveSock, &readFdSet[BASE]);
 
 	int readyFds;
-
 	sigset_t sigMask;
 	sigemptyset(&sigMask);
-	// sigaddset(&sigMask, SIGINT);
+	// configuracion de signal para interrumpir select desde otro thread
+	struct sigaction act = {
+		.sa_handler = wake_handler,
+	};
+
+	if (sigaction(SIGIO, &act, 0)) logger(FATAL, "sigaction(): %s", strerror(errno));
 
 	connections.maxFd = passiveSock + 1;
 
@@ -48,40 +53,79 @@ int main(int argc, char **argv) {
 		writeFdSet[TMP] = writeFdSet[BASE];
 
 		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
-		if (readyFds == -1) {
-			logger(ERROR, "pselect(): %s", strerror(errno));
+		if (readyFds <= -1) {
+			logger(INFO, "PEPE");
+			// el select fue interrumpido por un thread que resolvio la consulta DNS
+			if (errno == EINTR) {
+				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
+				for (ConnectionNode *node = connections.first; node != NULL; node = node->next) {
+					if (node->data.addrInfoState == READY) {
+						// FIXME: verificar si la quedo el dns
+						int ans = pthread_join(node->data.addrInfoThread, NULL);
+						if (ans != 0) {
+							logger(ERROR, "pthread_join(): %s", strerror(errno));
+						} else {
+							node->data.serverSock =
+								socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
+									   node->data.addr_info_current->ai_protocol);
+
+							// Non blocking socket
+							if (fcntl(passiveSock, F_SETFL, O_NONBLOCK) == -1) {
+								logger(INFO, "fcntl(): %s", strerror(errno));
+								continue;
+							}
+
+							if (node->data.serverSock >= 0) {
+								// aca le cambio el estado
+								if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
+								// CONNECT A PRIMER IP
+								logger(INFO, "Trying to connect");
+								if (connect(node->data.serverSock, node->data.addr_info_current->ai_addr,
+											node->data.addr_info_current->ai_addrlen) < 0) {
+									logger(ERROR, "connect(): %s", strerror((errno)));
+									node->data.addr_info_current = node->data.addr_info_current->ai_next;
+								} else {
+									// una vez conectado, liberamos la lista
+									logger(INFO, "Connected");
+									node->data.addrInfoState = CONNECTED;
+									// TODO: lista de estadisticas, discutir si se utiliza el addr_info_current luego de
+									// liberar
+									freeaddrinfo(node->data.addr_info_header);
+									node->data.addr_info_current = node->data.addr_info_header = NULL;
+									// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
+									// agrego como escritura el fd activo
+									FD_SET(node->data.serverSock, &writeFdSet[BASE]);
+									// en caso que el server mande un primer mensaje, quiero leerlo
+									FD_SET(node->data.serverSock, &readFdSet[BASE]);
+								}
+							} else
+								logger(INFO, "Socket() failed, trying next address");
+						}
+					}
+				}
+			} else {
+				logger(ERROR, "pselect(): %s", strerror(errno));
+			}
 			continue;
 		}
 
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
-			// abro conexiones con cliente y servidor
+			// establezco conexión con cliente en socket activo
 			int clientSock = acceptConnection(passiveSock);
 			if (clientSock > -1) {
-				// aloco recursos para estructura de conexion cliente-servidor
-				// el socket del servidor (activo) se crea asincronicamente, por lo cual arranca en -1 inicialmente
-				pthread_t thread;
-				int serverSock = -1;
-				ConnectionNode *newConnection = setupConnectionResources(clientSock, serverSock);
-
-				// seteo los argumentos necesarios para conectarse al server
-				ThreadArgs *args = malloc(sizeof(ThreadArgs));
-				char *hostCopy = malloc(strlen(serverHost) * sizeof(char) + 1);
-				char *serviceCopy = malloc(strlen(serverPort) * sizeof(char) + 1);
-				strcpy(hostCopy, serverHost);
-				strcpy(serviceCopy, serverPort);
-				args->host = hostCopy;
-				args->service = serviceCopy;
-				args->connection = newConnection;
-
-				int ret = pthread_create(&thread, NULL, setupClientSocket, (void *)args);
-				if (ret != 0) {
-					logger(ERROR, "pthread_create(): %s", strerror(errno));
-					close(clientSock);
-					free(newConnection);
-				} else {
+				// la consulta DNS para la conexión con el servidor se realiza asincronicamente,
+				// esto imposibilita la creación de un socket activo con el servidor hasta que dicha consulta
+				// este resulta. Por lo tanto dicho FD arranca en -1 inicialmente.
+				// aloco recursos para el respectivo cliente
+				ConnectionNode *newConnection = setupConnectionResources(clientSock, -1);
+				if (newConnection != NULL) {
+					// acepto lecturas del socket
 					FD_SET(clientSock, &readFdSet[BASE]);
 					addToConnections(newConnection);
 					if (clientSock >= connections.maxFd) connections.maxFd = clientSock + 1;
+				} else {
+					close(clientSock);
+					logger(ERROR, "setupConnectionResources() failed with NULL value");
 				}
 			}
 			readyFds--;
@@ -97,12 +141,16 @@ int main(int argc, char **argv) {
 				handle = handleConnection(node, previous, readFdSet, writeFdSet, peer);
 
 				if (handle > -1) readyFds -= handle;
-				else if (handle == -1)
+				else if (handle == -1) {
 					break; // Caso conexion cerrada
-				else if (handle == -2)
+				} else if (handle == -2)
 					continue; // Caso argumento invalido
 			}
 			if (handle == -1) break;
 		}
 	}
+}
+
+static void wake_handler(const int signal) {
+	// nada que hacer. está solo para interrumpir el select
 }

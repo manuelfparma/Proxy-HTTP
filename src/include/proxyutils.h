@@ -17,12 +17,13 @@
 typedef struct {
 	char *host;
 	char *service;
+	pthread_t *main_thread_id;
 	ConnectionNode *connection;
 } ThreadArgs;
 
 int setupPassiveSocket(const char *service);
 
-void *setupClientSocket(void *args);
+void *resolve_addr(void *args);
 
 int acceptConnection(int passiveSock);
 
