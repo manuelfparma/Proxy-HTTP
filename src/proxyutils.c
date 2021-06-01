@@ -111,7 +111,7 @@ void *resolve_addr(void *args) {
 	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 
-	logger(DEBUG, "hostname: %s, length: %zu", host, strlen(host));
+	logger(DEBUG, "hostname: %s, port: %s", host, service);
 	
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
@@ -188,12 +188,19 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 						return -1; // TODO: ???????
 					}
 
-					// TODO: Magic number?????
-					char host_name[256] = {0};
-					if(parse_request(node, host_name) == 1){
-						//Todavia no se parseo el host_name
-						logger(INFO, "host_name not received");
-						return 1;
+					char host_name[URI_MAX_LENGTH +1] = {0};
+					char port[PORT_MAX_LENGTH +1] = {0};
+					switch (parse_request(node, host_name, port)){
+						case PARSE_INCOMPLETE:
+							//Todavia no se parseo el host_name
+							logger(INFO, "host_name:port not received");
+							return 1;
+						case PARSE_ERROR:
+							return -1;
+						case PARSE_OK:
+					
+						default:
+							break;
 					}
 
 					node->data.addrInfoState = FETCHING;
@@ -205,7 +212,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 					args->connection = malloc(sizeof(ConnectionNode));
 					// seteo los argumentos necesarios para conectarse al server
 					strcpy(args->host, host_name);
-					strcpy(args->service, "8090");
+					strcpy(args->service, port);
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
 

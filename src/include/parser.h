@@ -3,19 +3,12 @@
 
 #include <connection.h>
 
-//typedef struct state_definition {
-//
-//	void (*consume)(const STATE, char* str);			// funcion para pasar al proximo nodo
-//} state_definition;
-//
-//typedef struct state_machine {
-//
-//	const PARSE_STATE initial_state;			   // estado inicial de la maquina
-//	const state_definition *states;		   // todos los estados posibles
-//	const state_definition *current_state; // estado actual
-//
-//} state_machine;
+#define URI_MAX_LENGTH 2048
+#define PORT_MAX_LENGTH 5   //maximo puerto es 2¹⁶ = 65535
 
-int parse_request(ConnectionNode *node, char *host_name);
+typedef enum { PARSE_ERROR = -3, PARSE_INCOMPLETE, PARSE_OK } PARSER_RETURN_CODE;
+// deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
+
+int parse_request(ConnectionNode *node, char *host_name, char *port);
 
 #endif // _PARSER_H_
