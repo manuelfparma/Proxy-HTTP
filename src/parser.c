@@ -15,12 +15,13 @@ static long parse_request_target(const char *buffer);
 static long parse_http_version(const char *buffer);
 static long parse_header_type(const char *buffer);
 static long parse_header_value(const char *buffer);
+static long parse_header_host_value(const char *buffer);
 
 static int resume_state_machine(const char *buffer) {
 	long bytes_consumed = 0, aux;
 	logger(INFO, "resuming state machine");
 	while (*buffer != 0) {
-		switch (current_connection->data.parse_state) {
+		switch (current_connection->data.parser->parse_state) {
 			case METHOD:
 				logger(INFO, "Parsing state: METHOD");
 				aux = parse_method(buffer);
@@ -40,8 +41,14 @@ static int resume_state_machine(const char *buffer) {
 			case HEADER_VALUE:
 				logger(INFO, "Parsing state: HEADER_VALUE");
 				aux = parse_header_value(buffer);
-				if (aux >= 0) return 0;
 				break;
+			case HEADER_HOST_VALUE:
+				logger(INFO, "Parsing state: HEADER_HOST_VALUE");
+				aux = parse_header_host_value(buffer);
+				break;
+			case NO_MORE_HEADERS:
+				// TODO: implementar estado final
+				return 2;
 			default:;
 				// consumir hasta el proximo espacio o CRLF?
 		}
@@ -50,13 +57,17 @@ static int resume_state_machine(const char *buffer) {
 			logger(ERROR, "Parsing error");
 			return -1;
 		}
+		current_connection->data.parser->current_index += aux;
 		bytes_consumed += aux;
 		buffer += aux;
+
+		if (strlen(aux_host_name) > 0 && current_connection->data.addrInfoState == EMPTY) return 0;
 	}
 	logger(INFO, "Header host not received");
-	current_connection->data.parse_state = METHOD;
+	// current_connection->data.parser->parse_state = METHOD;
 	return 1;
 }
+
 
 int parse_request(ConnectionNode *node, char *host_name) {
 	// almacenamos una referencia a la conexion actual
@@ -64,9 +75,9 @@ int parse_request(ConnectionNode *node, char *host_name) {
 
 	// buffer auxiliar para trabajar con strings null terminated y por ende las librerias de C
 	char aux_buffer[BUFFER_SIZE + 1] = {0};
-	long length = node->data.clientToServerBuffer->write - node->data.clientToServerBuffer->read;
-	strncpy(aux_buffer, (char *)node->data.clientToServerBuffer->read, length);
-
+	long length = (node->data.clientToServerBuffer->write - node->data.clientToServerBuffer->read) - node->data.parser->current_index;
+	strncpy(aux_buffer, (char *)node->data.clientToServerBuffer->read + node->data.parser->current_index, length);
+	logger(DEBUG, "length:%ld and content:%s", length, aux_buffer);
 	int aux = resume_state_machine(aux_buffer);
 	strcpy(host_name, aux_host_name);
 	return aux;
@@ -78,7 +89,7 @@ static long parse_method(const char *buff) {
 	for (int i = 0; i < METHOD_QTY; i++) {
 		if (prefix(methods[i], buff)) {
 
-			current_connection->data.parse_state = REQUEST_TARGET;
+			current_connection->data.parser->parse_state = REQUEST_TARGET;
 			if (i == CONNECT_INDEX) return 0; // TODO: cosas de connect
 
 			return (long)strlen(methods[i]);
@@ -96,7 +107,7 @@ static long parse_request_target(const char *buffer) {
 			for (i = 1; buffer[i] != 0 && buffer[i] != ' '; i++) {};
 			if (buffer[i] == 0) return -1;
 			// recorremos el buffer hasta encontrar un espacio o hasta que termine
-			current_connection->data.parse_state = HTTP_VERSION;
+			current_connection->data.parser->parse_state = HTTP_VERSION;
 			break;
 
 		case '*': // para metodos HTTP que no necesitan pedir recursos
@@ -110,7 +121,7 @@ static long parse_request_target(const char *buffer) {
 				  //			regexec();
 	}
 
-	return i + 1; //se suma 1 por el caracter consumido en el switch
+	return i + 1; //se suma 1 por el caracter consumido en el switch (asi salteamos el caracter ' ')
 }
 
 static long parse_http_version(const char *buffer) {
@@ -119,7 +130,7 @@ static long parse_http_version(const char *buffer) {
 
 	logger(DEBUG, "buffer: %s, length: %zu", buffer, strlen(buffer));
 	if (strncmp(version, buffer, version_length) == 0) {
-		current_connection->data.parse_state = HEADER_TYPE;
+		current_connection->data.parser->parse_state = HEADER_TYPE;
 		return (long)version_length;
 	} else
 		// version no soportada o string invalido
@@ -129,17 +140,33 @@ static long parse_http_version(const char *buffer) {
 static long parse_header_type(const char *buffer) {
 	const char *type_host = "Host: ";
 	const unsigned long strlen_type_host = strlen(type_host);
-
-	if (strncmp(type_host, buffer, strlen_type_host) == 0) {
-		current_connection->data.parse_state = HEADER_VALUE;
+	// PEPE: MONI \r\nHost: google.com\r\n
+	if ( strlen(buffer) >= strlen_type_host && strncmp(type_host, buffer, strlen_type_host) == 0) {
+		current_connection->data.parser->parse_state = HEADER_HOST_VALUE;
 		return (long)strlen_type_host;
 	} else{
-		return -1;
+		// en caso que sea un header diferente a Host:
+		current_connection->data.parser->parse_state = HEADER_VALUE;
+		int i;
+		// TODO: chequear si luego de un header siempre va espacio
+		// nos salteamos el header
+		for (i = 0; buffer[i] != 0 && buffer[i] != ' '; i++){};
+
+		return i + 1;
 	}
 }
 
-// TODO: Magic numbers
 static long parse_header_value(const char *buffer) {
+	int i;
+	// value\r\n
+	for (i = 0; buffer[i] != 0 && buffer[i] != '\r' && buffer[i + 1] != 0 && buffer[i + 1] != '\n'; i++){};
+	current_connection->data.parser->parse_state = HEADER_TYPE;
+
+	return i + 2;
+}
+
+// TODO: Magic numbers
+static long parse_header_host_value(const char *buffer) {
 	char aux_buffer[256] = {0};
 	int i;
 
@@ -153,12 +180,29 @@ static long parse_header_value(const char *buffer) {
 		}
 	}
 
+	current_connection->data.parser->parse_state = HEADER_TYPE;
 	if (buffer[i] == '\r' && buffer[i + 1] == '\n') {
 		// Llegue al CRLF, finalizo la maquina de estados
 		strncpy(aux_host_name, aux_buffer, i);
-		return 0;
+		return i + 2;
 	} else {
-		// Fin	alizo el parseo de este header pero todavia hay mas}}
+		// Finalizo el parseo de este header pero todavia hay mas}}
 		return -1;
 	}
 }
+
+//static long find_header_host(const char *buffer)
+//{
+//	const char *type_host = "Host: ";
+//	const unsigned long strlen_type_host = strlen(type_host);
+//
+//	if (strncmp(type_host, buffer + current_connection->data.parser->current_index, strlen_type_host) == 0) {
+//		current_connection->data.parser->parse_state = HEADER_VALUE;
+//		current_connection->data.parser->current_index += strlen_type_host;
+//		return (long)strlen_type_host;
+//	} else{
+//		return -1;
+//	}
+//
+//
+//}
