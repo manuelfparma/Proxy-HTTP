@@ -217,6 +217,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (writeFdSet != NULL && FD_ISSET(fd[peer], &writeFdSet[TMP])) {
+		// TODO: Modularizar parte de Connect
 		if (peer == SERVER && node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
 			int ans = getsockopt(fd[peer], SOL_SOCKET, SO_ERROR, &(int){1}, &optlen);

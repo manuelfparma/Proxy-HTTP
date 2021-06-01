@@ -5,6 +5,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/select.h>
+#include <parser.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
 typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED } ADDR_INFO_STATE;
@@ -14,6 +15,7 @@ typedef struct {
 	buffer *serverToClientBuffer;		// buffer donde servidor escribe y cliente lee
 	int clientSock;						// socket activo con cliente
 	int serverSock;						// socket activo con servidor
+	PARSE_STATE parse_state;			// estado del parseo de la request/response
 	ADDR_INFO_STATE addrInfoState;		// estado de la busqueda DNS
 	pthread_t addrInfoThread;			// informacion del thread donde corre la resolución DNS
 	struct addrinfo *addr_info_header;	// para guardar el inicio de la lista del resultado de la consulta DNS

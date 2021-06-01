@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
+#include <parser.h>
 #include <proxy.h>
 #include <proxyutils.h>
 #include <pthread.h>
