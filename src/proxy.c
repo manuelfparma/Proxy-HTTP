@@ -17,11 +17,9 @@
 ConnectionHeader connections = {0};
 
 int main(int argc, char **argv) {
-	if (argc != 4) { logger(FATAL, "Usage: %s <Proxy Port> <Server Host> <Server Port>\n", argv[0]); }
+	if (argc != 2) { logger(FATAL, "Usage: %s <Proxy Port>\n", argv[0]); }
 
 	char *proxyPort = argv[1];
-	//	char *serverHost = argv[2];
-	//	char *serverPort = argv[3];
 
 	int passiveSock = setupPassiveSocket(proxyPort);
 	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed");

@@ -5,10 +5,17 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/select.h>
-#include <parser.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
 typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED } ADDR_INFO_STATE;
+
+typedef enum {
+	METHOD,			// GET, POST, OPTION
+	REQUEST_TARGET, // puede ser http://XXXX (absoluteURI) o /index.html (relative)
+	HTTP_VERSION,	// por ej: ' HTTP/1.1 \r\n'
+	HEADER_TYPE,	// por ej: 'Host: ' -> CASE INSENSITIVE
+	HEADER_VALUE	// por ej: 'google.com\r\n'
+} PARSE_STATE;
 
 typedef struct {
 	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee

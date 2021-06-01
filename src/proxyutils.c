@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <logger.h>
 #include <netdb.h>
+#include <parser.h>
 #include <proxyutils.h>
 #include <pthread.h>
 #include <signal.h>
@@ -92,7 +93,7 @@ int acceptConnection(int passiveSock) {
 	return clntSock;
 }
 
-// function that setups active socket to connect to server peer
+// funcion que rsuelve consulta DNS  asincronicamente
 void *resolve_addr(void *args) {
 	ThreadArgs *threadArgs = (ThreadArgs *)args;
 	char *host = threadArgs->host;
@@ -110,6 +111,8 @@ void *resolve_addr(void *args) {
 	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 
+	logger(DEBUG, "hostname: %s, length: %zu", host, strlen(host));
+	
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
 	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
@@ -177,7 +180,6 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				if (node->data.addrInfoState == EMPTY) {
 					// TODO: Implementar parser y mover esto
-					node->data.addrInfoState = FETCHING;
 					// hacemos la consulta dns
 					// creo los recursos para la resolucion DNS mediante thread nuevo
 					ThreadArgs *args = malloc(sizeof(ThreadArgs));
@@ -186,19 +188,30 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 						return -1; // TODO: ???????
 					}
 
-					logger(INFO, "parsing addr");
+					// TODO: Magic number?????
+					char host_name[256] = {0};
+					if(parse_request(node, host_name) == 1){
+						//Todavia no se parseo el host_name
+						logger(INFO, "host_name not received");
+						return 1;
+					}
+
+					node->data.addrInfoState = FETCHING;
+
 					// TODO: PARSEAR REQUEST DEL CLIENTE. HARDCODEADO POR AHORA
 					args->host = malloc(1024 * sizeof(char));
 					args->service = malloc(5 * sizeof(char));
 					args->main_thread_id = malloc(10 * sizeof(char));
 					args->connection = malloc(sizeof(ConnectionNode));
 					// seteo los argumentos necesarios para conectarse al server
-					strcpy(args->host, "localhost");
-					strcpy(args->service, "9090");
+					strcpy(args->host, host_name);
+					strcpy(args->service, "8090");
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
 
 					pthread_t thread;
+					
+					logger(INFO, "creating name resolution thread");
 					int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
 					if (ret != 0) {
 						logger(ERROR, "pthread_create(): %s", strerror(errno));
@@ -208,6 +221,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 				if (fd[toPeer] != -1) { FD_SET(fd[toPeer], &writeFdSet[BASE]); }
 			}
 		} else {
+			logger(INFO, "WRITE FD CLOSE");
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd[peer], &readFdSet[BASE]);
 		}

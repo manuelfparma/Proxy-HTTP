@@ -36,6 +36,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	// if (new->data.addr_info_header == NULL) goto FREE_BUFFER_2_DATA;
 
 	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	new->data.parse_state = METHOD;
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
