@@ -14,6 +14,7 @@ typedef enum {
 	MAX_PROTOCOL_LENGTH = 24,
 	MAX_IP_LENGTH = 24,
 	MAX_RELATIVE_PATH = 64,
+	MAX_PORT_LENGTH = 5,
 } http_request_constraints;
 
 typedef enum {
@@ -21,17 +22,20 @@ typedef enum {
 	PS_PATH,
 	PS_PATH_RELATIVE,
 	PS_PATH_PROTOCOL,
+	PS_PATH_SLASHES,
 	PS_PATH_DOMAIN,
 	PS_IP,
 	PS_IPv4,
 	PS_IPv6,
 	PS_URI,
+	PS_PORT,
 	PS_HTTP_VERSION,
 	PS_CR,
 	PS_LF,
 	PS_CR_END,
 	PS_LF_END,
-	PS_FIN // cuando se recibe \cr\lf\cr\lf
+	PS_FIN,
+	PS_ERROR // cuando se recibe \cr\lf\cr\lf
 } http_parser_state;
 
 typedef struct {
@@ -68,11 +72,12 @@ typedef struct {
 	http_request_target request_target;
 	http_host_type host_type;
 	http_host host;
-	in_port_t port;
+	char port[MAX_PORT_LENGTH + 1];
 } http_target;
 
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
+	char protocol[MAX_PROTOCOL_LENGTH + 1]; // protocolo del request
 	http_target target;
 	http_version version;
 } http_start_line;
@@ -83,12 +88,11 @@ typedef struct {
 } http_header;
 
 typedef struct {
-	http_start_line start_line; // start_line(por si no se completo)
-	http_header header;			// header actual(por si no se completo)
-	buffer *parsed_request;		// listo para enviar
-	http_parser_state parser_state;
-	size_t copy_index;
-	char protocol[MAX_PROTOCOL_LENGTH + 1];
+	http_start_line start_line;		// start_line(por si no se completo)
+	http_header header;				// header actual(por si no se completo)
+	buffer *parsed_request;			// listo para enviar
+	http_parser_state parser_state; // estado actual
+	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
 } http_request;
 
 int parse_request(http_request *request, buffer *read_buffer);

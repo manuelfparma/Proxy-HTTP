@@ -190,6 +190,8 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 					parse_request(node->data.request, node->data.clientToServerBuffer);
 
+					logger(DEBUG, "parse request: %s", node->data.request->parsed_request->data);
+
 					node->data.addrInfoState = FETCHING;
 
 					// TODO: PARSEAR REQUEST DEL CLIENTE. HARDCODEADO POR AHORA
@@ -210,10 +212,10 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 
 							break;
 						default:
-							logger(ERROR, "?????");
+							logger(ERROR, "Tipo de dominio no identificado");
 					}
 
-					strcpy(args->service, "8080");
+					strcpy(args->service, node->data.request->start_line.target.port);
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
 

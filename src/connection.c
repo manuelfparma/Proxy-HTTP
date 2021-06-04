@@ -42,16 +42,15 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.request = malloc(sizeof(http_request));
 	new->data.request->parsed_request = malloc(sizeof(buffer));
 	new->data.request->parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	
+	//TODO: BORRAR
+//	logger(DEBUG, "Parse request: %p", (void *)new->data.request->parsed_request);
 
 	new->data.request->parser_state = PS_METHOD;
 	new->data.request->copy_index = 0;
-	
-
-	//BORRAR
-	//TODO: liberar y chequear NULL ptr
-	// new->data.parser = malloc(sizeof(parser_data));
-	// new->data.parser->current_index = 0;
-	// new->data.parser->parse_state = METHOD;
+	new->data.request->start_line.method[0] = '\0';
+	new->data.request->start_line.protocol[0] = '\0';
+	new->data.request->start_line.target.port[0] = '\0';
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
