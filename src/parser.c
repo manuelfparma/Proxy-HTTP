@@ -23,7 +23,7 @@ static void tr_parse_error(char current_char);
 
 http_request *current_request;
 
-// TODO: PUERTO, HTTP/2, HEADERS
+// TODO: PUERTO, HTTP/2, HEADERS, case-sensitive, espacios de mas
 
 static const http_parser_state_transition ST_METHOD[2] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH, .transition = tr_reset_copy_index},
@@ -109,13 +109,13 @@ static const http_parser_state_transition ST_LF_END[2] = {
 	// ir a header
 };
 
-static const http_parser_state_transition *states[] = {ST_METHOD, ST_PATH, ST_PATH_PROTOCOL, ST_PATH_DOMAIN,   ST_IP,
-													   ST_IPv4,	  ST_IPv6, ST_URI,			 ST_PATH_RELATIVE, ST_HTTP_VERSION,
+static const http_parser_state_transition *states[] = {ST_METHOD, ST_PATH, ST_PATH_RELATIVE,ST_PATH_PROTOCOL, ST_PATH_DOMAIN,   ST_IP,
+													   ST_IPv4,	  ST_IPv6, ST_URI,			  ST_HTTP_VERSION,
 													   ST_CR,	  ST_LF,   ST_CR_END,		 ST_LF_END};
 
 static const size_t states_n[] = {
-	N(ST_METHOD), N(ST_PATH),		   N(ST_PATH_PROTOCOL), N(ST_PATH_DOMAIN), N(ST_IP), N(ST_IPv4),   N(ST_IPv6),
-	N(ST_URI),	  N(ST_PATH_RELATIVE), N(ST_HTTP_VERSION),	N(ST_CR),		   N(ST_LF), N(ST_CR_END), N(ST_LF_END),
+	N(ST_METHOD), N(ST_PATH),		   N(ST_PATH_RELATIVE),N(ST_PATH_PROTOCOL), N(ST_PATH_DOMAIN), N(ST_IP), N(ST_IPv4),   N(ST_IPv6),
+	N(ST_URI),	   N(ST_HTTP_VERSION),	N(ST_CR),		   N(ST_LF), N(ST_CR_END), N(ST_LF_END),
 };
 
 // source debe ser NULL TERMINATED
@@ -239,12 +239,10 @@ static void tr_byte_host_name(char current_char) {
 	current_request->start_line.target.request_target.host_name[*idx] = current_char;
 	current_request->start_line.target.request_target.host_name[*idx + 1] = '\0';
 	(*idx)++;
-	logger(DEBUG, "HOSTNAME: %s with idx: %zu", current_request->start_line.target.request_target.host_name, *idx);
 }
 
 static void tr_reset_copy_index(char current_char) {
 	current_request->copy_index = 0;
-	logger(DEBUG, "CALLING RESET");
 	// no copio el caracter, solo reinicio el indice de copiado
 }
 
@@ -270,7 +268,6 @@ int parse_request(http_request *request, buffer *read_buffer) {
 	while (buffer_can_read(read_buffer)) {
 		current_char = buffer_read(read_buffer);
 		current_state = current_request->parser_state;
-		logger(DEBUG, "current_char: %c", current_char);
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (states[current_state][i].when != EMPTY) {
 				if (current_char == states[current_state][i].when || states[current_state][i].when == (char)ANY) {
@@ -290,8 +287,6 @@ int parse_request(http_request *request, buffer *read_buffer) {
 				break;
 			}
 		}
-		logger(DEBUG, "HOSTNAME: %s with idx: %zu", current_request->start_line.target.request_target.host_name, current_request->copy_index);
-
 	}
 
 	return 0;

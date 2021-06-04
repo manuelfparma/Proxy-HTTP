@@ -11,14 +11,14 @@ OBJECTS = src/proxy.o src/parser.o src/proxyutils.o src/logger.o src/connection.
 
 all: proxy
 
-# proxy: $(OBJECTS)
-# 	$(LD) -o httpd $^
+proxy: $(OBJECTS)
+	$(CC) -pthread $(FSANITIZE) -o httpd $^
 
-proxy: $(SOURCES_PROXY) $(SOURCES_PARSER) $(SOURCES_PROXY_UTILS) $(SOURCES_LOGGER) $(SOURCES_CONNECTION) $(SOURCES_BUFFER)
-	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -o httpd $^
+%.o: %.c
+	$(CC) $(CFLAGS) -I./src/include -c $< -o $@
 
-# %.o: %.c
-# 	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -c $< -o $@
+# proxy: $(SOURCES_PROXY) $(SOURCES_PARSER) $(SOURCES_PROXY_UTILS) $(SOURCES_LOGGER) $(SOURCES_CONNECTION) $(SOURCES_BUFFER)
+# 	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -o httpd $^
 
 clean:
 	rm -rf httpd src/*.o
