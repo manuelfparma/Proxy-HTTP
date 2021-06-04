@@ -47,11 +47,12 @@ typedef enum {
 	PS_URI,
 	PS_PORT,
 	PS_HTTP_VERSION,
+	PS_HEADER_TYPE,
+	PS_HEADER_VALUE,
 	PS_CR,
 	PS_LF,
 	PS_CR_END,
-	PS_LF_END,
-	PS_FIN,
+	PS_LF_END, //fin
 	PS_ERROR // cuando se recibe \cr\lf\cr\lf
 } http_parser_state;
 
@@ -95,12 +96,12 @@ typedef struct {
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
 	char protocol[MAX_PROTOCOL_LENGTH + 1]; // protocolo del request
-	http_target target;
+	http_target destination;
 	http_version version;
 } http_start_line;
 
 typedef struct {
-	char header_name[MAX_HEADER_NAME + 1];
+	char header_type[MAX_HEADER_NAME + 1];
 	char header_value[MAX_HEADER_VALUE + 1];
 } http_header;
 

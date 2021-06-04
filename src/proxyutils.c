@@ -111,7 +111,7 @@ void *resolve_addr(void *args) {
 	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
 	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 
-	logger(DEBUG, "hostname: %s, port: %s", host, service);
+	logger(DEBUG, "hostname:%s, port:%s", host, service);
 
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
@@ -175,7 +175,7 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 			resultBytes[READ] = handleOperation(fd[peer], aux_buffer[peer], READ);
 			if (resultBytes[READ] <= 0) {
 				closeConnection(node, prev, writeFdSet, readFdSet);
-				logger(INFO, "closeConnection in fd: %d", fd[peer]);
+				logger(INFO, "closeConnection for fd: %d and fd: %d", fd[peer], fd[toPeer]);
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				if (node->data.addrInfoState == EMPTY) {
@@ -204,19 +204,19 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 					// seteo los argumentos necesarios para conectarse al server
 
 					// asegurarse que estamos en tipo de dominio
-					switch (node->data.request->start_line.target.host_type) {
+					switch (node->data.request->start_line.destination.host_type) {
 						case IPV4:
 						case IPV6:
-							strcpy(args->host, node->data.request->start_line.target.request_target.ip_addr);
+							strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
 							break;
 						case DOMAIN:
-							strcpy(args->host, node->data.request->start_line.target.request_target.host_name);
+							strcpy(args->host, node->data.request->start_line.destination.request_target.host_name);
 							break;
 						default:
 							logger(ERROR, "Tipo de dominio no identificado");
 					}
 
-					strcpy(args->service, node->data.request->start_line.target.port);
+					strcpy(args->service, node->data.request->start_line.destination.port);
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
 

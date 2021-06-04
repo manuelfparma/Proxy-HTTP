@@ -38,13 +38,14 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 
 	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
-	// TODO: liberar y chequear NULL ptr
 	new->data.request = malloc(sizeof(http_request));
+	if (new->data.request == NULL) goto FREE_BUFFER_2_DATA;
+
 	new->data.request->parsed_request = malloc(sizeof(buffer));
+	if (new->data.request->parsed_request == NULL) goto FREE_REQUEST;
+
 	new->data.request->parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	
-	//TODO: BORRAR
-//	logger(DEBUG, "Parse request: %p", (void *)new->data.request->parsed_request);
+	if (new->data.request->parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
 	new->data.request->parser_state = PS_METHOD;
 	new->data.request->package_status = PARSE_START_LINE_INCOMPLETE;
@@ -52,15 +53,22 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.request->copy_index = 0;
 	new->data.request->start_line.method[0] = '\0';
 	new->data.request->start_line.protocol[0] = '\0';
-	new->data.request->start_line.target.port[0] = '\0';
+	new->data.request->start_line.destination.port[0] = '\0';
+	new->data.request->start_line.destination.relative_path[0] = '\0';
+	new->data.request->header.header_type[0] = '\0';
+	new->data.request->header.header_value[0] = '\0';
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
 
 	return new;
 
-//FREE_BUFFER_2_DATA:
-//	free(new->data.serverToClientBuffer->data);
+FREE_REQUEST_BUFFER:
+	free(new->data.request->parsed_request);
+FREE_REQUEST:
+	free(new->data.request);
+FREE_BUFFER_2_DATA:
+	free(new->data.serverToClientBuffer->data);
 FREE_BUFFER_2:
 	free(new->data.serverToClientBuffer);
 FREE_BUFFER_1_DATA:
@@ -97,6 +105,9 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 	free(node->data.clientToServerBuffer->data);
 	free(node->data.clientToServerBuffer);
 	free(node->data.serverToClientBuffer);
+	free(node->data.request->parsed_request->data);
+	free(node->data.request->parsed_request);
+	free(node->data.request);
 
 	if (previous == NULL) {
 		// Caso primer nodo
