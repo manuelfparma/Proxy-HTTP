@@ -9,14 +9,15 @@ SOURCES_PROXY_UTILS= src/proxyutils.c
 SOURCES_LOGGER= src/logger.c
 SOURCES_CONNECTION= src/connection.c
 SOURCES_BUFFER = src/buffer.c
-OBJECTS = src/proxy.o src/parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o
+SOURCES_DOH_CLIENT = src/dohclient.c
+OBJECTS = src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o
 
 all: proxy
 
 # proxy: $(OBJECTS)
 # 	$(LD) -o httpd $^
 
-proxy: $(SOURCES_PROXY) $(SOURCES_PARSER) $(SOURCES_PROXY_UTILS) $(SOURCES_LOGGER) $(SOURCES_CONNECTION) $(SOURCES_BUFFER)
+proxy: ${SOURCES_PROXY} ${SOURCES_PARSER} $(SOURCES_PROXY_UTILS) $(SOURCES_LOGGER) $(SOURCES_CONNECTION) $(SOURCES_BUFFER) ${SOURCES_DOH_CLIENT}
 	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -o httpd $^
 
 # %.o: %.c

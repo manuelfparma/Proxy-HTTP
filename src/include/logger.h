@@ -3,6 +3,8 @@
 
 #include <proxyutils.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 typedef enum { DEBUG = 0, INFO, ERROR, FATAL } LEVEL;
 
 char *getLevelDescription(LEVEL level);
