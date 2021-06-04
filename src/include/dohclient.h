@@ -25,21 +25,21 @@
 	|                    ARCOUNT                    |
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 */
-// typedef struct {
-// 	unsigned int id : 16;
-// 	unsigned int qr : 1;
-// 	unsigned int opcode : 4;
-// 	unsigned int aa : 1;
-// 	unsigned int tc : 1;
-// 	unsigned int rd : 1;
-// 	unsigned int ra : 1;
-// 	unsigned int z : 3;
-// 	unsigned int rcode : 4;
-// 	unsigned int qdcount : 16;
-// 	unsigned int ancount : 16;
-// 	unsigned int nscount : 16;
-// 	unsigned int arcount : 16;
-// } dns_header;
+typedef struct {
+	uint16_t id;
+	unsigned int qr : 1;
+	unsigned int opcode : 4;
+	unsigned int aa : 1;
+	unsigned int tc : 1;
+	unsigned int rd : 1;
+	unsigned int ra : 1;
+	unsigned int z : 3;
+	unsigned int rcode : 4;
+	uint16_t qdcount;
+	uint16_t ancount;
+	uint16_t nscount;
+	uint16_t arcount;
+} dns_header;
 
 /*
  * Question DNS:

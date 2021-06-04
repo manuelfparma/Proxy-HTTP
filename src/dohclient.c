@@ -15,6 +15,7 @@ static int write_http_request(int fd, char *name);
 static size_t prepare_dns_question(dns_question question_info, char *question);
 static int prepare_dns_message(char *name, char *dns_message);
 static void copy_little_to_big(uint8_t *dest, uint8_t *src, size_t n, size_t data_size);
+static void copy_dns_header(void * dest, dns_header dns_header_info);
 
 static http_dns_request test_request = {.method = "POST",
 										.path = "/dns-query",
@@ -25,21 +26,19 @@ static http_dns_request test_request = {.method = "POST",
 										.content_length = 0,
 										.body = NULL};
 
-static char dns_header[12] = {0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0};
-
-// static dns_header test_dns_header = {.id = 0, // autoincrementar?
-// 									 .qr = 0,
-// 									 .opcode = 0,
-// 									 .aa = 0,
-// 									 .tc = 0,
-// 									 .rd = 1,
-// 									 .ra = 0,
-// 									 .z = 0,
-// 									 .rcode = 0,
-// 									 .qdcount = 1,
-// 									 .ancount = 0,
-// 									 .nscount = 0,
-// 									 .arcount = 0};
+static dns_header test_dns_header = {.id = 0, // autoincrementar?
+									 .qr = 0,
+									 .opcode = 0,
+									 .aa = 0,
+									 .tc = 0,
+									 .rd = 1,
+									 .ra = 0,
+									 .z = 0,
+									 .rcode = 0,
+									 .qdcount = 1,
+									 .ancount = 0,
+									 .nscount = 0,
+									 .arcount = 0};
 
 // TODO: Guarda que el type puede variar segun si pide IPv4 o IPv6 (A/AAAA record)
 static dns_question test_dns_question = {.name = "www.netflix.com", .class = 1, .type = 1};
@@ -113,9 +112,9 @@ static int write_http_request(int fd, char *name) {
 // Devuelve la cantidad de bytes que ocupa el mensaje
 static int prepare_dns_message(char *name, char *dns_message) {
 	// copiamos el header desde el string de template de header
-	memcpy(dns_message, dns_header, 12);
+	copy_dns_header(dns_message, test_dns_header);
 	
-	char *dns_quest = dns_message + 12;
+	char *dns_quest = dns_message + 6 * sizeof(uint16_t);
 
 	test_dns_question.name = name;
 
@@ -172,4 +171,34 @@ static void copy_little_to_big(uint8_t *dest, uint8_t *src, size_t n, size_t dat
 		for (size_t j = 0; j < data_size; j++)
 			dest[j + offset] = src[(data_size - j - 1) + offset];
 	}
+}
+
+static void copy_dns_header(void * dest, dns_header dns_header_info) {
+	size_t size_16 = sizeof(uint16_t), n = 0;
+
+	copy_little_to_big(dest, (uint8_t *) &dns_header_info.id, 1, size_16);
+	n += size_16;
+
+	uint16_t flags = 0;		//En esta variable voy a setear los flags
+	flags += dns_header_info.qr;
+	flags = flags << 4;
+	flags += dns_header_info.opcode;
+	flags = flags << 1;
+	flags += dns_header_info.aa;
+	flags = flags << 1;
+	flags += dns_header_info.tc;
+	flags = flags << 1;
+	flags += dns_header_info.rd;
+	flags = flags << 1;
+	flags += dns_header_info.ra;
+	flags = flags << 3;
+	flags += dns_header_info.z;
+	flags = flags << 4;
+	flags += dns_header_info.rcode;
+
+	copy_little_to_big((uint8_t *) dest + n, (uint8_t *) &flags, 1, size_16);
+
+	n += size_16;
+
+	copy_little_to_big((uint8_t *) dest + n, (uint8_t *) &dns_header_info.qdcount, 4, size_16);
 }
