@@ -47,6 +47,8 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 //	logger(DEBUG, "Parse request: %p", (void *)new->data.request->parsed_request);
 
 	new->data.request->parser_state = PS_METHOD;
+	new->data.request->package_status = PARSE_START_LINE_INCOMPLETE;
+	new->data.request->request_target_status = UNSOLVED;
 	new->data.request->copy_index = 0;
 	new->data.request->start_line.method[0] = '\0';
 	new->data.request->start_line.protocol[0] = '\0';

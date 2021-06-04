@@ -9,7 +9,10 @@
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 
 static void copy_to_request_buffer(buffer *target, char *source);
-static void tr_end(char current_char);
+static void tr_solve_request_target(char current_char);
+static void tr_line_ended(char current_char);
+static void parse_start_line(char current_char);
+//static void parse_header_line(char current_char);
 static void tr_set_http_path_type(char current_char);
 static void tr_copy_byte_port(char current_char);
 static void tr_set_host_type(char current_char);
@@ -78,30 +81,66 @@ static const http_parser_state_transition ST_IP[5] = {
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_IPv4[5] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_reset_copy_index},
-	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+static const http_parser_state_transition ST_IPv4[6] = {
+	{.when = ' ',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_HTTP_VERSION,
+	 .transition = tr_solve_request_target},
+	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
 	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv4, .transition = tr_copy_byte_ip},
+	{.when = '/',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_PATH_RELATIVE,
+	 .transition = tr_solve_request_target},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_copy_byte_ip},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_IPv6[5] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_reset_copy_index},
+static const http_parser_state_transition ST_IPv6[6] = {
+	{.when = ' ',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_HTTP_VERSION,
+	 .transition = tr_solve_request_target},
 	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_copy_byte_ip},
-	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
+	{.when = '/',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_PATH_RELATIVE,
+	 .transition = tr_solve_request_target},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv6, .transition = tr_copy_byte_ip},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_URI[3] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_reset_copy_index},
+static const http_parser_state_transition ST_URI[4] = {
+	{.when = ' ',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_HTTP_VERSION,
+	 .transition = tr_solve_request_target},
 	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
+	{.when = '/',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_PATH_RELATIVE,
+	 .transition = tr_solve_request_target},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_URI, .transition = tr_copy_byte_host_name},
 };
 
-static const http_parser_state_transition ST_PORT[3] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_reset_copy_index},
+static const http_parser_state_transition ST_PORT[4] = {
+	{.when = ' ',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_HTTP_VERSION,
+	 .transition = tr_solve_request_target},
+	{.when = '/',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_PATH_RELATIVE,
+	 .transition = tr_solve_request_target},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_PORT, .transition = tr_copy_byte_port},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
@@ -122,23 +161,24 @@ static const http_parser_state_transition ST_HTTP_VERSION[3] = {
 };
 
 static const http_parser_state_transition ST_CR[2] = {
-	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF, .transition = tr_reset_copy_index},
+	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF, .transition = tr_line_ended},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_LF[2] = {
+static const http_parser_state_transition ST_LF[1] = {
 	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR_END, .transition = tr_reset_copy_index},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+	//{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = ST_HEADER_TYPE, .transition = tr_reset_copy_index},
 	// ir a header
 };
 
 static const http_parser_state_transition ST_CR_END[2] = {
-	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF_END, .transition = tr_reset_copy_index},
+	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF_END, .transition = tr_adv},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
+// TODO: borrar si no es necesario
 static const http_parser_state_transition ST_LF_END[2] = {
-	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_FIN, .transition = tr_end},
+	{.when = '\0', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_FIN, .transition = tr_adv},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 	// ir a header?
 };
@@ -166,7 +206,29 @@ static void copy_to_request_buffer(buffer *target, char *source) {
 	}
 }
 
-static void tr_end(char current_char) {
+static void tr_solve_request_target(char current_char) { 
+	current_request->request_target_status = SOLVED;
+	tr_reset_copy_index(current_char);
+}
+
+static void tr_line_ended(char current_char) {
+	switch (current_request->package_status) {
+		case PARSE_START_LINE_INCOMPLETE:
+			current_request->package_status = PARSE_START_LINE_COMPLETE;
+			// rellenar parse_state con start line
+			parse_start_line(current_char);
+			break;
+		case PARSE_HEADER_LINE_INCOMPLETE:
+			current_request->package_status = PARSE_HEADER_LINE_COMPLETE;
+			// rellenar parse_state con header
+			break;
+		default:
+			logger(ERROR, "?????");
+	}
+}
+
+static void parse_start_line(char current_char) {
+
 	logger(DEBUG, "FILLING PARSE REQUEST");
 	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method);
 	copy_to_request_buffer(current_request->parsed_request, " ");
@@ -197,6 +259,8 @@ static void tr_end(char current_char) {
 					break;
 			}
 
+			// TODO: OJO RELATIVE NO SE ESTA COPIANDO?
+
 			copy_to_request_buffer(current_request->parsed_request, ":");
 			if (strlen(current_request->start_line.target.port) == 0) {
 				// verificar es null terminated desde el arranque
@@ -212,8 +276,7 @@ static void tr_end(char current_char) {
 			}
 			break;
 		case RELATIVE:
-			copy_to_request_buffer(current_request->parsed_request,
-								   current_request->start_line.target.request_target.relative_path);
+			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.target.relative_path);
 			break;
 		case NO_RESOURCE:
 			// TODO
@@ -227,6 +290,10 @@ static void tr_end(char current_char) {
 	copy_to_request_buffer(current_request->parsed_request, &current_request->start_line.version.major);
 	copy_to_request_buffer(current_request->parsed_request, ".");
 	copy_to_request_buffer(current_request->parsed_request, &current_request->start_line.version.minor);
+	copy_to_request_buffer(current_request->parsed_request, "\r\n");
+	if (current_request->start_line.target.path_type == ABSOLUTE)
+		copy_to_request_buffer(current_request->parsed_request, "Host: ");
+
 	copy_to_request_buffer(current_request->parsed_request, "\r\n\r\n");
 	copy_to_request_buffer(current_request->parsed_request, "\0");
 }
@@ -290,8 +357,8 @@ static void tr_copy_byte_protocol(char current_char) {
 
 static void tr_copy_byte_relative_path(char current_char) {
 	size_t *idx = &current_request->copy_index;
-	current_request->start_line.target.request_target.relative_path[*idx] = current_char;
-	current_request->start_line.target.request_target.relative_path[*idx + 1] = '\0';
+	current_request->start_line.target.relative_path[*idx] = current_char;
+	current_request->start_line.target.relative_path[*idx + 1] = '\0';
 	(*idx)++;
 }
 
@@ -326,6 +393,7 @@ static void tr_copy_byte_method(char current_char) {
 
 static void tr_parse_error(char current_char) {
 	// TODO: implementar
+	current_request->package_status = PARSE_ERROR;
 }
 
 static void tr_adv(char current_char) {}

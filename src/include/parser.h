@@ -4,6 +4,23 @@
 #include <buffer.h>
 #include <netinet/in.h>
 #include <stdint.h>
+
+typedef enum {
+	UNSOLVED, SOLVED,
+} http_request_target_status;
+
+typedef enum {
+	PARSE_ERROR,
+	PARSE_START_LINE_INCOMPLETE,
+	PARSE_START_LINE_COMPLETE,
+	PARSE_HEADER_LINE_INCOMPLETE,
+	PARSE_HEADER_LINE_COMPLETE,
+	PARSE_BODY_INCOMPLETE,
+	PARSE_BODY_COMPLETE,
+	PARSE_END,
+} parser_status_code;
+// deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
+
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
 	MAX_HEADER_NAME = 255,
@@ -64,7 +81,6 @@ typedef union {
 typedef union {
 	char host_name[MAX_HOST_NAME_LENGTH + 1];
 	char ip_addr[MAX_IP_LENGTH + 1];
-	char relative_path[MAX_RELATIVE_PATH + 1];
 } http_request_target;
 
 typedef struct {
@@ -73,6 +89,7 @@ typedef struct {
 	http_host_type host_type;
 	http_host host;
 	char port[MAX_PORT_LENGTH + 1];
+	char relative_path[MAX_RELATIVE_PATH + 1];	//ojo no se guarda con primer /
 } http_target;
 
 typedef struct {
@@ -88,11 +105,13 @@ typedef struct {
 } http_header;
 
 typedef struct {
-	http_start_line start_line;		// start_line(por si no se completo)
-	http_header header;				// header actual(por si no se completo)
-	buffer *parsed_request;			// listo para enviar
-	http_parser_state parser_state; // estado actual
-	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
+	http_start_line start_line;		   // start_line(por si no se completo)
+	http_header header;				   // header actual(por si no se completo)
+	buffer *parsed_request;			   // listo para enviar
+	http_parser_state parser_state;	   // estado actual
+	size_t copy_index;				   // indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
+	parser_status_code package_status; // codigo que indica el estado de los recursos leidos
+	http_request_target_status request_target_status;
 } http_request;
 
 int parse_request(http_request *request, buffer *read_buffer);

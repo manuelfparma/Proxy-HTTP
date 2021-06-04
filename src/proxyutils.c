@@ -189,8 +189,10 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 					}
 
 					parse_request(node->data.request, node->data.clientToServerBuffer);
-
-					logger(DEBUG, "parse request: %s", node->data.request->parsed_request->data);
+					if(node->data.request->request_target_status == UNSOLVED){
+						logger(DEBUG, "Request target not solved yet");
+						return 1;
+					}
 
 					node->data.addrInfoState = FETCHING;
 
@@ -209,7 +211,6 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 							break;
 						case DOMAIN:
 							strcpy(args->host, node->data.request->start_line.target.request_target.host_name);
-
 							break;
 						default:
 							logger(ERROR, "Tipo de dominio no identificado");
