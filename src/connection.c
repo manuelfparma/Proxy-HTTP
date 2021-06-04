@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <parser.h>
 
 extern ConnectionHeader connections;
 
@@ -37,10 +38,20 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 
 	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
+	// TODO: liberar y chequear NULL ptr
+	new->data.request = malloc(sizeof(http_request));
+	new->data.request->parsed_request = malloc(sizeof(buffer));
+	new->data.request->parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+
+	new->data.request->parser_state = PS_METHOD;
+	new->data.request->copy_index = 0;
+	
+
+	//BORRAR
 	//TODO: liberar y chequear NULL ptr
-	new->data.parser = malloc(sizeof(parser_data));
-	new->data.parser->current_index = 0;
-	new->data.parser->parse_state = METHOD;
+	// new->data.parser = malloc(sizeof(parser_data));
+	// new->data.parser->current_index = 0;
+	// new->data.parser->parse_state = METHOD;
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);

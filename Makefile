@@ -1,5 +1,3 @@
-PHONY: all proxy clean
-
 CFLAGS= -g -std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -D_POSIX_C_SOURCE=200112L
 FSANITIZE= -fsanitize=address
 
@@ -24,3 +22,5 @@ proxy: $(SOURCES_PROXY) $(SOURCES_PARSER) $(SOURCES_PROXY_UTILS) $(SOURCES_LOGGE
 
 clean:
 	rm -rf httpd src/*.o
+
+.PHONY: all proxy clean

@@ -188,20 +188,24 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 						return -1; // TODO: ???????
 					}
 
-					char host_name[URI_MAX_LENGTH +1] = {0};
-					char port[PORT_MAX_LENGTH +1] = {0};
-					switch (parse_request(node, host_name, port)){
-						case PARSE_INCOMPLETE:
-							//Todavia no se parseo el host_name
-							logger(INFO, "host_name:port not received");
-							return 1;
-						case PARSE_ERROR:
-							return -1;
-						case PARSE_OK:
+
+					//BORRAR
+					// char host_name[URI_MAX_LENGTH +1] = {0};
+					// char port[PORT_MAX_LENGTH +1] = {0};
+					// switch (parse_request(node, host_name, port)){
+					// 	case PARSE_INCOMPLETE:
+					// 		//Todavia no se parseo el host_name
+					// 		logger(INFO, "host_name:port not received");
+					// 		return 1;
+					// 	case PARSE_ERROR:
+					// 		return -1;
+					// 	case PARSE_OK:
 					
-						default:
-							break;
-					}
+					// 	default:
+					// 		break;
+					// }
+
+					parse_request(node->data.request, node->data.clientToServerBuffer);
 
 					node->data.addrInfoState = FETCHING;
 
@@ -211,8 +215,11 @@ int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSe
 					args->main_thread_id = malloc(10 * sizeof(char));
 					args->connection = malloc(sizeof(ConnectionNode));
 					// seteo los argumentos necesarios para conectarse al server
-					strcpy(args->host, host_name);
-					strcpy(args->service, port);
+
+					//asegurarse que estamos en tipo de dominio
+					strcpy(args->host, node->data.request->start_line.target.request_target.host_name);
+
+					strcpy(args->service, "8080");
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
 
