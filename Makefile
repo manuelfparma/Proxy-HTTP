@@ -10,6 +10,7 @@ SOURCES_LOGGER= src/logger.c
 # SOURCES_CONNECTION= src/connection.c
 # SOURCES_BUFFER = src/buffer.c
 SOURCES_DOH_CLIENT = src/dohclient.c
+SOURCES_DNS_UTILS = src/dnsutils.c
 OBJECTS = src/logger.o src/dohclient.o
 
 all: proxy
@@ -17,7 +18,7 @@ all: proxy
 # proxy: $(OBJECTS)
 # 	$(LD) -o httpd $^
 
-proxy: $(SOURCES_LOGGER) ${SOURCES_DOH_CLIENT}
+proxy: $(SOURCES_LOGGER) ${SOURCES_DOH_CLIENT} ${SOURCES_DNS_UTILS}
 	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -o httpd $^
 
 # %.o: %.c

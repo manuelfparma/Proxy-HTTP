@@ -1,11 +1,11 @@
-#include "include/dohclient.h"
-#include "include/logger.h"
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <dnsutils.h>
+#include <dohclient.h>
 #include <errno.h>
+#include <logger.h>
 #include <netinet/in.h>
 #include <stdbool.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -13,16 +13,18 @@
 // TODO: Acordar valor con Octa y Mana
 #define MAX_HEADER_VALUE_LENGTH 1024
 static const char *DOH_SERVER = "127.0.0.1";
+// TODO: PASAR A CHAR*
 static const uint16_t DOH_PORT = 8053;
 
 static int connect_to_server(char *doh_host, char *doh_port);
 static int write_http_request(int fd, char *name);
-static size_t prepare_dns_question(dns_question question_info, char *question);
-static int prepare_dns_message(char *name, char *dns_message);
-static void copy_little_to_big(uint8_t *dest, uint8_t *src, size_t n, size_t data_size);
-static void copy_dns_header(void *dest, dns_header dns_header_info);
-static int strncmp_case_insensitive(char *s1, char *s2, size_t n);
+static size_t prepare_dns_question(dns_question question_info, uint8_t *question);
+static int prepare_dns_message(char *name, uint8_t *dns_message);
+static void copy_dns_header(uint8_t *dest, dns_header dns_header_info);
+static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n);
 static int read_http_response(int fd);
+static long find_content_length(uint8_t *response, int *match_offset, ssize_t response_length);
+static int parse_dns_message(uint8_t *message, long length);
 
 static http_dns_request test_request = {.method = "POST",
 										.path = "/dns-query",
@@ -33,7 +35,7 @@ static http_dns_request test_request = {.method = "POST",
 										.content_length = 0,
 										.body = NULL};
 
-static dns_header test_dns_header = {.id = 0, // autoincrementar?
+static dns_header test_dns_header = {.id = 1, // autoincrementar?
 									 .qr = 0,
 									 .opcode = 0,
 									 .aa = 0,
@@ -68,7 +70,7 @@ int solve_name(char *name, char *doh_host, char *doh_port) {
 	return read_http_response(dns_sock);
 }
 
-int main() { return solve_name("google.com", "127.0.0.1", "8053"); }
+int main() { return solve_name("netflix.com", "127.0.0.1", "8053"); }
 
 // TODO: cablear host y puerto dinamico
 static int connect_to_server(char *doh_host, char *doh_port) {
@@ -83,6 +85,7 @@ static int connect_to_server(char *doh_host, char *doh_port) {
 
 	dns_addr.sin_family = AF_INET;
 	dns_addr.sin_port = htons(DOH_PORT);
+	// TODO: cambiar a inet_aton
 	dns_addr.sin_addr.s_addr = inet_addr(DOH_SERVER);
 
 	if (dns_addr.sin_addr.s_addr == (in_addr_t)-1) {
@@ -100,8 +103,8 @@ static int connect_to_server(char *doh_host, char *doh_port) {
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
 static int write_http_request(int fd, char *name) {
-	char request[HTTP_PACKET_LENGTH] = {0};
-	char dns_message[DNS_MESSAGE_LENGTH] = {0};
+	uint8_t request[HTTP_PACKET_LENGTH] = {0};
+	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 
 	// Copiamos el mensaje de DNS en un buffer
 	int dns_message_length = prepare_dns_message(name, dns_message);
@@ -109,7 +112,7 @@ static int write_http_request(int fd, char *name) {
 
 	// Copiamos los headers del paquete HTTP en otro buffer
 	int http_headers_size =
-		sprintf(request, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
+		sprintf((char *)request, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
 				test_request.method, test_request.path, test_request.http_version, test_request.host, test_request.accept,
 				test_request.content_type, dns_message_length);
 
@@ -128,8 +131,10 @@ static int write_http_request(int fd, char *name) {
 	return sent_bytes;
 }
 
+// Función que dado un FD de un socket lee de este, esperando una respuesta
+// de DoH, y vuelca el mensaje DNS en una esctructura dns_answer.
 static int read_http_response(int fd) {
-	char response[HTTP_PACKET_LENGTH] = {0};
+	uint8_t response[HTTP_PACKET_LENGTH] = {0};
 	// TODO: Pasar a select con socket no bloqueante
 	// TODO: Manejar estados para recibir de a chunks
 
@@ -145,53 +150,17 @@ static int read_http_response(int fd) {
 	char *http_200 = "HTTP/1.1 200 OK\r\n";
 	int http_200_len = strlen(http_200);
 
-	if (strncmp(response, http_200, http_200_len) != 0) {
+	// Buscamos que haya sido una response exitosa de HTTP
+	if (strncmp((char *)response, http_200, http_200_len) != 0) {
 		logger(ERROR, "read_http_response(): expected \"HTTP/1.1 200 OK\r\rn\", got \"%.*s\"", http_200_len, http_200);
 		return -1;
 	}
 
 	logger(INFO, "found HTTP/1.1 200 OK line header");
 
-	char *content_length = "content-length:";
-	int content_length_len = strlen(content_length);
-	long parsed_length = -1;
-
 	// Comenzamos a buscar matches con "content-length:"
-
-	int i;
-	for (i = http_200_len; i < recv_bytes; i++) {
-		if (response[i - 2] == '\r' && response[i - 1] == '\n' && tolower(response[i]) == 'c') {
-			if (strncmp_case_insensitive(response + i, content_length, content_length_len) == 0) {
-				// TODO: Pasar a funcion auxiliar
-				// si matcheo, parseamos el valor a partir de ':'
-				int j;
-				int offset = i + content_length_len; // posicion despues del char ';'
-
-				// TODO: Que pasa con len si sale por j < recv_bytes - 1 pero terminaba con \r\n correctamente?
-				for (j = offset; j < recv_bytes - 1 && response[j] != '\r' && response[j + 1] != '\n'; j++)
-					;
-
-				if (j == recv_bytes - 1) {
-					logger(ERROR, "read_http_response(): unable to parse Content-Length value, response ended unexpectedly");
-					return -1;
-				}
-
-				// copiamos el valor a un buffer auxiliar
-				char length_value[MAX_HEADER_VALUE_LENGTH] = {0};
-				int len = j - offset; // Longitud del string del valor del header Content-Length
-				strncpy(length_value, response + offset, len);
-
-				parsed_length = strtol(length_value, NULL, 10);
-				if (parsed_length == 0 && errno == EINVAL) {
-					logger(ERROR, "strtol(): %s", strerror(errno));
-					return -1;
-				} else {
-					i = j; // Guardo posicion de lo ultimo parseado
-					break;
-				}
-			}
-		}
-	}
+	int offset;
+	long parsed_length = find_content_length(response + http_200_len, &offset, recv_bytes - http_200_len);
 
 	if (parsed_length == -1) {
 		logger(ERROR, "read_http_response(): no Content-Length header found");
@@ -199,32 +168,211 @@ static int read_http_response(int fd) {
 	}
 
 	logger(INFO, "found Content-Length: %ld", parsed_length);
-	
+
+	// Como el offset devolvio la diferencia a partir del /r/n de la primera linea y el fin del header Content-Length, le sumo
+	// la longitud de la primera linea para que sea un offset absoluto sobre el paquete HTTP
+	offset += http_200_len;
 	// Ahora buscamos el comienzo del mensaje DNS
-	for (; i < recv_bytes - 3 && response[i] == '\r' && response[i + 1] == '\n' && response[i + 2] == '\r' &&
-		   response[i + 3] == '\n';
-		 i++)
-		;
-	
-	if (i == recv_bytes - 3) {
+	for (; offset < recv_bytes - 3 && !(response[offset] == '\r' && response[offset + 1] == '\n' &&
+										response[offset + 2] == '\r' && response[offset + 3] == '\n');
+		 offset++) {
+		char c1 = (char)response[offset];
+		char c2 = (char)response[offset + 1];
+		char c3 = (char)response[offset + 2];
+		char c4 = (char)response[offset + 3];
+		logger(DEBUG, "%c, %c, %c, %c", c1, c2, c3, c4);
+	};
+
+	if (offset == recv_bytes - 3) {
 		logger(ERROR, "read_http_response(): no body found in HTTP response");
 		return -1;
 	}
 
-	// Muevo i al comienzo del cuerpo
-	i += 4;
-	logger(INFO, "found HTTP request body in position %d", i);
+	// Muevo offset al comienzo del cuerpo
+	offset += 4;
+	logger(INFO, "found HTTP request body in position %d", offset);
 
-	return i;
+	// A partir de este offset hay que parsear la response DNS
+	parse_dns_message(response + offset, parsed_length);
+
+	return 0;
+}
+
+// Funcion auxiliar que recibe un puntero a la respuesta HTTP, su tamaño restante,
+// y encuentra y parsea el header "Content-Length"
+// En caso exitoso, devuelve la longitud parseada y asigna en match_offset
+// el indice donde termina el header. En caso de error devuelve -1
+static long find_content_length(uint8_t *response, int *match_offset, ssize_t response_length) {
+	char *content_length = "content-length:";
+	int content_length_len = strlen(content_length);
+	long parsed_length = -1;
+	int i;
+
+	for (i = 0; i < response_length; i++) {
+		if (response[i - 2] == '\r' && response[i - 1] == '\n' && tolower(response[i]) == 'c') {
+			if (strncmp_case_insensitive(response + i, (uint8_t *)content_length, content_length_len) == 0) {
+				// TODO: Pasar a funcion auxiliar
+				// si matcheo, parseamos el valor a partir de ':'
+				int j;
+				int offset = i + content_length_len; // posicion despues del uint8_t ';'
+
+				// TODO: Que pasa con len si sale por j < response_length - 1 pero terminaba con \r\n correctamente?
+				for (j = offset; j < response_length - 1 && response[j] != '\r' && response[j + 1] != '\n'; j++)
+					;
+
+				if (j == response_length - 1) {
+					logger(ERROR, "read_http_response(): unable to parse Content-Length value, response ended unexpectedly");
+					return -1;
+				}
+
+				// copiamos el valor a un buffer auxiliar
+				char length_value[MAX_HEADER_VALUE_LENGTH] = {0};
+				int len = j - offset; // Longitud del string del valor del header Content-Length
+				strncpy(length_value, (char *)response + offset, len);
+
+				parsed_length = strtol(length_value, NULL, 10); // Extraccion del valor
+				if (parsed_length == 0 && errno == EINVAL) {
+					logger(ERROR, "strtol(): %s", strerror(errno));
+					return -1;
+				} else {
+					i = j; // Guardamos la posicion donde se matcheo
+					break;
+				}
+			}
+		}
+	}
+
+	*match_offset = i;
+
+	return parsed_length;
+}
+
+static int parse_dns_message(uint8_t *message, long length) {
+	// Obtenemos el id y validamos
+	// TODO: Ver si lo levanta como little endian o big endian
+	uint16_t id;
+	read_big_endian_16(&id, message, 1);
+
+	if (id != test_dns_header.id) {
+		// No es nuestra request
+		logger(ERROR, "parse_dns_message(): expected id %d, got %d", test_dns_header.id, id);
+		return -1;
+	}
+
+	// Obtenemos el flag QR y validamos
+	message += SIZE_16;
+	uint8_t qr_flag = (*message >> 7);
+
+	if (qr_flag == 0) {
+		// No es una response
+		logger(ERROR, "parse_dns_message(): expected a DNS response, got DNS query instead");
+		return -1;
+	}
+
+	// Obtenemos el RCODE y validamos
+	message += SIZE_8;
+	uint8_t rcode = (*message & 15);
+
+	if (rcode != 0) {
+		// Hubo error al procesar la query en el servidor DNS
+		logger(ERROR, "parse_dns_message(): error in DNS query");
+		return -1;
+	}
+
+	// Obtenemos la cantidad de preguntas y de respuestas en el mensaje
+	message += SIZE_8;
+	uint16_t qdcount;
+	uint16_t ancount;
+
+	read_big_endian_16(&qdcount, message, 1);
+	message += SIZE_16;
+	read_big_endian_16(&ancount, message, 1);
+
+	// Saltamos a la question section y salteamos cada pregunta
+	message += 3 * SIZE_16;
+	for (size_t i = 0; i < qdcount; i++) {
+		// Salteamos hasta encontrar el octeto nulo que indica la label raiz en la pregunta
+		while (*message++ != 0)
+			;
+		// Salteamos QTYPE y QCLASS
+		message += 2 * SIZE_16;
+	}
+
+	// Parseo de answers - RFC 1035 - Sec. 4.1.3.
+	bool is_compressed = false;
+	for (size_t i = 0; i < ancount; i++) {
+		// Salteamos campo NAME teniendo en cuenta posible compresion - RFC 1035 - Sec. 4.1.4.
+		uint8_t label_count;
+		do {
+			label_count = *message;
+
+			//	Checkeamos si estan activados los flags de pointer
+			if ((label_count >> 6) == 3) {
+				// Es un puntero, por ende saltamos 16 bits y termina la seccion de NAME
+				message += SIZE_16;
+				is_compressed = true;
+				break;
+			}
+
+			// Si no era puntero avanzamos tantas posiciones como especifica label_count
+			do {
+				message += SIZE_8;
+			} while (label_count--);
+		} while (*message != 0);
+
+		// Si salio del ciclo por encontrar la longitud de la label de root (0x0), avanzamos 1 byte
+		if (!is_compressed)
+			message += SIZE_8;
+
+		// Aca ya pasamos el name
+		// Vemos si coincide el type con el solicitado en la query
+		uint16_t type;
+		read_big_endian_16(&type, message, 1);
+
+		if (type != test_dns_question.type) {
+			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
+			return -1;
+			// Error
+		}
+
+		// Vemos lo mismo con class
+		message += SIZE_16;
+		uint16_t class;
+		read_big_endian_16(&class, message, 1);
+
+		if (class != test_dns_question.class) {
+			logger(ERROR, "parse_dns_message(): expected class %d record, got class = %d", test_dns_question.class, class);
+			return -1;
+			// Error
+		}
+
+		// Avanzamos CLASS y Salteamos TTL
+		message += 3 * SIZE_16;
+
+		uint16_t rdlength;
+		read_big_endian_16(&rdlength, message, 1);
+
+		message += SIZE_16;
+
+
+		// s_addr debe estar en Big Endian
+		struct in_addr ip_addr;
+		ip_addr.s_addr = *((uint32_t *)message);
+		logger(INFO, "found IP address %s", inet_ntoa(ip_addr));
+
+		message += rdlength;
+	}
+
+	return 0;
 }
 
 // Funcion que prepara un mensaje DNS completo con headers y question dado un FQDN
 // Devuelve la cantidad de bytes que ocupa el mensaje
-static int prepare_dns_message(char *name, char *dns_message) {
-	// copiamos el header desde el string de template de header
+static int prepare_dns_message(char *name, uint8_t *dns_message) {
+	// copiamos el header en el mensaje
 	copy_dns_header(dns_message, test_dns_header);
 
-	char *dns_quest = dns_message + 6 * sizeof(uint16_t);
+	uint8_t *dns_quest = dns_message + 6 * SIZE_16;
 
 	test_dns_question.name = name;
 
@@ -237,7 +385,7 @@ static int prepare_dns_message(char *name, char *dns_message) {
 
 // Función uelca los campos de una estructura de DNS question a un buffer y devuelve la cantidad
 // de bytes copiados
-static size_t prepare_dns_question(dns_question question_info, char *question) {
+static size_t prepare_dns_question(dns_question question_info, uint8_t *question) {
 	size_t n = 0;
 	char *label = question_info.name;
 
@@ -261,23 +409,20 @@ static size_t prepare_dns_question(dns_question question_info, char *question) {
 	// null para indicar label de root del dominio
 	question[n++] = 0;
 
-	// copiamos QTYPE y QCLASS
-	// int copy_size = 2 * sizeof(uint16_t);
-	// memcpy(question + n, &question_info.type, copy_size);
-	// n += copy_size;
-
 	// Copiamos de little endian a big endian el QTYPE y QCLASS
-	copy_little_to_big((uint8_t *)(question + n), (uint8_t *)&question_info.type, 2, sizeof(uint16_t));
-	n += 2 * sizeof(uint16_t);
+	write_big_endian_16(question + n, &question_info.type, 1);
+	n += SIZE_16;
+	write_big_endian_16(question + n, &question_info.class, 1);
+	n += SIZE_16;
 
 	return n;
 }
 
-static void copy_dns_header(void *dest, dns_header dns_header_info) {
-	size_t size_16 = sizeof(uint16_t), n = 0;
+static void copy_dns_header(uint8_t *dest, dns_header dns_header_info) {
+	size_t n = 0;
 
-	copy_little_to_big(dest, (uint8_t *)&dns_header_info.id, 1, size_16);
-	n += size_16;
+	write_big_endian_16(dest, &dns_header_info.id, 1);
+	n += SIZE_16;
 
 	uint16_t flags = 0; // En esta variable voy a setear los flags
 	flags += dns_header_info.qr;
@@ -297,24 +442,20 @@ static void copy_dns_header(void *dest, dns_header dns_header_info) {
 	flags = flags << 4;
 	flags += dns_header_info.rcode;
 
-	copy_little_to_big((uint8_t *)dest + n, (uint8_t *)&flags, 1, size_16);
+	write_big_endian_16(dest + n, &flags, 1);
 
-	n += size_16;
+	n += SIZE_16;
 
-	copy_little_to_big((uint8_t *)dest + n, (uint8_t *)&dns_header_info.qdcount, 4, size_16);
+	write_big_endian_16(dest + n, &dns_header_info.qdcount, 1);
+	n += SIZE_16;
+	write_big_endian_16(dest + n, &dns_header_info.ancount, 1);
+	n += SIZE_16;
+	write_big_endian_16(dest + n, &dns_header_info.nscount, 1);
+	n += SIZE_16;
+	write_big_endian_16(dest + n, &dns_header_info.arcount, 1);
 }
 
-// Funcion auxiliar que copia informacion almacenada en little endian en formato big endian
-// dados una zona de memoria destino, otra de origen, una cantidad de bytes, y el tamaño de los datos a copiar
-static void copy_little_to_big(uint8_t *dest, uint8_t *src, size_t n, size_t data_size) {
-	for (size_t i = 0; i < n; i++) {
-		size_t offset = i * data_size;
-		for (size_t j = 0; j < data_size; j++)
-			dest[j + offset] = src[(data_size - j - 1) + offset];
-	}
-}
-
-static int strncmp_case_insensitive(char *s1, char *s2, size_t n) {
+static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n) {
 	size_t i;
 	for (i = 0; i < n && s1[i] != 0 && s2[i] != 0 && tolower(s1[i]) == tolower(s2[i]); i++)
 		;

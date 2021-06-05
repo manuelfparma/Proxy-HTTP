@@ -2,12 +2,12 @@
 httpd
 
 # VSCode
-.vscode/*
+.vscode
 *.json
 
 
 # JetBrains
-.idea/*
+.idea
 
 # GDB Config
 .gdbinit
