@@ -35,6 +35,11 @@ typedef enum {
 } http_request_constraints;
 
 typedef enum {
+	EMPTY_VERSION = -1,
+
+} constants;
+
+typedef enum {
 	PS_METHOD,
 	PS_PATH,
 	PS_PATH_RELATIVE,

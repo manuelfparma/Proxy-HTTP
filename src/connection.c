@@ -55,11 +55,14 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.request->start_line.protocol[0] = '\0';
 	new->data.request->start_line.destination.port[0] = '\0';
 	new->data.request->start_line.destination.relative_path[0] = '\0';
+	new->data.request->start_line.version.major = EMPTY_VERSION;
+	new->data.request->start_line.version.minor = EMPTY_VERSION;
 	new->data.request->header.header_type[0] = '\0';
 	new->data.request->header.header_value[0] = '\0';
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
+	buffer_init(new->data.request->parsed_request, BUFFER_SIZE, new->data.request->parsed_request->data);
 
 	return new;
 
@@ -97,7 +100,7 @@ void addToConnections(ConnectionNode *node) {
 	connections.clients++;
 }
 
-void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet) {
+void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
 	int clientFd = node->data.clientSock, serverFd = node->data.serverSock;
 	loggerPeer(CLIENT, "Socket with fd: %d disconnected", clientFd);
 	loggerPeer(SERVER, "Socket with fd: %d disconnected", serverFd);
@@ -118,10 +121,10 @@ void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *wri
 
 	free(node);
 
-	FD_CLR(clientFd, &readFdSet[BASE]);
-	FD_CLR(clientFd, &writeFdSet[BASE]);
-	FD_CLR(serverFd, &readFdSet[BASE]);
-	FD_CLR(serverFd, &writeFdSet[BASE]);
+	FD_CLR(clientFd, &read_fd_set[BASE]);
+	FD_CLR(clientFd, &write_fd_set[BASE]);
+	FD_CLR(serverFd, &read_fd_set[BASE]);
+	FD_CLR(serverFd, &write_fd_set[BASE]);
 	close(clientFd);
 	close(serverFd);
 

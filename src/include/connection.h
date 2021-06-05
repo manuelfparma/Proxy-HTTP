@@ -37,6 +37,6 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock);
 
 void addToConnections(ConnectionNode *node);
 
-void closeConnection(ConnectionNode *node, ConnectionNode *previous, fd_set *writeFdSet, fd_set *readFdSet);
+void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
 
 #endif

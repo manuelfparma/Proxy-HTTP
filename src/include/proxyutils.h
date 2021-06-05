@@ -33,8 +33,14 @@ typedef enum { CLIENT, SERVER } PEER;
 int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
 					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
 
-size_t handleOperation(int fd, buffer *buffer, OPERATION operation);
+size_t handle_operation(int fd, buffer *buffer, OPERATION operation);
 
 int setup_connection(ConnectionNode *node, fd_set *writeFdSet);
+
+int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+					 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+					 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
 #endif

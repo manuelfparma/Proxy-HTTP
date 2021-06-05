@@ -9,7 +9,7 @@
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 
-static void copy_to_request_buffer(buffer *target, char *source);
+static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void tr_solve_request_target(char current_char);
 static void tr_line_ended(char current_char);
 static void parse_start_line(char current_char);
@@ -209,20 +209,27 @@ static const size_t states_n[] = {
 	N(ST_CR),	  N(ST_LF),	  N(ST_CR_END),
 };
 
-// source debe ser NULL TERMINATED
-static void copy_to_request_buffer(buffer *target, char *source) {
-	ssize_t bytes = strlen((const char *)source);
+static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) {
 	ssize_t bytes_available = (ssize_t)(target->limit - target->write);
 	if (bytes > bytes_available) {
-		strncpy((char *)target, (const char *)source, bytes_available);
+		strncpy((char *)target->write, (const char *)source, bytes_available);
 		buffer_write_adv(current_request->parsed_request, bytes_available);
 	} else {
-		strcpy((char *)target, (const char *)source);
+		strcpy((char *)target->write, (const char *)source);
 		buffer_write_adv(current_request->parsed_request, bytes);
 	}
 }
 
-static void tr_request_ended(char current_char) { copy_to_request_buffer(current_request->parsed_request, "\r\n"); }
+static void copy_char_to_request_buffer(buffer * target, char c) {
+	buffer_write(target, (uint8_t) c);
+}
+
+static void tr_request_ended(char current_char) {
+	logger(DEBUG, "tr_request_ended");
+	char *cr_lf = "\r\n";
+	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
+	current_request->parser_state = PARSE_END;
+}
 
 static void tr_incomplete_header(char current_char) {
 	current_request->package_status = PARSE_HEADER_LINE_INCOMPLETE;
@@ -255,6 +262,7 @@ static int find_idx(char *array, char c) {
 }
 
 static void tr_line_ended(char current_char) {
+	char *delimiter = ": ";
 	switch (current_request->package_status) {
 		case PARSE_START_LINE_INCOMPLETE:
 			// rellenar parse_state con start line
@@ -293,22 +301,27 @@ static void tr_line_ended(char current_char) {
 							   current_request->header.header_value);
 				}
 
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type);
-				copy_to_request_buffer(current_request->parsed_request, ": ");
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value);
+				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
+									   strlen(current_request->header.header_type));
+				copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
+				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
+									   strlen(current_request->header.header_value));
 				current_request->request_target_status = SOLVED;
 			} else if (strcmp("Host", current_request->header.header_type) != 0) {
 				// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type);
-				copy_to_request_buffer(current_request->parsed_request, ": ");
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value);
+				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
+									   strlen(current_request->header.header_type));
+				copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
+				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
+									   strlen(current_request->header.header_value));
 				current_request->package_status = PARSE_HEADER_LINE_COMPLETE;
 			}
+			char *cr_lf = "\r\n";
+			copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 			break;
 		default:
 			logger(ERROR, "?????");
 	}
-	copy_to_request_buffer(current_request->parsed_request, "\r\n");
 }
 
 static void copy_to_request_buffer_request_target() {
@@ -316,11 +329,13 @@ static void copy_to_request_buffer_request_target() {
 		case IPV4:
 		case IPV6:
 			copy_to_request_buffer(current_request->parsed_request,
-								   current_request->start_line.destination.request_target.ip_addr);
+								   current_request->start_line.destination.request_target.ip_addr,
+								   strlen(current_request->start_line.destination.request_target.ip_addr));
 			break;
 		case DOMAIN:
 			copy_to_request_buffer(current_request->parsed_request,
-								   current_request->start_line.destination.request_target.host_name);
+								   current_request->start_line.destination.request_target.host_name,
+								   strlen(current_request->start_line.destination.request_target.host_name));
 			break;
 		default:
 			// TODO: error
@@ -329,37 +344,41 @@ static void copy_to_request_buffer_request_target() {
 }
 
 static void parse_start_line(char current_char) {
-
-	logger(DEBUG, "FILLING PARSE REQUEST");
-	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method);
-	copy_to_request_buffer(current_request->parsed_request, " ");
+	char *double_slash = "//";
+	logger(DEBUG, "Parsing start_line");
+	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method,strlen(current_request->start_line.method));
+	copy_char_to_request_buffer(current_request->parsed_request, ' ');
 
 	switch (current_request->start_line.destination.path_type) {
 		case ABSOLUTE:
-			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.protocol);
-			copy_to_request_buffer(current_request->parsed_request, ":");
+			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.protocol, strlen(current_request->start_line.protocol));
+			copy_char_to_request_buffer(current_request->parsed_request, ':');
 
 			// Si es http o https va con '//', source: https://datatracker.ietf.org/doc/html/rfc7230#section-2.7.1
 			if (strcmp("http", current_request->start_line.protocol) == 0 ||
 				strcmp("https", current_request->start_line.protocol) == 0)
 				// TODO:implementar case-unsensitive guardando el protocolo en minuscula
-				copy_to_request_buffer(current_request->parsed_request, "//");
+				copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
 
 			copy_to_request_buffer_request_target();
 
-			copy_to_request_buffer(current_request->parsed_request, ":");
+			copy_char_to_request_buffer(current_request->parsed_request, ':');
 			if (strlen(current_request->start_line.destination.port) == 0) {
 				// verificar es null terminated desde el arranque
+				char *port;
 				if (strcmp("http", current_request->start_line.protocol) == 0) {
-					strcpy(current_request->start_line.destination.port, "80");
-					copy_to_request_buffer(current_request->parsed_request, "80");
+					port = "80";
+					strcpy(current_request->start_line.destination.port, port);
+					copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
 				} else if (strcmp("https", current_request->start_line.protocol) == 0) {
-					strcpy(current_request->start_line.destination.port, "433");
-					copy_to_request_buffer(current_request->parsed_request, "433");
+					port = "433";
+					strcpy(current_request->start_line.destination.port, port);
+					copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
 				}
 			} else {
-				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port);
+				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port, strlen(current_request->start_line.destination.port));
 			}
+			copy_char_to_request_buffer(current_request->parsed_request, '/');
 			break;
 		case RELATIVE:
 			break;
@@ -369,20 +388,21 @@ static void parse_start_line(char current_char) {
 			// TODO: error
 			break;
 	}
-
-	copy_to_request_buffer(current_request->parsed_request, "/");
-	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.relative_path);
-	copy_to_request_buffer(current_request->parsed_request, " HTTP/");
-	copy_to_request_buffer(current_request->parsed_request, &current_request->start_line.version.major);
-	copy_to_request_buffer(current_request->parsed_request, ".");
-	copy_to_request_buffer(current_request->parsed_request,
-						   &current_request->start_line.version.minor); // TODO: Deberia ir siempre 0 para que sea mejor?
-	copy_to_request_buffer(current_request->parsed_request, "\r\n");
+	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.relative_path,
+						   strlen(current_request->start_line.destination.relative_path));
+	char *http = " HTTP/";
+	copy_to_request_buffer(current_request->parsed_request, http, strlen(http));
+	copy_char_to_request_buffer(current_request->parsed_request, current_request->start_line.version.major);
+	copy_char_to_request_buffer(current_request->parsed_request, '.');
+	copy_char_to_request_buffer(current_request->parsed_request, current_request->start_line.version.minor);
+	char *cr_lf = "\r\n";
+	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 
 	if (current_request->start_line.destination.path_type == ABSOLUTE) {
-		copy_to_request_buffer(current_request->parsed_request, "Host: ");
+		char *header_host = "Host: ";
+		copy_to_request_buffer(current_request->parsed_request, header_host, strlen(header_host));
 		copy_to_request_buffer_request_target();
-		copy_to_request_buffer(current_request->parsed_request, "\r\n");
+//		copy_to_request_buffer(current_request->parsed_request,  cr_lf, strlen(cr_lf));
 	}
 }
 
@@ -424,9 +444,9 @@ static void tr_set_host_type(char current_char) {
 static void tr_http_version(char current_char) {
 	if ('9' >= current_char && current_char >= '0') {
 		// TODO chequear inicializacion en NULL
-		if (current_request->start_line.version.major == EMPTY) {
+		if (current_request->start_line.version.major == EMPTY_VERSION) {
 			current_request->start_line.version.major = current_char;
-		} else if (current_request->start_line.version.minor == EMPTY) {
+		} else if (current_request->start_line.version.minor == EMPTY_VERSION) {
 			current_request->start_line.version.minor = current_char;
 		} else {
 			// version no soportada
