@@ -116,18 +116,22 @@ void *resolve_addr(void *args) {
 	// Get address(es)
 	struct addrinfo *servAddr; // Holder for returned list of server addrs
 	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
+	pthread_t aux_main_pthread_id = *main_thread_id;
+
 	if (addrInfoResult != 0) {
 		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
 		free(host);
 		free(service);
 		free(threadArgs);
-		freeaddrinfo(servAddr);
+		free(main_thread_id);
+		// freeaddrinfo(servAddr);
+		node->data.addrInfoState = DNS_ERROR;
+		pthread_kill(aux_main_pthread_id, SIGIO);
 		return NULL;
 	}
 
 	node->data.addr_info_current = node->data.addr_info_header = servAddr;
 
-	pthread_t aux_main_pthread_id = *main_thread_id;
 	free(host);
 	free(service);
 	free(main_thread_id);
@@ -154,6 +158,8 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
+				loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
+
 		if (buffer_can_write(node->data.serverToClientBuffer)) {
 			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ);
 			if (result_bytes <= 0) {
@@ -175,6 +181,8 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
+						loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
+
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
 			// chequeamos el estado del socket
@@ -236,7 +244,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_client, &read_fd_set[TMP])) {
-
+		loggerPeer(CLIENT, "Trying to read from fd %d", fd_client);
 		if (buffer_can_write(node->data.clientToServerBuffer)) {
 			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ);
 			if (result_bytes <= 0) {
@@ -305,7 +313,11 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
+		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
+			// char aux_buffer[BUFFER_SIZE] = {0};
+			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
+			// logger(DEBUG, "Response: %s", aux_buffer);
 			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE);
 			if (result_bytes <= 0) {
 				close_connection(node, prev, write_fd_set, read_fd_set);

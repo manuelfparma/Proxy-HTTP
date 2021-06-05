@@ -4,7 +4,7 @@
 
 #define MAX_PENDING 10
 #define MAX_CLIENTS 510
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 40980
 #define MAX_ADDR_BUFFER 128
 // Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select
 #define BASE 0

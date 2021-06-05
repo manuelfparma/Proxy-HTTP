@@ -411,6 +411,7 @@ static void copy_to_request_buffer_request_target() {
 static void copy_port_to_request_buffer() {
 	copy_char_to_request_buffer(current_request->parsed_request, ':');
 	if (strlen(current_request->start_line.destination.port) == 0) {
+		logger(DEBUG, "no port");
 		// verificar es null terminated desde el arranque
 		char *port;
 		if (strcmp("http", current_request->start_line.schema) == 0) {
@@ -550,7 +551,7 @@ int parse_request(http_request *request, buffer *read_buffer) {
 	while (buffer_can_read(read_buffer)) {
 		current_char = buffer_read(read_buffer);
 		current_state = current_request->parser_state;
-		logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
+		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (states[current_state][i].when != EMPTY) {
 				if (current_char == states[current_state][i].when || states[current_state][i].when == (char)ANY) {

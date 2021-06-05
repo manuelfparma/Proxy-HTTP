@@ -8,7 +8,7 @@
 #include <parser.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
-typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED } ADDR_INFO_STATE;
+typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED , DNS_ERROR} ADDR_INFO_STATE;
 
 typedef struct {
 	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee

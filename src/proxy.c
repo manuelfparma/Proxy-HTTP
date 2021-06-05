@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
 			if (errno == EINTR) {
 				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
 				int found = 0;
-				for (ConnectionNode *node = connections.first; node != NULL && !found; node = node->next) {
+				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;  prev = node, node = node->next) {
 					if (node->data.addrInfoState == READY) {
 						found = 1;
 						// FIXME: verificar si la quedo el dns
@@ -72,6 +72,9 @@ int main(int argc, char **argv) {
 							}
 							logger(DEBUG, "Trying setup_connection()");
 						}
+					}else if(node->data.addrInfoState == DNS_ERROR){
+						logger(DEBUG, "getaddrinfo failed");
+						close_connection(node, prev, writeFdSet, readFdSet);
 					}
 				}
 			} else {
