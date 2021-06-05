@@ -245,6 +245,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				parse_request(node->data.request, node->data.clientToServerBuffer);
+				
 				if (node->data.addrInfoState == EMPTY) {
 					if (node->data.request->request_target_status == UNSOLVED) {
 						logger(DEBUG, "Request target not solved yet");
@@ -280,7 +281,6 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 					strcpy(args->service, node->data.request->start_line.destination.port);
 					*args->main_thread_id = pthread_self();
 					args->connection = node;
-
 					pthread_t thread;
 
 					int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
@@ -331,7 +331,6 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 		return -1;
 	}
 	if (node->data.serverSock != -1) FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
-
 	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
 								   node->data.addr_info_current->ai_protocol);
 

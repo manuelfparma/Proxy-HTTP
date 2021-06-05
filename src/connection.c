@@ -52,7 +52,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.request->request_target_status = UNSOLVED;
 	new->data.request->copy_index = 0;
 	new->data.request->start_line.method[0] = '\0';
-	new->data.request->start_line.protocol[0] = '\0';
+	new->data.request->start_line.schema[0] = '\0';
 	new->data.request->start_line.destination.port[0] = '\0';
 	new->data.request->start_line.destination.relative_path[0] = '\0';
 	new->data.request->start_line.version.major = EMPTY_VERSION;

@@ -11,6 +11,8 @@
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
+static void parse_header_line(char current_char);
+static int check_method_is_connect();
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
@@ -25,13 +27,14 @@ static void tr_parse_error(char current_char);
 static void tr_adv(char current_char);
 static void tr_request_ended(char current_char);
 static void tr_headers_ended(char current_char);
+static void tr_check_method(char current_char);
 
 http_request *current_request;
 
 // TODO: PUERTO, HTTP/2, HEADERS, case-sensitive, espacios de mas
 
 static const http_parser_state_transition ST_METHOD[2] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH, .transition = tr_reset_copy_index},
+	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH, .transition = tr_check_method},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_METHOD, .transition = tr_copy_byte_to_buffer}};
 
 static const http_parser_state_transition ST_PATH[3] = {
@@ -41,20 +44,16 @@ static const http_parser_state_transition ST_PATH[3] = {
 	 .destination = PS_RELATIVE_PATH,
 	 .transition = tr_set_http_path_type},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
-	{.when = ANY,
-	 .lower_bound = EMPTY,
-	 .upper_bound = EMPTY,
-	 .destination = PS_PATH_PROTOCOL,
-	 .transition = tr_set_http_path_type},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SCHEMA, .transition = tr_set_http_path_type},
 };
 
-static const http_parser_state_transition ST_PATH_PROTOCOL[3] = {
+static const http_parser_state_transition ST_PATH_SCHEMA[3] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SLASHES, .transition = tr_reset_copy_index},
 	{.when = ANY,
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
-	 .destination = PS_PATH_PROTOCOL,
+	 .destination = PS_PATH_SCHEMA,
 	 .transition = tr_copy_byte_to_buffer},
 };
 
@@ -70,7 +69,7 @@ static const http_parser_state_transition ST_PATH_SLASHES[2] = {
 static const http_parser_state_transition ST_PATH_DOMAIN[3] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_URI, .transition = tr_set_host_type},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_DOMAIN, .transition = tr_set_host_type},
 };
 
 static const http_parser_state_transition ST_IP[5] = {
@@ -115,7 +114,7 @@ static const http_parser_state_transition ST_IPv6[6] = {
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_URI[4] = {
+static const http_parser_state_transition ST_DOMAIN[4] = {
 	{.when = ' ',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -127,7 +126,7 @@ static const http_parser_state_transition ST_URI[4] = {
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
 	 .transition = tr_solve_request_target},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_URI, .transition = tr_copy_byte_to_buffer},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_DOMAIN, .transition = tr_copy_byte_to_buffer},
 };
 
 static const http_parser_state_transition ST_PORT[4] = {
@@ -155,7 +154,7 @@ static const http_parser_state_transition ST_RELATIVE_PATH[2] = {
 };
 
 static const http_parser_state_transition ST_HTTP_VERSION[3] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_adv},
 	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_http_version},
 };
@@ -170,9 +169,9 @@ static const http_parser_state_transition ST_HEADER_TYPE[3] = {
 	 .transition = tr_copy_byte_to_buffer},
 };
 
-static const http_parser_state_transition ST_HEADER_VALUE[3] = {
+static const http_parser_state_transition ST_HEADER_VALUE[2] = {
 	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_VALUE, .transition = tr_adv},
+	//{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_VALUE, .transition = tr_adv},
 	{.when = ANY,
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -205,14 +204,14 @@ static const http_parser_state_transition ST_BODY[2] = {
 };
 
 static const http_parser_state_transition *states[] = {
-	ST_METHOD, ST_PATH, ST_RELATIVE_PATH, ST_PATH_PROTOCOL, ST_PATH_SLASHES, ST_PATH_DOMAIN, ST_IP,
-	ST_IPv4,   ST_IPv6, ST_URI,			  ST_PORT,			ST_HTTP_VERSION, ST_HEADER_TYPE, ST_HEADER_VALUE,
-	ST_CR,	   ST_LF,	ST_CR_END,		  ST_LF_END,		ST_BODY};
+	ST_METHOD, ST_PATH, ST_RELATIVE_PATH, ST_PATH_SCHEMA, ST_PATH_SLASHES, ST_PATH_DOMAIN, ST_IP,
+	ST_IPv4,   ST_IPv6, ST_DOMAIN,		  ST_PORT,		  ST_HTTP_VERSION, ST_HEADER_TYPE, ST_HEADER_VALUE,
+	ST_CR,	   ST_LF,	ST_CR_END,		  ST_LF_END,	  ST_BODY};
 
 static const size_t states_n[] = {
-	N(ST_METHOD), N(ST_PATH), N(ST_RELATIVE_PATH), N(ST_PATH_PROTOCOL), N(ST_PATH_SLASHES), N(ST_PATH_DOMAIN), N(ST_IP),
-	N(ST_IPv4),	  N(ST_IPv6), N(ST_URI),		   N(ST_PORT),			N(ST_HTTP_VERSION), N(ST_HEADER_TYPE), N(ST_HEADER_VALUE),
-	N(ST_CR),	  N(ST_LF),	  N(ST_CR_END),		   N(ST_LF_END),		N(ST_BODY),
+	N(ST_METHOD), N(ST_PATH), N(ST_RELATIVE_PATH), N(ST_PATH_SCHEMA), N(ST_PATH_SLASHES), N(ST_PATH_DOMAIN), N(ST_IP),
+	N(ST_IPv4),	  N(ST_IPv6), N(ST_DOMAIN),		   N(ST_PORT),		  N(ST_HTTP_VERSION), N(ST_HEADER_TYPE), N(ST_HEADER_VALUE),
+	N(ST_CR),	  N(ST_LF),	  N(ST_CR_END),		   N(ST_LF_END),	  N(ST_BODY),
 };
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) {
@@ -228,6 +227,14 @@ static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) 
 
 static void copy_char_to_request_buffer(buffer *target, char c) {
 	if (buffer_can_write(target)) buffer_write(target, (uint8_t)c);
+}
+
+static void tr_check_method(char current_char){
+	tr_reset_copy_index(current_char);
+
+	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
+		current_request->parser_state = PS_PATH_DOMAIN;
+	}
 }
 
 static void tr_headers_ended(char current_char) {
@@ -262,12 +269,12 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			limit = MAX_IP_LENGTH;
 			copy_buffer = current_request->start_line.destination.request_target.ip_addr;
 			break;
-		case PS_PATH_PROTOCOL:
-			limit = MAX_PROTOCOL_LENGTH;
-			copy_buffer = current_request->start_line.protocol;
+		case PS_PATH_SCHEMA:
+			limit = MAX_SCHEMA_LENGTH;
+			copy_buffer = current_request->start_line.schema;
 			break;
 		case PS_PATH_DOMAIN:
-		case PS_URI:
+		case PS_DOMAIN:
 			limit = MAX_HOST_NAME_LENGTH;
 			copy_buffer = current_request->start_line.destination.request_target.host_name;
 			break;
@@ -296,9 +303,12 @@ static void tr_copy_byte_to_buffer(char current_char) {
 	}
 
 	if (*idx < limit) {
-		copy_buffer[*idx] = current_char;
-		copy_buffer[*idx + 1] = '\0';
-		(*idx)++;
+		// no copia espacios al inicio de cualquier valor de interes
+		if (*idx != 0 || current_char != ' ') {
+			copy_buffer[*idx] = current_char;
+			copy_buffer[*idx + 1] = '\0';
+			(*idx)++;
+		}
 	} else {
 		tr_parse_error(current_char); // TODO: MEJORAR
 	}
@@ -315,8 +325,55 @@ static int find_idx(char *array, char c) {
 	return array[idx] == c ? idx : -1;
 }
 
-static void tr_line_ended(char current_char) {
+static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
+	logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type, current_request->header.header_value);
+	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == UNSOLVED &&
+		strcmp("Host", current_request->header.header_type) == 0) {
+		int idx_port = find_idx(current_request->header.header_value, ':');
+		if (idx_port == -1) {
+			strcpy(current_request->start_line.destination.port, "80");
+			logger(ERROR, "Not found ':' delimiter in header type Host");
+		} else
+			strcpy(current_request->start_line.destination.port, current_request->header.header_value + (idx_port + 1));
+
+		if (IS_DIGIT(current_request->header.header_value[0])) {
+			// TODO: setear ipv4 o ipv6????
+			if (idx_port >= 1) {
+				strncpy(current_request->start_line.destination.request_target.ip_addr, current_request->header.header_value,
+						(size_t)idx_port);
+				current_request->start_line.destination.request_target.ip_addr[idx_port] = '\0';
+			} else
+				strcpy(current_request->start_line.destination.request_target.ip_addr, current_request->header.header_value);
+		} else {
+			current_request->start_line.destination.host_type = DOMAIN;
+			if (idx_port >= 1) {
+				strncpy(current_request->start_line.destination.request_target.host_name, current_request->header.header_value,
+						(size_t)idx_port);
+				current_request->start_line.destination.request_target.host_name[idx_port] = '\0';
+			} else
+				strcpy(current_request->start_line.destination.request_target.host_name, current_request->header.header_value);
+		}
+
+		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
+							   strlen(current_request->header.header_type));
+		copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
+		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
+							   strlen(current_request->header.header_value));
+		current_request->request_target_status = SOLVED;
+	} else if (strcmp("Host", current_request->header.header_type) != 0) {
+		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
+		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
+							   strlen(current_request->header.header_type));
+		copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
+		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
+							   strlen(current_request->header.header_value));
+	}
+	char *cr_lf = "\r\n";
+	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
+}
+
+static void tr_line_ended(char current_char) {
 	switch (current_request->package_status) {
 		case PARSE_START_LINE_INCOMPLETE:
 			// rellenar parse_state con start line
@@ -324,54 +381,8 @@ static void tr_line_ended(char current_char) {
 			current_request->package_status = PARSE_START_LINE_COMPLETE;
 			break;
 		case PARSE_HEADER_LINE_INCOMPLETE:
-			logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type,
-				   current_request->header.header_value);
-			if (current_request->start_line.destination.path_type == RELATIVE &&
-				current_request->request_target_status == UNSOLVED && strcmp("Host", current_request->header.header_type) == 0) {
-				int idx_port = find_idx(current_request->header.header_value, ':');
-				if (idx_port == -1) {
-					strcpy(current_request->start_line.destination.port, "80");
-					logger(ERROR, "Not found ':' delimiter in header type Host");
-				} else
-					strcpy(current_request->start_line.destination.port, current_request->header.header_value + (idx_port + 1));
-
-				if (IS_DIGIT(current_request->header.header_value[0])) {
-					// TODO: setear ipv4 o ipv6????
-					if (idx_port >= 1) {
-						strncpy(current_request->start_line.destination.request_target.ip_addr,
-								current_request->header.header_value, (size_t)idx_port);
-						current_request->start_line.destination.request_target.ip_addr[idx_port] = '\0';
-					} else
-						strcpy(current_request->start_line.destination.request_target.ip_addr,
-							   current_request->header.header_value);
-				} else {
-					current_request->start_line.destination.host_type = DOMAIN;
-					if (idx_port >= 1) {
-						strncpy(current_request->start_line.destination.request_target.host_name,
-								current_request->header.header_value, (size_t)idx_port);
-						current_request->start_line.destination.request_target.host_name[idx_port] = '\0';
-					} else
-						strcpy(current_request->start_line.destination.request_target.host_name,
-							   current_request->header.header_value);
-				}
-
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
-									   strlen(current_request->header.header_type));
-				copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
-									   strlen(current_request->header.header_value));
-				current_request->request_target_status = SOLVED;
-			} else if (strcmp("Host", current_request->header.header_type) != 0) {
-				// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
-									   strlen(current_request->header.header_type));
-				copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
-				copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
-									   strlen(current_request->header.header_value));
-				current_request->package_status = PARSE_HEADER_LINE_COMPLETE;
-			}
-			char *cr_lf = "\r\n";
-			copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
+			parse_header_line(current_char);
+			current_request->package_status = PARSE_HEADER_LINE_COMPLETE;
 			break;
 		default:
 			logger(ERROR, "State error"); // TODO: mejorar
@@ -397,6 +408,38 @@ static void copy_to_request_buffer_request_target() {
 	}
 }
 
+static void copy_port_to_request_buffer() {
+	copy_char_to_request_buffer(current_request->parsed_request, ':');
+	if (strlen(current_request->start_line.destination.port) == 0) {
+		// verificar es null terminated desde el arranque
+		char *port;
+		if (strcmp("http", current_request->start_line.schema) == 0) {
+			port = "80";
+			strcpy(current_request->start_line.destination.port, port);
+			copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
+		} else if (strcmp("https", current_request->start_line.schema) == 0) {
+			port = "433";
+			strcpy(current_request->start_line.destination.port, port);
+			copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
+		}
+	} else {
+		copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
+							   strlen(current_request->start_line.destination.port));
+	}
+}
+
+static int check_method_is_connect() {
+	logger(INFO, "Identifying CONNECT method");
+
+	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
+		logger(INFO, "Identified CONNECT method");
+		current_request->parser_state = PS_BODY;
+		current_request->package_status = PARSE_BODY_INCOMPLETE;
+		return 1;
+	}
+	return 0;
+}
+
 static void parse_start_line(char current_char) {
 	char *double_slash = "//";
 	logger(DEBUG, "Parsing start_line");
@@ -406,36 +449,22 @@ static void parse_start_line(char current_char) {
 
 	switch (current_request->start_line.destination.path_type) {
 		case ABSOLUTE:
-			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.protocol,
-								   strlen(current_request->start_line.protocol));
-			copy_char_to_request_buffer(current_request->parsed_request, ':');
+			if (check_method_is_connect() != 1) {
+				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.schema,
+									   strlen(current_request->start_line.schema));
+				copy_char_to_request_buffer(current_request->parsed_request, ':');
 
-			// Si es http o https va con '//', source: https://datatracker.ietf.org/doc/html/rfc7230#section-2.7.1
-			if (strcmp("http", current_request->start_line.protocol) == 0 ||
-				strcmp("https", current_request->start_line.protocol) == 0)
-				// TODO:implementar case-unsensitive guardando el protocolo en minuscula
-				copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
-
+				// Si es http o https va con '//', source: https://datatracker.ietf.org/doc/html/rfc7230#section-2.7.1
+				if (strcmp("http", current_request->start_line.schema) == 0 ||
+					strcmp("https", current_request->start_line.schema) == 0)
+					// TODO:implementar case-unsensitive guardando el schemao en minuscula
+					copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
+			}
 			copy_to_request_buffer_request_target();
 
-			copy_char_to_request_buffer(current_request->parsed_request, ':');
-			if (strlen(current_request->start_line.destination.port) == 0) {
-				// verificar es null terminated desde el arranque
-				char *port;
-				if (strcmp("http", current_request->start_line.protocol) == 0) {
-					port = "80";
-					strcpy(current_request->start_line.destination.port, port);
-					copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
-				} else if (strcmp("https", current_request->start_line.protocol) == 0) {
-					port = "433";
-					strcpy(current_request->start_line.destination.port, port);
-					copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
-				}
-			} else {
-				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
-									   strlen(current_request->start_line.destination.port));
-			}
+			copy_port_to_request_buffer();
 			copy_char_to_request_buffer(current_request->parsed_request, '/');
+
 			break;
 		case RELATIVE:
 			break;
@@ -458,6 +487,7 @@ static void parse_start_line(char current_char) {
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_request->parsed_request, header_host, strlen(header_host));
 		copy_to_request_buffer_request_target();
+		copy_port_to_request_buffer();
 		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	}
 }

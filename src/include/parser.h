@@ -26,7 +26,7 @@ typedef enum {
 	MAX_HEADER_VALUE_LENGTH = 255,
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
-	MAX_PROTOCOL_LENGTH = 24,
+	MAX_SCHEMA_LENGTH = 24,
 	MAX_IP_LENGTH = 24,
 	MAX_RELATIVE_PATH_LENGTH = 64,
 	MAX_PORT_LENGTH = 5,
@@ -41,13 +41,13 @@ typedef enum {
 	PS_METHOD,
 	PS_PATH,
 	PS_RELATIVE_PATH,
-	PS_PATH_PROTOCOL,
+	PS_PATH_SCHEMA,
 	PS_PATH_SLASHES,
 	PS_PATH_DOMAIN,
 	PS_IP,
 	PS_IPv4,
 	PS_IPv6,
-	PS_URI,
+	PS_DOMAIN,
 	PS_PORT,
 	PS_HTTP_VERSION,
 	PS_HEADER_TYPE,
@@ -100,7 +100,7 @@ typedef struct {
 
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
-	char protocol[MAX_PROTOCOL_LENGTH + 1]; // protocolo del request
+	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del request
 	http_target destination;
 	http_version version;
 } http_start_line;
