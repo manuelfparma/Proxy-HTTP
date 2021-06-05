@@ -16,21 +16,19 @@ typedef enum {
 	PARSE_HEADER_LINE_INCOMPLETE,
 	PARSE_HEADER_LINE_COMPLETE,
 	PARSE_BODY_INCOMPLETE,
-	PARSE_BODY_COMPLETE,
 	PARSE_END,
 } parser_status_code;
 // deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
 
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
-	MAX_HEADER_NAME = 255,
-	MAX_HEADER_VALUE = 255,
-	MAX_HEADERS = 5,
+	MAX_HEADER_TYPE_LENGTH = 255,
+	MAX_HEADER_VALUE_LENGTH = 255,
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_PROTOCOL_LENGTH = 24,
 	MAX_IP_LENGTH = 24,
-	MAX_RELATIVE_PATH = 64,
+	MAX_RELATIVE_PATH_LENGTH = 64,
 	MAX_PORT_LENGTH = 5,
 } http_request_constraints;
 
@@ -42,7 +40,7 @@ typedef enum {
 typedef enum {
 	PS_METHOD,
 	PS_PATH,
-	PS_PATH_RELATIVE,
+	PS_RELATIVE_PATH,
 	PS_PATH_PROTOCOL,
 	PS_PATH_SLASHES,
 	PS_PATH_DOMAIN,
@@ -57,7 +55,9 @@ typedef enum {
 	PS_CR,
 	PS_LF,
 	PS_CR_END,
-	PS_LF_END, //fin
+	PS_LF_END, 
+	PS_BODY,
+	PS_END,
 	PS_ERROR // cuando se recibe \cr\lf\cr\lf
 } http_parser_state;
 
@@ -95,7 +95,7 @@ typedef struct {
 	http_host_type host_type;
 	http_host host;
 	char port[MAX_PORT_LENGTH + 1];
-	char relative_path[MAX_RELATIVE_PATH + 1];	//ojo no se guarda con primer /
+	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1];	//ojo no se guarda con primer /
 } http_target;
 
 typedef struct {
@@ -106,8 +106,8 @@ typedef struct {
 } http_start_line;
 
 typedef struct {
-	char header_type[MAX_HEADER_NAME + 1];
-	char header_value[MAX_HEADER_VALUE + 1];
+	char header_type[MAX_HEADER_TYPE_LENGTH + 1];
+	char header_value[MAX_HEADER_VALUE_LENGTH + 1];
 } http_header;
 
 typedef struct {
