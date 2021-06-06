@@ -21,6 +21,6 @@ proxy: $(OBJECTS)
 # 	$(CC) $(CFLAGS) $(FSANITIZE) -pthread -I./src -I./src/include -o httpd $^
 
 clean:
-	rm -rf httpd src/*.o
+	rm -rf httpd src/*.o logs/log_connection_*
 
 .PHONY: all proxy clean

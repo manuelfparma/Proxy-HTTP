@@ -13,6 +13,7 @@ static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
 static void parse_header_line(char current_char);
 static int check_method_is_connect();
+static void copy_port();
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
@@ -229,7 +230,7 @@ static void copy_char_to_request_buffer(buffer *target, char c) {
 	if (buffer_can_write(target)) buffer_write(target, (uint8_t)c);
 }
 
-static void tr_check_method(char current_char){
+static void tr_check_method(char current_char) {
 	tr_reset_copy_index(current_char);
 
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
@@ -315,8 +316,9 @@ static void tr_copy_byte_to_buffer(char current_char) {
 }
 
 static void tr_solve_request_target(char current_char) {
-	current_request->request_target_status = SOLVED;
+	copy_port();
 	tr_reset_copy_index(current_char);
+	current_request->request_target_status = FOUND;
 }
 
 static int find_idx(char *array, char c) {
@@ -328,12 +330,13 @@ static int find_idx(char *array, char c) {
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
 	char *cr_lf = "\r\n";
-	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type, current_request->header.header_value);
-	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == UNSOLVED &&
+	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type,
+	// current_request->header.header_value);
+	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == NOT_FOUND &&
 		strcmp("Host", current_request->header.header_type) == 0) {
 		int idx_port = find_idx(current_request->header.header_value, ':');
 		if (idx_port == -1) {
-			strcpy(current_request->start_line.destination.port, "80");
+			strcpy(current_request->start_line.destination.port, "80"); // ojo podria ser 443?
 			logger(ERROR, "Not found ':' delimiter in header type Host");
 		} else
 			strcpy(current_request->start_line.destination.port, current_request->header.header_value + (idx_port + 1));
@@ -361,7 +364,7 @@ static void parse_header_line(char current_char) {
 		copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
 		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
 							   strlen(current_request->header.header_value));
-		current_request->request_target_status = SOLVED;
+		current_request->request_target_status = FOUND;
 		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	} else if (strcmp("Host", current_request->header.header_type) != 0) {
 		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
@@ -409,24 +412,17 @@ static void copy_to_request_buffer_request_target() {
 	}
 }
 
-static void copy_port_to_request_buffer() {
-	copy_char_to_request_buffer(current_request->parsed_request, ':');
+static void copy_port() {
 	if (strlen(current_request->start_line.destination.port) == 0) {
-		logger(DEBUG, "no port");
-		// verificar es null terminated desde el arranque
+		logger(DEBUG, "No port");
 		char *port;
 		if (strcmp("http", current_request->start_line.schema) == 0) {
 			port = "80";
 			strcpy(current_request->start_line.destination.port, port);
-			copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
 		} else if (strcmp("https", current_request->start_line.schema) == 0) {
 			port = "433";
 			strcpy(current_request->start_line.destination.port, port);
-			copy_to_request_buffer(current_request->parsed_request, port, strlen(port));
 		}
-	} else {
-		copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
-							   strlen(current_request->start_line.destination.port));
 	}
 }
 
@@ -463,15 +459,17 @@ static void parse_start_line(char current_char) {
 					copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
 			}
 			copy_to_request_buffer_request_target();
-
-			copy_port_to_request_buffer();
-			if(!connect_method) copy_char_to_request_buffer(current_request->parsed_request, '/');
+			copy_char_to_request_buffer(current_request->parsed_request, ':');
+			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
+								   strlen(current_request->start_line.destination.port));
+			if (!connect_method) copy_char_to_request_buffer(current_request->parsed_request, '/');
 
 			break;
 		case RELATIVE:
 			break;
 		case NO_RESOURCE:
 			// TODO
+			break;
 		default:
 			// TODO: error
 			break;
@@ -489,7 +487,9 @@ static void parse_start_line(char current_char) {
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_request->parsed_request, header_host, strlen(header_host));
 		copy_to_request_buffer_request_target();
-		copy_port_to_request_buffer();
+		copy_char_to_request_buffer(current_request->parsed_request, ':');
+		copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
+							   strlen(current_request->start_line.destination.port));
 		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	}
 }
@@ -571,6 +571,10 @@ int parse_request(http_request *request, buffer *read_buffer) {
 				logger(ERROR, "No hay transicion disponible para %c", current_char);
 				break;
 			}
+		}
+		if (current_request->request_target_status == FOUND) {
+			current_request->request_target_status = SOLVED;
+			return 0;
 		}
 	}
 

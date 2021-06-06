@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 typedef enum {
-	UNSOLVED, SOLVED,
+	NOT_FOUND, FOUND, SOLVED,
 } http_request_target_status;
 
 typedef enum {
@@ -22,8 +22,8 @@ typedef enum {
 
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
-	MAX_HEADER_TYPE_LENGTH = 255,
-	MAX_HEADER_VALUE_LENGTH = 255,
+	MAX_HEADER_TYPE_LENGTH = 64,
+	MAX_HEADER_VALUE_LENGTH = 1024,
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_SCHEMA_LENGTH = 24,

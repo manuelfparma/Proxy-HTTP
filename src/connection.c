@@ -64,7 +64,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 
 	new->data.request->parser_state = PS_METHOD;
 	new->data.request->package_status = PARSE_START_LINE_INCOMPLETE;
-	new->data.request->request_target_status = UNSOLVED;
+	new->data.request->request_target_status = NOT_FOUND;
 	new->data.request->copy_index = 0;
 	new->data.request->start_line.method[0] = '\0';
 	new->data.request->start_line.schema[0] = '\0';
@@ -85,7 +85,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	char number[1024] = {0};
 	number_to_str(connection_number++, number);
 	strcpy(file_name + strlen(name), number);
-	logger(DEBUG, "file with name %s created", file_name);
+	logger(DEBUG, "File with name %s created", file_name);
 	new->data.file = fopen(file_name, "w+");
 	if (new->data.file == NULL) {
 		logger(ERROR, "fopen: %s", strerror(errno));

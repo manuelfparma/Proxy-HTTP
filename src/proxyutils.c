@@ -89,7 +89,7 @@ int acceptConnection(int passiveSock) {
 	// Non blocking
 	fcntl(clntSock, F_SETFL, O_NONBLOCK);
 	// clntSock is connected to a client!
-	logger(INFO, "Handling client with socket fd: %d", clntSock);
+	logger(DEBUG, "Created active socket for client with fd: %d", clntSock);
 	return clntSock;
 }
 
@@ -122,8 +122,8 @@ void *resolve_addr(void *args) {
 		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
 		free(host);
 		free(service);
-		free(threadArgs);
 		free(main_thread_id);
+		free(threadArgs);
 		// freeaddrinfo(servAddr);
 		node->data.addrInfoState = DNS_ERROR;
 		pthread_kill(aux_main_pthread_id, SIGIO);
@@ -208,6 +208,8 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				node->data.addr_info_current = node->data.addr_info_header = NULL;
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd_server, &read_fd_set[BASE]);
+				// ya que estoy conectado, me fijo si quedo algo para parsear
+				parse_request(node->data.request, node->data.clientToServerBuffer);
 			}
 		}
 
@@ -262,7 +264,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				parse_request(node->data.request, node->data.clientToServerBuffer);
 
 				if (node->data.addrInfoState == EMPTY) {
-					if (node->data.request->request_target_status == UNSOLVED) {
+					if (node->data.request->request_target_status == NOT_FOUND) {
 						logger(DEBUG, "Request target not solved yet");
 						return 1;
 					}
@@ -345,10 +347,13 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 		// FIXME: Liberar cliente
 		return -1;
 	}
-	if (node->data.serverSock != -1) FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+	if (node->data.serverSock != -1){ 
+		FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+		close(node->data.serverSock);
+	};
 	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
 								   node->data.addr_info_current->ai_protocol);
-
+	logger(DEBUG, "Created active socket to origin server with fd %d", node->data.serverSock);
 	if (node->data.serverSock >= 0) {
 		// configuracion para socket no bloqueante
 		if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
@@ -394,13 +399,13 @@ ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation, PEER peer,
 			bytesToSend = buffer->write - buffer->read;
 			resultBytes = send(fd, buffer->read, bytesToSend, 0);
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) logger(ERROR, "send(): %s", strerror(errno));
+				logger(ERROR, "send(): %s", strerror(errno));
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Sent info on fd: %d", fd);
-				char aux_buffer[BUFFER_SIZE] = {0};
-				strncpy(aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
-				fprintf(file, "-------------------	%s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
+				uint8_t aux_buffer[BUFFER_SIZE] = {0};
+				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	PROXY %s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
 				fprintf(file, "%s\n", aux_buffer);
 				fprintf(file, "---------------------------------------------------------\n");
 
@@ -409,17 +414,19 @@ ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation, PEER peer,
 			break;
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
-			if (resultBytes <= 0) {
+			if (resultBytes < 0) {
 				if (resultBytes == -1 && errno != EWOULDBLOCK) {
 					logger(ERROR, "recv(): %s", strerror(errno));
 					return -1;
 				}
+			} else if (resultBytes == 0) {
+				if (peer == SERVER) logger(INFO, "Server with fd: %d closing connection", fd);
 			} else {
 				logger(INFO, "Received info on fd: %d", fd);
 				buffer_write_adv(buffer, resultBytes);
-				char aux_buffer[BUFFER_SIZE] = {0};
-				strncpy(aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
-				fprintf(file, "-------------------	%s SERVER SENDS	-------------------\n", peer == SERVER ? "ORIGIN" : "CLIENT");
+				uint8_t aux_buffer[BUFFER_SIZE] = {0};
+				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	%s SERVER	-------------------\n", peer == SERVER ? "ORIGIN" : "CLIENT");
 				fprintf(file, "%s\n", aux_buffer);
 				fprintf(file, "---------------------------------------------------------\n");
 			}

@@ -78,7 +78,20 @@ int main(int argc, char **argv) {
 							logger(DEBUG, "Trying setup_connection()");
 						}
 					} else if (node->data.addrInfoState == DNS_ERROR) {
-						logger(DEBUG, "getaddrinfo failed");
+						logger(DEBUG, "is %s null", node == NULL || node->data.request == NULL? "" : "not");
+						switch (node->data.request->start_line.destination.host_type)
+						{
+						case IPV4:
+						case IPV6:
+							logger(DEBUG, "getaddrinfo failed for ip %s", node->data.request->start_line.destination.request_target.ip_addr);
+							break;
+						case DOMAIN:
+							logger(DEBUG, "getaddrinfo failed for host %s", node->data.request->start_line.destination.request_target.host_name);
+							break;
+						default:
+							logger(DEBUG, "Undefined host type");
+							break;
+						}
 						close_connection(node, prev, writeFdSet, readFdSet);
 					}
 				}
