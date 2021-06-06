@@ -4,6 +4,6 @@
 
 #include <unistd.h>
 
-ssize_t write_http_request(int fd, char *name);
+ssize_t write_http_request(int fd, char *domain_name, char *host_name);
 
 #endif

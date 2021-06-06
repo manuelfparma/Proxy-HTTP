@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <buffer.h>
 #include <connection.h>
+#include <dohclient.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
@@ -158,7 +159,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
-				loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
+		loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
 
 		if (buffer_can_write(node->data.serverToClientBuffer)) {
 			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ);
@@ -181,18 +182,16 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
-						loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
-
+		loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
 			// chequeamos el estado del socket
-			int ans = getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen);
-			if (ans <= -1) {
+			if (getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
 				// en caso de error, chequear la señal, si la conexion fue rechazada, probar con la siguiente
 				if (errno == ECONNREFUSED) {
 					node->data.addr_info_current = node->data.addr_info_current->ai_next;
 					if (setup_connection(node, write_fd_set) == -1) {
-						logger(ERROR, "setup_connection(): %d", errno);
+						logger(ERROR, "setup_connection(): %s", strerror(errno));
 						// FIXME: ?????
 						return -1;
 					}
@@ -225,7 +224,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.request->parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
-		}else{
+		} else {
 			FD_CLR(fd_server, &write_fd_set[BASE]);
 		}
 		return_value++;
@@ -238,7 +237,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
 	int fd_server = node->data.serverSock;
 	int fd_client = node->data.clientSock;
-	int return_value = 0;
+	int return_value = 0, doh_fd;
 	size_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
@@ -253,53 +252,33 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				return -1;
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				parse_request(node->data.request, node->data.clientToServerBuffer);
-				
+
 				if (node->data.addrInfoState == EMPTY) {
 					if (node->data.request->request_target_status == UNSOLVED) {
 						logger(DEBUG, "Request target not solved yet");
 						return 1;
 					}
 
-					node->data.addrInfoState = FETCHING;
-					// creo los recursos para la resolucion DNS mediante thread nuevo
-					ThreadArgs *args = malloc(sizeof(ThreadArgs));
-					if (args == NULL) {
-						logger(ERROR, "malloc(): %s", strerror(errno));
-						return -1; // TODO: ???????
-					}
-
-					args->host = malloc(1024 * sizeof(char));
-					args->service = malloc(5 * sizeof(char));
-					args->main_thread_id = malloc(10 * sizeof(char));
-					args->connection = malloc(sizeof(ConnectionNode));
-
 					// seteo los argumentos necesarios para conectarse al server
 					switch (node->data.request->start_line.destination.host_type) {
 						case IPV4:
 						case IPV6:
-							strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
+							// strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
 							break;
 						case DOMAIN:
-							strcpy(args->host, node->data.request->start_line.destination.request_target.host_name);
+							// TODO: Obtener doh addr, hostname y port de args
+							if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
+								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
+								return -1;
+							}
 							break;
 						default:
 							logger(ERROR, "Undefined domain type");
 					}
-
-					strcpy(args->service, node->data.request->start_line.destination.port);
-					*args->main_thread_id = pthread_self();
-					args->connection = node;
-					pthread_t thread;
-
-					int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
-					if (ret != 0) {
-						logger(ERROR, "pthread_create(): %s", strerror(errno));
-						return -1; // TODO: ?????
-					}
 				}
 				// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-				if(buffer_can_read(node->data.request->parsed_request) && fd_server != -1){ 
-					FD_SET(fd_server, &write_fd_set[BASE]); 
+				if (buffer_can_read(node->data.request->parsed_request) && fd_server != -1) {
+					FD_SET(fd_server, &write_fd_set[BASE]);
 				}
 			}
 		} else {
@@ -316,8 +295,8 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
 			// char aux_buffer[BUFFER_SIZE] = {0};
-			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
-			// logger(DEBUG, "Response: %s", aux_buffer);
+			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write
+			// - node->data.serverToClientBuffer->read)); logger(DEBUG, "Response: %s", aux_buffer);
 			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE);
 			if (result_bytes <= 0) {
 				close_connection(node, prev, write_fd_set, read_fd_set);

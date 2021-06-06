@@ -14,12 +14,12 @@ extern dns_header test_dns_header;
 extern dns_question test_dns_question;
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
-ssize_t write_http_request(int fd, char *name) {
+ssize_t write_http_request(int fd, char *domain_name, char *host_name) {
 	uint8_t request[HTTP_PACKET_LENGTH] = {0};
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 
 	// Copiamos el mensaje de DNS en un buffer
-	int dns_message_length = prepare_dns_message(name, dns_message);
+	int dns_message_length = prepare_dns_message(domain_name, dns_message);
 	logger(INFO, "DNS message prepared");
 
 	// Copiamos los headers del paquete HTTP en otro buffer
