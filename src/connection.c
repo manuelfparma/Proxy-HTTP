@@ -19,13 +19,13 @@ static size_t power(size_t base, size_t exp) {
 	}
 	return ret;
 }
-// 123  -> 123 -> 23  
+
 static void number_to_str(size_t n, char *buffer) {
 	size_t copy_n = n, length = 0;
-	for (; copy_n > 0; copy_n /= 10, length++) {};
-	for (size_t i = 0; i < length; i++) {
-		buffer[i] = '0' + (n / power(10, length - i - 1));
-		n = n % power(10, length - i - 1);
+	for( ; copy_n > 0; copy_n /= 10, length++){};
+	copy_n = n;
+	for(size_t i = 0; copy_n > 0; i++, copy_n /= 10){
+		buffer[i] = '0' + ((n / power(10, length - i - 1)) % 10);
 	}
 }
 

@@ -234,6 +234,7 @@ static void tr_check_method(char current_char){
 
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
 		current_request->parser_state = PS_PATH_DOMAIN;
+		current_request->start_line.destination.path_type = ABSOLUTE;
 	}
 }
 
@@ -326,6 +327,7 @@ static int find_idx(char *array, char c) {
 
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
+	char *cr_lf = "\r\n";
 	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type, current_request->header.header_value);
 	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == UNSOLVED &&
 		strcmp("Host", current_request->header.header_type) == 0) {
@@ -360,6 +362,7 @@ static void parse_header_line(char current_char) {
 		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
 							   strlen(current_request->header.header_value));
 		current_request->request_target_status = SOLVED;
+		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	} else if (strcmp("Host", current_request->header.header_type) != 0) {
 		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
 		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
@@ -367,9 +370,8 @@ static void parse_header_line(char current_char) {
 		copy_to_request_buffer(current_request->parsed_request, delimiter, strlen(delimiter));
 		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_value,
 							   strlen(current_request->header.header_value));
+		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	}
-	char *cr_lf = "\r\n";
-	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 }
 
 static void tr_line_ended(char current_char) {
@@ -429,6 +431,7 @@ static void copy_port_to_request_buffer() {
 }
 
 static int check_method_is_connect() {
+
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
 		logger(INFO, "Identified CONNECT method");
 		current_request->parser_state = PS_BODY;
@@ -444,10 +447,11 @@ static void parse_start_line(char current_char) {
 	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method,
 						   strlen(current_request->start_line.method));
 	copy_char_to_request_buffer(current_request->parsed_request, ' ');
-
+	int connect_method = 0;
 	switch (current_request->start_line.destination.path_type) {
 		case ABSOLUTE:
-			if (check_method_is_connect() != 1) {
+			connect_method = check_method_is_connect();
+			if (!connect_method) {
 				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.schema,
 									   strlen(current_request->start_line.schema));
 				copy_char_to_request_buffer(current_request->parsed_request, ':');
@@ -455,13 +459,13 @@ static void parse_start_line(char current_char) {
 				// Si es http o https va con '//', source: https://datatracker.ietf.org/doc/html/rfc7230#section-2.7.1
 				if (strcmp("http", current_request->start_line.schema) == 0 ||
 					strcmp("https", current_request->start_line.schema) == 0)
-					// TODO:implementar case-unsensitive guardando el schemao en minuscula
+					// TODO: implementar case-insensitive guardando el schemao en minuscula
 					copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
 			}
 			copy_to_request_buffer_request_target();
 
 			copy_port_to_request_buffer();
-			copy_char_to_request_buffer(current_request->parsed_request, '/');
+			if(!connect_method) copy_char_to_request_buffer(current_request->parsed_request, '/');
 
 			break;
 		case RELATIVE:
@@ -481,7 +485,7 @@ static void parse_start_line(char current_char) {
 	char *cr_lf = "\r\n";
 	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 
-	if (current_request->start_line.destination.path_type == ABSOLUTE) {
+	if (current_request->start_line.destination.path_type == ABSOLUTE && !connect_method) {
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_request->parsed_request, header_host, strlen(header_host));
 		copy_to_request_buffer_request_target();

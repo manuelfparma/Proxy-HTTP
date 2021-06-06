@@ -161,7 +161,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
 
 		if (buffer_can_write(node->data.serverToClientBuffer)) {
-			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ);
+			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ, SERVER, node->data.file);
 			if (result_bytes <= 0) {
 				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return -1;
@@ -212,13 +212,20 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		}
 
 		if (buffer_can_read(node->data.request->parsed_request)) {
-			result_bytes = handle_operation(fd_server, node->data.request->parsed_request, WRITE);
+
+			result_bytes = handle_operation(fd_server, node->data.request->parsed_request, WRITE, SERVER, node->data.file);
 			if (result_bytes <= 0) {
 				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
 				return -1;
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_client, &read_fd_set[BASE]);
+				char aux_buffer[BUFFER_SIZE] = {0};
+				fprintf(node->data.file, "-------------------	CLIENT SERVER	-------------------\n");
+				strncpy(aux_buffer, (char *)node->data.request->parsed_request->read,
+						(size_t)(node->data.request->parsed_request->write - node->data.request->parsed_request->read));
+				fprintf(node->data.file, "%s\n", aux_buffer);
+				fprintf(node->data.file, "---------------------------------------------------------\n");
 
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.request->parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
@@ -244,7 +251,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (read_fd_set != NULL && FD_ISSET(fd_client, &read_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to read from fd %d", fd_client);
 		if (buffer_can_write(node->data.clientToServerBuffer)) {
-			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ);
+			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ, CLIENT, node->data.file);
 			if (result_bytes < 0) {
 				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return -1;
@@ -315,13 +322,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
-			char aux_buffer[BUFFER_SIZE] = {0};
-			strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,
-					(size_t)(node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
-			fprintf(node->data.file, "-------------------------------------------------\n");
-			fprintf(node->data.file, "%s\n", aux_buffer);
-
-			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE);
+			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE, CLIENT, node->data.file);
 			if (result_bytes <= 0) {
 				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
 				return -1;
@@ -385,7 +386,7 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 }
 
 // Leer o escribir a un socket
-ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
+ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation, PEER peer, FILE *file) {
 	ssize_t resultBytes;
 	ssize_t bytesToSend;
 	switch (operation) {
@@ -397,6 +398,12 @@ ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Sent info on fd: %d", fd);
+				char aux_buffer[BUFFER_SIZE] = {0};
+				strncpy(aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	%s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
+				fprintf(file, "%s\n", aux_buffer);
+				fprintf(file, "---------------------------------------------------------\n");
+
 				buffer_read_adv(buffer, resultBytes);
 			}
 			break;
@@ -408,9 +415,13 @@ ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
 					return -1;
 				}
 			} else {
-				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Received info on fd: %d", fd);
 				buffer_write_adv(buffer, resultBytes);
+				char aux_buffer[BUFFER_SIZE] = {0};
+				strncpy(aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	%s SERVER SENDS	-------------------\n", peer == SERVER ? "ORIGIN" : "CLIENT");
+				fprintf(file, "%s\n", aux_buffer);
+				fprintf(file, "---------------------------------------------------------\n");
 			}
 			break;
 		default:
