@@ -29,6 +29,7 @@ static void tr_adv(char current_char);
 static void tr_request_ended(char current_char);
 static void tr_headers_ended(char current_char);
 static void tr_check_method(char current_char);
+static void tr_check_asterisk_form(char current_char);
 
 http_request *current_request;
 
@@ -38,15 +39,24 @@ static const http_parser_state_transition ST_METHOD[2] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH, .transition = tr_check_method},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_METHOD, .transition = tr_copy_byte_to_buffer}};
 
-static const http_parser_state_transition ST_PATH[3] = {
+static const http_parser_state_transition ST_PATH[4] = {
 	{.when = '/',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
 	 .transition = tr_set_http_path_type},
+	{.when = '*',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_ASTERISK_FORM,
+	 .transition = tr_check_asterisk_form},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SCHEMA, .transition = tr_set_http_path_type},
 };
+
+static const http_parser_state_transition ST_ASTERISK_FORM[2] = {
+	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_reset_copy_index},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error}};
 
 static const http_parser_state_transition ST_PATH_SCHEMA[3] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
@@ -205,14 +215,16 @@ static const http_parser_state_transition ST_BODY[2] = {
 };
 
 static const http_parser_state_transition *states[] = {
-	ST_METHOD, ST_PATH, ST_RELATIVE_PATH, ST_PATH_SCHEMA, ST_PATH_SLASHES, ST_PATH_DOMAIN, ST_IP,
-	ST_IPv4,   ST_IPv6, ST_DOMAIN,		  ST_PORT,		  ST_HTTP_VERSION, ST_HEADER_TYPE, ST_HEADER_VALUE,
-	ST_CR,	   ST_LF,	ST_CR_END,		  ST_LF_END,	  ST_BODY};
+	ST_METHOD, ST_PATH,	  ST_ASTERISK_FORM, ST_RELATIVE_PATH, ST_PATH_SCHEMA,  ST_PATH_SLASHES, ST_PATH_DOMAIN,	 ST_IP,
+	ST_IPv4,   ST_IPv6,	  ST_DOMAIN,		ST_PORT,		  ST_HTTP_VERSION, ST_HEADER_TYPE,	ST_HEADER_VALUE, ST_CR,
+	ST_LF,	   ST_CR_END, ST_LF_END,		ST_BODY};
 
 static const size_t states_n[] = {
-	N(ST_METHOD), N(ST_PATH), N(ST_RELATIVE_PATH), N(ST_PATH_SCHEMA), N(ST_PATH_SLASHES), N(ST_PATH_DOMAIN), N(ST_IP),
-	N(ST_IPv4),	  N(ST_IPv6), N(ST_DOMAIN),		   N(ST_PORT),		  N(ST_HTTP_VERSION), N(ST_HEADER_TYPE), N(ST_HEADER_VALUE),
-	N(ST_CR),	  N(ST_LF),	  N(ST_CR_END),		   N(ST_LF_END),	  N(ST_BODY),
+	N(ST_METHOD),		N(ST_PATH),			N(ST_ASTERISK_FORM), N(ST_RELATIVE_PATH),
+	N(ST_PATH_SCHEMA),	N(ST_PATH_SLASHES), N(ST_PATH_DOMAIN),	 N(ST_IP),
+	N(ST_IPv4),			N(ST_IPv6),			N(ST_DOMAIN),		 N(ST_PORT),
+	N(ST_HTTP_VERSION), N(ST_HEADER_TYPE),	N(ST_HEADER_VALUE),	 N(ST_CR),
+	N(ST_LF),			N(ST_CR_END),		N(ST_LF_END),		 N(ST_BODY),
 };
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) {
@@ -228,6 +240,12 @@ static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) 
 
 static void copy_char_to_request_buffer(buffer *target, char c) {
 	if (buffer_can_write(target)) buffer_write(target, (uint8_t)c);
+}
+
+static void tr_check_asterisk_form(char current_char) {
+	if (strcmp("OPTIONS", current_request->start_line.method) == 0) tr_set_http_path_type(current_char);
+	else
+		tr_parse_error(current_char);
 }
 
 static void tr_check_method(char current_char) {
@@ -283,6 +301,7 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			limit = MAX_PORT_LENGTH;
 			copy_buffer = current_request->start_line.destination.port;
 			break;
+		case PS_ASTERISK_FORM:
 		case PS_RELATIVE_PATH:
 			limit = MAX_RELATIVE_PATH_LENGTH;
 			copy_buffer = current_request->start_line.destination.relative_path;
@@ -332,18 +351,21 @@ static void parse_header_line(char current_char) {
 	char *cr_lf = "\r\n";
 	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type,
 	// current_request->header.header_value);
-	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == NOT_FOUND &&
+	if (current_request->start_line.destination.path_type != ABSOLUTE && current_request->request_target_status == NOT_FOUND &&
 		strcmp("Host", current_request->header.header_type) == 0) {
+		// Busco el indice del delimitador entre el path y el puerto, en caso de no existir retorna -1
 		int idx_port = find_idx(current_request->header.header_value, ':');
 		if (idx_port == -1) {
 			strcpy(current_request->start_line.destination.port, "80"); // ojo podria ser 443?
 			logger(ERROR, "Not found ':' delimiter in header type Host");
 		} else
+			// almaceno en la estructura el puerto
 			strcpy(current_request->start_line.destination.port, current_request->header.header_value + (idx_port + 1));
 
 		if (IS_DIGIT(current_request->header.header_value[0])) {
 			// TODO: setear ipv4 o ipv6????
 			if (idx_port >= 1) {
+				// tiene puerto no default
 				strncpy(current_request->start_line.destination.request_target.ip_addr, current_request->header.header_value,
 						(size_t)idx_port);
 				current_request->start_line.destination.request_target.ip_addr[idx_port] = '\0';
@@ -427,7 +449,6 @@ static void copy_port() {
 }
 
 static int check_method_is_connect() {
-
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
 		logger(INFO, "Identified CONNECT method");
 		current_request->parser_state = PS_BODY;
@@ -438,46 +459,22 @@ static int check_method_is_connect() {
 }
 
 static void parse_start_line(char current_char) {
-	char *double_slash = "//";
 	logger(DEBUG, "Parsing start_line");
-	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method,
-						   strlen(current_request->start_line.method));
-	copy_char_to_request_buffer(current_request->parsed_request, ' ');
-	int connect_method = 0;
-	switch (current_request->start_line.destination.path_type) {
-		case ABSOLUTE:
-			connect_method = check_method_is_connect();
-			if (!connect_method) {
-				copy_to_request_buffer(current_request->parsed_request, current_request->start_line.schema,
-									   strlen(current_request->start_line.schema));
-				copy_char_to_request_buffer(current_request->parsed_request, ':');
-
-				// Si es http o https va con '//', source: https://datatracker.ietf.org/doc/html/rfc7230#section-2.7.1
-				if (strcmp("http", current_request->start_line.schema) == 0 ||
-					strcmp("https", current_request->start_line.schema) == 0)
-					// TODO: implementar case-insensitive guardando el schemao en minuscula
-					copy_to_request_buffer(current_request->parsed_request, double_slash, strlen(double_slash));
-			}
-			copy_to_request_buffer_request_target();
-			copy_char_to_request_buffer(current_request->parsed_request, ':');
-			copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.port,
-								   strlen(current_request->start_line.destination.port));
-			if (!connect_method) copy_char_to_request_buffer(current_request->parsed_request, '/');
-
-			break;
-		case RELATIVE:
-			break;
-		case NO_RESOURCE:
-			// TODO
-			break;
-		default:
-			// TODO: error
-			break;
+	int connect_method = check_method_is_connect();
+	if (connect_method == 1) {
+		return 1;
 	}
+
+	copy_char_to_request_buffer(current_request->parsed_request, ' ');
+
+	if (current_request->start_line.destination.path_type != ASTERISK_FORM)
+		copy_char_to_request_buffer(current_request->parsed_request, '/');
+
 	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.destination.relative_path,
 						   strlen(current_request->start_line.destination.relative_path));
 
-	// Hardcodeamos la version para, en el caso ideal, recibir un paquete null terminated del servidor
+	// Hardcodeamos la version para, en el caso ideal, recibir el delimitador null terminated indicando que el servidor termino de
+	// enviar sus recursos
 	char *http = " HTTP/1.0";
 	copy_to_request_buffer(current_request->parsed_request, http, strlen(http));
 	char *cr_lf = "\r\n";
@@ -498,6 +495,9 @@ static void tr_set_http_path_type(char current_char) {
 	switch (current_char) {
 		case '/':
 			current_request->start_line.destination.path_type = RELATIVE;
+			break;
+		case '*':
+			current_request->start_line.destination.path_type = ASTERISK_FORM;
 			break;
 		default:
 			current_request->start_line.destination.path_type = ABSOLUTE;

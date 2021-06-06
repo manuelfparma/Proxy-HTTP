@@ -40,6 +40,7 @@ typedef enum {
 typedef enum {
 	PS_METHOD,
 	PS_PATH,
+	PS_ASTERISK_FORM,
 	PS_RELATIVE_PATH,
 	PS_PATH_SCHEMA,
 	PS_PATH_SLASHES,
@@ -74,7 +75,7 @@ typedef struct {
 	char minor; // parte derecha de la version http1.0 -> 0
 } http_version;
 
-typedef enum { ABSOLUTE, RELATIVE, NO_RESOURCE } http_path_type;
+typedef enum { ABSOLUTE, RELATIVE, ASTERISK_FORM } http_path_type;
 
 typedef enum { IPV4, IPV6, DOMAIN } http_host_type;
 
