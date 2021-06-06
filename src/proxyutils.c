@@ -237,7 +237,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
 	int fd_server = node->data.serverSock;
 	int fd_client = node->data.clientSock;
-	int return_value = 0, doh_fd;
+	int return_value = 0;
 	size_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
@@ -264,6 +264,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 						case IPV4:
 						case IPV6:
 							// strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
+							// TODO: aca no hace falta hacer DoH, ya tenemos la IP
 							break;
 						case DOMAIN:
 							// TODO: Obtener doh addr, hostname y port de args

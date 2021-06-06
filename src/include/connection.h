@@ -1,7 +1,8 @@
 #ifndef _CONNECTION_H_
 #define _CONNECTION_H_
 
-#include "buffer.h"
+#include <dohdata.h>
+#include <buffer.h>
 #include <netdb.h>
 #include <parser.h>
 #include <pthread.h>
@@ -12,17 +13,13 @@
 typedef enum { EMPTY, CONNECTING_TO_DOH, FETCHING, READY, CONNECTING, CONNECTED, DNS_ERROR } ADDR_INFO_STATE;
 
 typedef struct {
-	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee
-	buffer *serverToClientBuffer;		// buffer donde servidor escribe y cliente lee
-	int clientSock;						// socket activo con cliente
-	int serverSock;						// socket activo con servidor
-	int doh_sock;						// socket activo con servidor DoH
-	ADDR_INFO_STATE addrInfoState;		// estado de la busqueda DNS
-	pthread_t addrInfoThread;			// informacion del thread donde corre la resolución DNS
-	struct addrinfo *addr_info_header;	// para guardar el inicio de la lista del resultado de la consulta DNS
-	struct addrinfo *addr_info_current; // para guardar el ultimo nodo con el que se intento conectar
-	http_request *request;				// estructura donde se guarda el estado del parseo
-	char *domainName;					// nombre del host a conectar
+	buffer *clientToServerBuffer;			 // buffer donde cliente escribe y servidor lee
+	buffer *serverToClientBuffer;			 // buffer donde servidor escribe y cliente lee
+	int clientSock;							 // socket activo con cliente
+	int serverSock;							 // socket activo con servidor
+	http_request *request;					 // estructura donde se guarda el estado del parseo
+	ADDR_INFO_STATE addrInfoState;			 // estado de la busqueda DNS //TODO: ESTADO DE LA CONEXION, NO DE LA BUSQUEDA DNS
+	doh_data *doh;
 } ConnectionData;
 
 typedef struct ConnectionNode {

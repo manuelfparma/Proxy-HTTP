@@ -114,11 +114,13 @@ int main(int argc, char **argv) {
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
 			if(node->data.addrInfoState == CONNECTING_TO_DOH) {
-				handle = handle_doh_connection(node, writeFdSet, readFdSet);
+				handle = handle_doh_request(node, writeFdSet, readFdSet);
 				if (handle > -1) readyFds -= handle;
 				// TODO: Manejo de error
 			} else if (node->data.addrInfoState == FETCHING) {
 				// TODO: agregar read no bloqueante
+				handle = handle_doh_response(node, readFdSet);
+
 			} else {
 				handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
 				if (handle > -1) readyFds -= handle;

@@ -1,14 +1,17 @@
 #ifndef _DNS_UTILS_H_
 #define _DNS_UTILS_H_
 
+#include <buffer.h>
+#include <connection.h>
+#include <dohparser.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#define SIZE_8  1
+#define SIZE_8 1
 #define SIZE_16 2
 #define SIZE_32 4
 
-#define HTTP_PACKET_LENGTH 4096
+#define MAX_DOH_PACKET_SIZE 4096
 #define DNS_MESSAGE_LENGTH 512
 
 /*
@@ -60,7 +63,7 @@ typedef struct {
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 */
 typedef struct {
-	char *name;	// Este es de longitud variable
+	char *name;		// Este es de longitud variable
 	uint16_t type;	// Valor 1 para A
 	uint16_t class; // Valor 1 para IN (internet)
 } dns_question;
@@ -83,6 +86,10 @@ typedef struct {
 	size_t content_length;
 	char *body;
 } http_dns_request;
+
+//  Funcion para alocar recursos de la conexion con el servidor DoH en el heap, requerido para
+//  persistir informacion utilizada al parsear la response DoH
+int setup_doh_resources(ConnectionNode *node, int doh_fd);
 
 //	Funcion para copiar de informacion almacenada en 16 bits Big-Endian a un buffer dest n veces
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n);

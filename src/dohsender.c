@@ -1,7 +1,7 @@
 #include <dohsender.h>
-#include <dnsutils.h>
-#include <logger.h>
+#include <dohutils.h>
 #include <errno.h>
+#include <logger.h>
 #include <string.h>
 #include <sys/socket.h>
 
@@ -14,7 +14,7 @@ extern dns_header test_dns_header;
 extern dns_question test_dns_question;
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
-ssize_t write_http_request(int fd, char *domain_name, char *host_name) {
+ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
 	uint8_t request[HTTP_PACKET_LENGTH] = {0};
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 

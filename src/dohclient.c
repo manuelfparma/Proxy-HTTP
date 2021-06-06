@@ -1,19 +1,18 @@
 #include <arpa/inet.h>
-#include <dnsutils.h>
 #include <dohclient.h>
 #include <dohparser.h>
 #include <dohsender.h>
+#include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
 #include <netinet/in.h>
+#include <proxyutils.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <proxyutils.h>
-#include <dohsender.h>
 
-#define HOST_NAME "foo.leak.com.ar"		//TODO este valor viene por parametro al iniciar el server
+#define HOST_NAME "foo.leak.com.ar" // TODO este valor viene por parametro al iniciar el server
 
 static const char *DOH_SERVER = "127.0.0.1";
 // TODO: PASAR A CHAR*
@@ -47,7 +46,7 @@ dns_header test_dns_header = {.id = 1, // autoincrementar?
 // TODO: Guarda que el type puede variar segun si pide IPv4 o IPv6 (A/AAAA record)
 dns_question test_dns_question = {.name = "www.netflix.com", .class = 1, .type = 1};
 
-//int solve_name(ConnectionNode *node, char *doh_addr, char *doh_port, char *doh_hostname) {
+// int solve_name(ConnectionNode *node, char *doh_addr, char *doh_port, char *doh_hostname) {
 //	// TODO: Malloc de structs de HTTP request, DNS, etc.
 //
 //	// TODO: Mandarlo al select antes de llegar al connect
@@ -63,8 +62,8 @@ dns_question test_dns_question = {.name = "www.netflix.com", .class = 1, .type =
 //	return doh_sock;
 //
 ////	char *name = node->data.request->start_line.destination.request_target.host_name;
-////	write_http_request(doh_sock, name);
-////	return read_http_response(doh_sock);
+////	write_doh_request(doh_sock, name);
+////	return read_doh_response(doh_sock);
 //}
 
 // int main() { return solve_name("netflix.com", "127.0.0.1", "8053"); }
@@ -100,11 +99,15 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 		return -1;
 	}
 
-	node->data.doh_sock = doh_sock;
-
 	if (connect(doh_sock, (struct sockaddr *)&doh_addr_in, sizeof(doh_addr_in)) == -1 && errno != EINPROGRESS) {
 		close(doh_sock);
 		logger(ERROR, "connect(): %s", strerror(errno));
+		return -1;
+	}
+
+	if (setup_doh_resources(node, doh_sock) == -1) {
+		close(doh_sock);
+		logger(ERROR, "setup_doh_resources(): couldn't set up DoH connection resources");
 		return -1;
 	}
 
@@ -112,41 +115,101 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 
 	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.clientSock, doh_sock);
 
-	if (doh_sock >= connections.maxFd) {
-		connections.maxFd = doh_sock + 1;
-	}
+	if (doh_sock >= connections.maxFd) { connections.maxFd = doh_sock + 1; }
 
 	FD_SET(doh_sock, write_fd_set);
 
 	return doh_sock;
 }
 
-int handle_doh_connection(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdSet) {
-	int doh_sock = node->data.doh_sock;
-	
-	if(FD_ISSET(doh_sock, &writeFdSet[TMP])) {
+int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdSet) {
+	int doh_sock = node->data.doh->sock;
+
+	if (FD_ISSET(doh_sock, &writeFdSet[TMP])) {
 		FD_CLR(doh_sock, &writeFdSet[BASE]);
 
 		socklen_t optlen = sizeof(int);
 		if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
-			logger(ERROR, "handle_doh_connection :: getsockopt(): %s", strerror(errno));
+			logger(ERROR, "handle_doh_request :: getsockopt(): %s", strerror(errno));
 			return -1;
 		}
 
 		node->data.addrInfoState = FETCHING;
 		logger(INFO, "connected to DoH, client fd: %d", node->data.clientSock);
 
-		if (write_http_request(doh_sock, node->data.domainName, HOST_NAME) < 0) {
-			logger(ERROR, "handle_doh_connection :: write_http_request(): failed to write DoH HTTP request");
+		if (write_doh_request(doh_sock, node->data.request->start_line.destination.request_target.host_name, HOST_NAME) < 0) {
+			logger(ERROR, "handle_doh_request :: write_doh_request(): failed to write DoH HTTP request");
 			return -1;
 		}
 
 		FD_SET(doh_sock, &readFdSet[BASE]);
-		if(doh_sock >= connections.maxFd)
-			connections.maxFd = doh_sock + 1;
+		if (doh_sock >= connections.maxFd) connections.maxFd = doh_sock + 1;
 
-		return 1;	
+		node->data.doh->state = DOH_PARSER_INIT;
+		node->data.doh->buffer_index = 0;
+
+		return 1;
 	}
 
 	return 0;
 }
+
+int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
+	int doh_sock = node->data.doh->sock;
+	doh_parser_status_code result;
+
+	if (FD_ISSET(doh_sock, &readFdSet[TMP])) {
+
+		if (read_doh_response(node) < 0) {
+			logger(ERROR, "handle_doh_response(): unable to read DoH response");
+			return -1;
+		}
+		buffer *response = node->data.doh->doh_response_buffer;
+		while(response->write - response->read) {
+			switch (node->data.doh->state) {
+					// TODO: el init se va?
+				case DOH_PARSER_INIT:
+					node->data.doh->state = FINDING_HTTP_STATUS_CODE;
+					break;
+				case FINDING_HTTP_STATUS_CODE:
+					result = parse_doh_status_code(node);
+					if (result == DOH_PARSE_COMPLETE)
+						node->data.doh->state = FINDING_CONTENT_LENGTH;
+					break;
+				case FINDING_CONTENT_LENGTH:
+					result = parse_doh_content_length_header(node);
+					if (result == DOH_PARSE_COMPLETE)
+						node->data.doh->state = PARSING_CONTENT_LENGTH;
+					break;
+				case PARSING_CONTENT_LENGTH:
+					result = parse_doh_content_length_value(node);
+					if (result == DOH_PARSE_COMPLETE)
+						node->data.doh->state = FINDING_HTTP_BODY;
+					break;
+				case FINDING_HTTP_BODY:
+					result = find_http_body(node);
+					if (result == DOH_PARSE_COMPLETE)
+						node->data.doh->state = PARSING_DNS_MESSAGE;
+					break;
+				case PARSING_DNS_MESSAGE:
+					result = parse_dns_message(node);
+					if (result == DOH_PARSE_COMPLETE)
+						node->data.doh->state = DNS_PARSING_COMPLETE;
+					break;
+				case DNS_PARSING_COMPLETE:
+					break;
+			}
+
+			//	Necesito esperar al resto de la DoH response
+			if (result == DOH_PARSE_INCOMPLETE)
+				break;
+			else if (result == DOH_PARSE_ERROR) {
+				return -1; //TODO manejo de error
+			}
+		}
+	}
+
+	return 0;
+}
+
+

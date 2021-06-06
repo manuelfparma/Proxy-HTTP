@@ -1,12 +1,12 @@
 #include <connection.h>
 #include <errno.h>
 #include <logger.h>
+#include <parser.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <parser.h>
 
 extern ConnectionHeader connections;
 
@@ -36,7 +36,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	// new->data.addr_info_header = malloc(sizeof(struct addrinfo));
 	// if (new->data.addr_info_header == NULL) goto FREE_BUFFER_2_DATA;
 
-	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	new->data.addrInfoState = EMPTY; // hasta que comience una conexion con DoH
 
 	new->data.request = malloc(sizeof(http_request));
 	if (new->data.request == NULL) goto FREE_BUFFER_2_DATA;
