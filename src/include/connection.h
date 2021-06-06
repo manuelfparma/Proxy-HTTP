@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <sys/select.h>
 #include <parser.h>
+#include <stdio.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
 typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED , DNS_ERROR} ADDR_INFO_STATE;
@@ -20,6 +21,7 @@ typedef struct {
 	struct addrinfo *addr_info_header;	// para guardar el inicio de la lista del resultado de la consulta DNS
 	struct addrinfo *addr_info_current; // para guardar el ultimo nodo con el que se intento conectar
 	http_request * request;				// estructura donde se guarda el estado del parseo
+	FILE * file;
 } ConnectionData;
 
 typedef struct ConnectionNode {

@@ -220,7 +220,7 @@ static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes) 
 		strncpy((char *)target->write, (const char *)source, bytes_available);
 		buffer_write_adv(current_request->parsed_request, bytes_available);
 	} else {
-		strcpy((char *)target->write, (const char *)source);
+		strncpy((char *)target->write, (const char *)source, bytes);
 		buffer_write_adv(current_request->parsed_request, bytes);
 	}
 }
@@ -238,7 +238,6 @@ static void tr_check_method(char current_char){
 }
 
 static void tr_headers_ended(char current_char) {
-	logger(DEBUG, "tr_headers_ended");
 	char *cr_lf = "\r\n";
 	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 	current_request->package_status = PARSE_BODY_INCOMPLETE;
@@ -327,7 +326,7 @@ static int find_idx(char *array, char c) {
 
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
-	logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type, current_request->header.header_value);
+	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type, current_request->header.header_value);
 	if (current_request->start_line.destination.path_type == RELATIVE && current_request->request_target_status == UNSOLVED &&
 		strcmp("Host", current_request->header.header_type) == 0) {
 		int idx_port = find_idx(current_request->header.header_value, ':');
@@ -430,8 +429,6 @@ static void copy_port_to_request_buffer() {
 }
 
 static int check_method_is_connect() {
-	logger(INFO, "Identifying CONNECT method");
-
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
 		logger(INFO, "Identified CONNECT method");
 		current_request->parser_state = PS_BODY;

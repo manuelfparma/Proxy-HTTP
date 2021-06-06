@@ -158,12 +158,11 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
-				loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
+		loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
 
 		if (buffer_can_write(node->data.serverToClientBuffer)) {
 			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ);
 			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
 				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return -1;
 			} else {
@@ -181,7 +180,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
-						loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
+		loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
 
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
@@ -215,7 +214,6 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		if (buffer_can_read(node->data.request->parsed_request)) {
 			result_bytes = handle_operation(fd_server, node->data.request->parsed_request, WRITE);
 			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
 				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
 				return -1;
 			} else {
@@ -225,7 +223,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.request->parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
-		}else{
+		} else {
 			FD_CLR(fd_server, &write_fd_set[BASE]);
 		}
 		return_value++;
@@ -239,7 +237,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	int fd_server = node->data.serverSock;
 	int fd_client = node->data.clientSock;
 	int return_value = 0;
-	size_t result_bytes;
+	ssize_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
@@ -247,13 +245,15 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		loggerPeer(CLIENT, "Trying to read from fd %d", fd_client);
 		if (buffer_can_write(node->data.clientToServerBuffer)) {
 			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ);
-			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
+			if (result_bytes < 0) {
 				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return -1;
+			} else if (result_bytes == 0) {
+				loggerPeer(CLIENT, "client_fd: %d request sent completed", fd_client);
+				FD_CLR(fd_client, &read_fd_set[BASE]);
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				parse_request(node->data.request, node->data.clientToServerBuffer);
-				
+
 				if (node->data.addrInfoState == EMPTY) {
 					if (node->data.request->request_target_status == UNSOLVED) {
 						logger(DEBUG, "Request target not solved yet");
@@ -298,8 +298,8 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 					}
 				}
 				// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-				if(buffer_can_read(node->data.request->parsed_request) && fd_server != -1){ 
-					FD_SET(fd_server, &write_fd_set[BASE]); 
+				if (buffer_can_read(node->data.request->parsed_request) && fd_server != -1) {
+					FD_SET(fd_server, &write_fd_set[BASE]);
 				}
 			}
 		} else {
@@ -315,12 +315,14 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
-			// char aux_buffer[BUFFER_SIZE] = {0};
-			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
-			// logger(DEBUG, "Response: %s", aux_buffer);
+			char aux_buffer[BUFFER_SIZE] = {0};
+			strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,
+					(size_t)(node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
+			fprintf(node->data.file, "-------------------------------------------------\n");
+			fprintf(node->data.file, "%s\n", aux_buffer);
+
 			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE);
 			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
 				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
 				return -1;
 			} else {
@@ -383,9 +385,9 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 }
 
 // Leer o escribir a un socket
-size_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
+ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
 	ssize_t resultBytes;
-	size_t bytesToSend;
+	ssize_t bytesToSend;
 	switch (operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
