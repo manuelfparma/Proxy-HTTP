@@ -5,7 +5,6 @@ httpd
 .vscode
 *.json
 
-
 # JetBrains
 .idea
 
@@ -16,3 +15,6 @@ httpd
 *.dSYM
 
 .DS_Store
+
+# Objects files
+src/*.o
