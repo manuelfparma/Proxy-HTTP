@@ -14,6 +14,8 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+static void wake_handler(const int signal);
+
 ConnectionHeader connections = {0};
 
  int main(int argc, char **argv) {
@@ -121,6 +123,6 @@ ConnectionHeader connections = {0};
 	}
 }
 
- static void wake_handler(const int signal) {
+static void wake_handler(const int signal) {
  	// nada que hacer. está solo para interrumpir el select
  }

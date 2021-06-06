@@ -60,7 +60,7 @@ int solve_name(char *name, char *doh_host, char *doh_port) {
 	return read_http_response(dns_sock);
 }
 
-int main() { return solve_name("netflix.com", "127.0.0.1", "8053"); }
+//int main() { return solve_name("netflix.com", "127.0.0.1", "8053"); }
 
 // TODO: cablear host y puerto dinamico
 static int connect_to_server(char *doh_host, char *doh_port) {

@@ -3,9 +3,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <proxyutils.h>
 
 typedef enum { DEBUG = 0, INFO, ERROR, FATAL } LEVEL;
-typedef enum { CLIENT, SERVER } PEER;
 
 char *getLevelDescription(LEVEL level);
 
