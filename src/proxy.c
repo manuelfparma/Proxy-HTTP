@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
 			if (errno == EINTR) {
 				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
 				int found = 0;
-				for (ConnectionNode *node = connections.first; node != NULL && !found; node = node->next) {
+				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;  prev = node, node = node->next) {
 					if (node->data.addrInfoState == READY) {
 						found = 1;
 						// FIXME: verificar si la quedo el dns
@@ -70,8 +70,11 @@ int main(int argc, char **argv) {
 								// FIXME: ?????
 								return -1;
 							}
-							logger(INFO, "trying setup_connection()");
+							logger(DEBUG, "Trying setup_connection()");
 						}
+					}else if(node->data.addrInfoState == DNS_ERROR){
+						logger(DEBUG, "getaddrinfo failed");
+						close_connection(node, prev, writeFdSet, readFdSet);
 					}
 				}
 			} else {
@@ -102,23 +105,18 @@ int main(int argc, char **argv) {
 			readyFds--;
 		}
 
+		int handle;
 		// itero por todas las conexiones cliente-servidor
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
-			int handle;
-			// manejo las conexiones mediante sockets de cliente y servidor
-			for (PEER peer = CLIENT; peer <= SERVER; peer++) {
-
-				handle = handleConnection(node, previous, readFdSet, writeFdSet, peer);
-
-				if (handle > -1) readyFds -= handle;
-				else if (handle == -1) {
-					// se deberian restar 1 o 2 readyFds???
-					break; // Caso conexion cerrada
-				} else if (handle == -2)
-					continue; // Caso argumento invalido
-			}
-			if (handle == -1) break;
+			handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
+			if (handle > -1) readyFds -= handle;
+			else
+				break; // Caso conexion cerrada
+			handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
+			if (handle > -1) readyFds -= handle;
+			else
+				break; // Caso conexion cerrada
 		}
 	}
 }
