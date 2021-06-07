@@ -1,4 +1,4 @@
-CFLAGS= -g -std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -D_POSIX_C_SOURCE=200112L
+CFLAGS= -g -std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -D_POSIX_C_SOURCE=200112L -Wno-gnu-zero-variadic-macro-arguments
 FSANITIZE= -fsanitize=address
 
 SOURCES_PROXY= src/proxy.c 
@@ -7,7 +7,11 @@ SOURCES_PROXY_UTILS= src/proxyutils.c
 SOURCES_LOGGER= src/logger.c
 SOURCES_CONNECTION= src/connection.c
 SOURCES_BUFFER = src/buffer.c
-OBJECTS = src/proxy.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o
+SOURCES_DOH_CLIENT = src/dohclient.c
+SOURCES_DOH_UTILS = src/dohutils.c
+SOURCES_DOH_SENDER = src/dohsender.c
+SOURCES_DOH_PARSER = src/dohparser.c
+OBJECTS = src/proxy.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o
 
 all: proxy
 

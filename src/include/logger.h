@@ -1,8 +1,10 @@
 #ifndef __LOGGER_H__
 #define __LOGGER_H__
 
-#include <proxyutils.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <proxyutils.h>
+
 typedef enum { DEBUG = 0, INFO, ERROR, FATAL } LEVEL;
 
 char *getLevelDescription(LEVEL level);

@@ -2,19 +2,18 @@
 #include <arpa/inet.h>
 #include <buffer.h>
 #include <connection.h>
+#include <dohclient.h>
+#include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <http_parser.h>
 #include <logger.h>
 #include <netdb.h>
-#include <http_parser.h>
 #include <proxyutils.h>
-#include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 extern ConnectionHeader connections;
@@ -112,60 +111,6 @@ int acceptConnection(int passiveSock) {
 	return clntSock;
 }
 
-// funcion que rsuelve consulta DNS  asincronicamente
-void *resolve_addr(void *args) {
-	ThreadArgs *threadArgs = (ThreadArgs *)args;
-	char *host = threadArgs->host;
-	char *service = threadArgs->service;
-	pthread_t *main_thread_id = threadArgs->main_thread_id;
-	ConnectionNode *node = threadArgs->connection;
-
-	// asigno al nodo el ID del thread
-	node->data.addrInfoThread = pthread_self();
-
-	// Tell the system what kind(s) of address info we want
-	struct addrinfo addrCriteria;					// Criteria for address match
-	memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
-	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
-	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
-	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
-
-	logger(DEBUG, "hostname:%s, port:%s", host, service);
-
-	// Get address(es)
-	struct addrinfo *servAddr; // Holder for returned list of server addrs
-	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
-	pthread_t aux_main_pthread_id = *main_thread_id;
-
-	if (addrInfoResult != 0) {
-		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
-		free(host);
-		free(service);
-		free(main_thread_id);
-		free(threadArgs);
-		// freeaddrinfo(servAddr);
-		node->data.addrInfoState = DNS_ERROR;
-		pthread_kill(aux_main_pthread_id, SIGIO);
-		return NULL;
-	}
-
-	node->data.addr_info_current = node->data.addr_info_header = servAddr;
-
-	free(host);
-	free(service);
-	free(main_thread_id);
-	free(threadArgs);
-
-	// seteamos el cliente como listo
-	node->data.addrInfoState = READY;
-
-	// despertamos pselect con una señal
-	logger(INFO, "Thread ended");
-	pthread_kill(aux_main_pthread_id, SIGIO);
-
-	return NULL;
-}
-
 int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
 
@@ -205,26 +150,33 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
 		loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
 
+		// TODO: Modularizar esta seccion
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
+
 			// chequeamos el estado del socket
-			int ans = getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen);
-			if (ans <= -1) {
-				// en caso de error, chequear la señal, si la conexion fue rechazada, probar con la siguiente
+			if (getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
+
+				// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
 				if (errno == ECONNREFUSED) {
-					// borro el socket que fallo en la conexion
+					node->data.doh->addr_info_current = node->data.doh->addr_info_current->next;
+
 					FD_CLR(node->data.serverSock, &write_fd_set[BASE]);
 					close(node->data.serverSock);
-					node->data.addr_info_current = node->data.addr_info_current->ai_next;
+
+					// TODO: Si esto falla, liberar todo, no sabemos como tratarlo
 					if (setup_connection(node, write_fd_set) == -1) {
-						logger(ERROR, "setup_connection(): %d", errno);
+						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(errno));
 						// FIXME: ?????
+						free_doh_resources(node->data.doh);
+
 						return -1;
 					}
 				} else {
 					// error de getsockopt, saco el socket de prueba
-					logger(ERROR, "getsockopt(): %s", strerror(errno));
+					logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(errno));
 					FD_CLR(fd_server, &write_fd_set[BASE]);
+					// TODO: Manejo de errores - liberar recursos?
 					close(node->data.serverSock);
 					return -1;
 				}
@@ -232,8 +184,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				loggerPeer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.serverSock,
 						   node->data.clientSock);
 				node->data.addrInfoState = CONNECTED;
-				freeaddrinfo(node->data.addr_info_header);
-				node->data.addr_info_current = node->data.addr_info_header = NULL;
+				free_doh_resources(node->data.doh);
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd_server, &read_fd_set[BASE]);
 				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
@@ -269,7 +220,8 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
 			if (buffer_can_read(node->data.parser->data.parsed_request)) {
 
-				result_bytes = handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.file);
+				result_bytes =
+					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.file);
 				if (result_bytes <= 0) {
 					loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
@@ -341,41 +293,22 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 							return 1;
 						}
 
-						node->data.addrInfoState = FETCHING;
-						// creo los recursos para la resolucion DNS mediante thread nuevo
-						ThreadArgs *args = malloc(sizeof(ThreadArgs));
-						if (args == NULL) {
-							logger(ERROR, "malloc(): %s", strerror(errno));
-							return -1; // TODO: ???????
-						}
-
-						args->host = malloc(1024 * sizeof(char));
-						args->service = malloc(5 * sizeof(char));
-						args->main_thread_id = malloc(10 * sizeof(char));
-						args->connection = malloc(sizeof(ConnectionNode));
-
 						// seteo los argumentos necesarios para conectarse al server
 						switch (node->data.parser->request.target.host_type) {
 							case IPV4:
 							case IPV6:
-								strcpy(args->host, node->data.parser->request.target.request_target.ip_addr);
+								// strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
+								// TODO: aca no hace falta hacer DoH, ya tenemos la IP
 								break;
 							case DOMAIN:
-								strcpy(args->host, node->data.parser->request.target.request_target.host_name);
+								// TODO: Obtener doh addr, hostname y port de args
+								if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
+									logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
+									return -1;
+								}
 								break;
 							default:
 								logger(ERROR, "Undefined domain type");
-						}
-
-						strcpy(args->service, node->data.parser->request.target.port);
-						*args->main_thread_id = pthread_self();
-						args->connection = node;
-						pthread_t thread;
-
-						int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
-						if (ret != 0) {
-							logger(ERROR, "pthread_create(): %s", strerror(errno));
-							return -1; // TODO: ?????
 						}
 					}
 					// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
@@ -398,13 +331,14 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
+			// char aux_buffer[BUFFER_SIZE] = {0};
+			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write
+			// - node->data.serverToClientBuffer->read)); logger(DEBUG, "Response: %s", aux_buffer);
 			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE, CLIENT, node->data.file);
-			if (result_bytes < 0) {
-				// loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
-				// fd_client); return -1; TODO: FIX!
-			} else if (result_bytes == 0) {
-				// por alguna razon no le llego nada, paso la iteracion y el pselect se levantara cuando este disponible para
-				// recibirlo
+			if (result_bytes <= 0) {
+				close_connection(node, prev, write_fd_set, read_fd_set);
+				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
+				return -1;
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
@@ -419,51 +353,50 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 }
 
 int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
-	if (node->data.addr_info_current == NULL) {
-		logger(INFO, "No more addresses for client with fd %d", node->data.clientSock);
-		// FIXME: Liberar cliente
+	if (node->data.doh->addr_info_current == NULL) {
+		logger(INFO, "No more addresses to connect to for client with fd %d", node->data.clientSock);
+		// FIXME: Liberar cliente y estructuras de DoH desde afuera
 		return -1;
 	}
-	if (node->data.serverSock != -1) {
-		FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+
+	// TODO: está bien hardcodear SOCK_STREAM y el protocolo?
+	node->data.serverSock = socket(node->data.doh->addr_info_current->addr.sa_family, SOCK_STREAM, 0);
+
+	if (node->data.serverSock < 0) {
+		logger(ERROR, "setup_connection :: socket(): %s", strerror(errno));
+		return -1;
+	}
+	// configuracion para socket no bloqueante
+	if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
+		logger(INFO, "fcntl(): %s", strerror(errno));
+		// FIXME: PEPE???
+		return -1;
+	}
+
+	if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
+
+	struct addr_info_node aux_addr_info = *node->data.doh->addr_info_current;
+
+	// Intento de connect
+	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.clientSock);
+	if (connect(node->data.serverSock, &aux_addr_info.addr, sizeof(aux_addr_info.addr)) != 0 && errno != EINPROGRESS) {
+		// error inesperado en connect
+		logger(ERROR, "setup_connection :: connect(): %s", strerror((errno)));
+		// FIXME: QUE PASA CON EL CLIENTE MALLOQUEADO?
+		// TODO: Liberar recursos de DoH, close_connection
+		// TODO: Tirar 500 por HTTP al cliente
 		close(node->data.serverSock);
-	};
-	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
-								   node->data.addr_info_current->ai_protocol);
-	logger(DEBUG, "Created active socket to origin server with fd %d", node->data.serverSock);
-	if (node->data.serverSock >= 0) {
-		// configuracion para socket no bloqueante
-		if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
-			logger(INFO, "fcntl(): %s", strerror(errno));
-			// FIXME: PEPE???
-			return -1;
-		}
-
-		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
-
-		struct addrinfo aux_addr_info = *node->data.addr_info_current;
-		// Intento de connect
-		logger(INFO, "Trying to connect to server from client with fd: %d", node->data.clientSock);
-		if (connect(node->data.serverSock, aux_addr_info.ai_addr, aux_addr_info.ai_addrlen) != 0 && errno != EINPROGRESS) {
-			logger(ERROR, "connect(): %s", strerror((errno)));
-			// FIXME: QUE PASA CON EL CLIENTE MALLOQUEADO?
-			close(node->data.serverSock);
-			close(node->data.clientSock);
-			return -1;
-		} else {
-			// una vez conectado, liberamos la lista
-			logger(INFO, "Connecting to server from client with fd: %d", node->data.clientSock);
-			node->data.addrInfoState = CONNECTING;
-			// TODO: lista de estadisticas
-			// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
-			// agrego como escritura el fd activo
-			FD_SET(node->data.serverSock, &writeFdSet[BASE]);
-		}
-	} else {
-		logger(INFO, "Socket() failed");
-		// FIXME: OCTA ARREGLAME
+		close(node->data.clientSock);
 		return -1;
 	}
+
+	logger(INFO, "Connecting to server from client with fd: %d", node->data.clientSock);
+	node->data.addrInfoState = CONNECTING;
+	// TODO: lista de estadisticas
+	// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
+	// agrego como escritura el fd activo
+	FD_SET(node->data.serverSock, &writeFdSet[BASE]);
+
 	return 0;
 }
 

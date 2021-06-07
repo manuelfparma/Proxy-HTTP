@@ -2,17 +2,19 @@
 httpd
 
 # VSCode
-.vscode/*
+.vscode
 *.json
 
 # JetBrains
-.idea/*
+.idea
 
 # GDB Config
 .gdbinit
 
 # Other
 *.dSYM
+
+.DS_Store
 
 # Objects files
 src/*.o

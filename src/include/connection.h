@@ -1,15 +1,18 @@
 #ifndef _CONNECTION_H_
 #define _CONNECTION_H_
 
-#include "buffer.h"
+#include <dohdata.h>
+#include <buffer.h>
 #include <netdb.h>
+#include <http_parser.h>
 #include <pthread.h>
 #include <sys/select.h>
 #include <http_parser.h>
 #include <stdio.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
-typedef enum { EMPTY, FETCHING, READY, CONNECTING, CONNECTED , DNS_ERROR} ADDR_INFO_STATE;
+// TODO: Cambiar nombre a CONNECTION_STATE, porque usamos CONNECTING y CONNECTED y eso esta por fuera de addrinfo
+typedef enum { EMPTY, CONNECTING_TO_DOH, FETCHING, READY, CONNECTING, CONNECTED, DNS_ERROR } ADDR_INFO_STATE;
 
 typedef struct {
 	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee
@@ -17,11 +20,9 @@ typedef struct {
 	int clientSock;						// socket activo con cliente
 	int serverSock;						// socket activo con servidor
 	ADDR_INFO_STATE addrInfoState;		// estado de la busqueda DNS
-	pthread_t addrInfoThread;			// informacion del thread donde corre la resolución DNS
-	struct addrinfo *addr_info_header;	// para guardar el inicio de la lista del resultado de la consulta DNS
-	struct addrinfo *addr_info_current; // para guardar el ultimo nodo con el que se intento conectar
 	http_parser * parser;				// estructura donde se guarda el estado del parseo
 	FILE * file;
+	doh_data *doh;
 } ConnectionData;
 
 typedef struct ConnectionNode {

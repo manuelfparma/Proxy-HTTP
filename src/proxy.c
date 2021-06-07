@@ -1,4 +1,6 @@
 #include <connection.h>
+#include <dohclient.h>
+#include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
@@ -16,7 +18,6 @@
 
 static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
 static void find_max_id();
-static void wake_handler(const int signal);
 
 ConnectionHeader connections = {0};
 
@@ -42,11 +43,6 @@ int main(int argc, char **argv) {
 	sigset_t sigMask;
 	sigemptyset(&sigMask);
 	// configuracion de signal para interrumpir select desde otro thread
-	struct sigaction act = {
-		.sa_handler = wake_handler,
-	};
-
-	if (sigaction(SIGIO, &act, 0)) logger(FATAL, "sigaction(): %s", strerror(errno));
 
 	connections.maxFd = passiveSock + 1;
 
@@ -56,51 +52,6 @@ int main(int argc, char **argv) {
 		writeFdSet[TMP] = writeFdSet[BASE];
 
 		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
-		if (readyFds <= -1) {
-			// el select fue interrumpido por un thread que resolvio la consulta DNS
-			if (errno == EINTR) {
-				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
-				int found = 0;
-				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;
-					 prev = node, node = node->next) {
-					if (node->data.addrInfoState == READY) {
-						found = 1;
-						// FIXME: verificar si la quedo el dns
-						int ans = pthread_join(node->data.addrInfoThread, NULL);
-						if (ans != 0) {
-							logger(ERROR, "pthread_join(): %s", strerror(errno));
-						} else {
-							if (setup_connection(node, writeFdSet) == -1) {
-								logger(INFO, "setup_connection()");
-								// FIXME: ?????
-								return -1;
-							}
-							logger(DEBUG, "Trying setup_connection()");
-						}
-					} else if (node->data.addrInfoState == DNS_ERROR) {
-						logger(DEBUG, "is %s null", node == NULL || node->data.parser == NULL ? "" : "not");
-						switch (node->data.parser->request.target.host_type) {
-							case IPV4:
-							case IPV6:
-								logger(DEBUG, "getaddrinfo failed for ip %s",
-									   node->data.parser->request.target.request_target.ip_addr);
-								break;
-							case DOMAIN:
-								logger(DEBUG, "getaddrinfo failed for host %s",
-									   node->data.parser->request.target.request_target.host_name);
-								break;
-							default:
-								logger(DEBUG, "Undefined host type");
-								break;
-						}
-						close_connection(node, prev, writeFdSet, readFdSet);
-					}
-				}
-			} else {
-				logger(ERROR, "pselect(): %s", strerror(errno));
-			}
-			continue;
-		}
 
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// establezco conexión con cliente en socket activo
@@ -128,20 +79,44 @@ int main(int argc, char **argv) {
 		// itero por todas las conexiones cliente-servidor
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
-			handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
-			if (handle != -1) readyFds -= handle;
-			else {
-				// Caso conexion cerrada
-				handle_connection_error(node, previous, readFdSet, writeFdSet);
-				break;
-			}
-			handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
-			if (handle != -1) readyFds -= handle;
-			else {
-				// Caso conexion cerrada
-				if(!buffer_can_read(node->data.serverToClientBuffer))
-					handle_connection_error(node, previous, readFdSet, writeFdSet);
-				break;
+			if (node->data.addrInfoState == CONNECTING_TO_DOH) {
+				handle = handle_doh_request(node, writeFdSet, readFdSet);
+				if (handle > -1) readyFds -= handle;
+				// TODO: Manejo de error
+			} else if (node->data.addrInfoState == FETCHING) {
+				handle = handle_doh_response(node, readFdSet);
+				if (handle >= 0) {
+					readyFds -= handle;
+					if (handle == 1) {
+						FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+						close(node->data.doh->sock);
+						if (setup_connection(node, writeFdSet) == -1) {
+							logger(ERROR, "setup_connection(): failed to connect");
+							// FIXME: ?????
+							return -1;
+						}
+					}
+				} else {
+					// TODO: Liberar recursos y cliente
+					FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+					close(node->data.doh->sock);
+					free_doh_resources(node->data.doh);
+				}
+			} else {
+				handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
+				if (handle > -1) readyFds -= handle;
+				else{
+					handle_connection_error(node, previous, writeFdSet, readFdSet);
+					find_max_id();
+					break; // Caso conexion cerrada
+				}
+				handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
+				if (handle > -1) readyFds -= handle;
+				else{
+					handle_connection_error(node, previous, writeFdSet, readFdSet);
+					find_max_id();
+					break; // Caso conexion cerrada
+				}
 			}
 		}
 	}
@@ -161,8 +136,4 @@ static void find_max_id() {
 		if (node->data.clientSock >= connections.maxFd) connections.maxFd = node->data.clientSock;
 		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock;
 	}
-}
-
-static void wake_handler(const int signal) {
-	// nada que hacer. está solo para interrumpir el select
 }
