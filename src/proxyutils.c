@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <logger.h>
 #include <netdb.h>
-#include <parser.h>
+#include <http_parser.h>
 #include <proxyutils.h>
 #include <pthread.h>
 #include <signal.h>
@@ -236,10 +236,10 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				node->data.addr_info_current = node->data.addr_info_header = NULL;
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd_server, &read_fd_set[BASE]);
-				if (node->data.request->package_status != PARSE_CONNECT_METHOD) {
+				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
 					// ya que estoy conectado, me fijo si quedo algo para parsear
-					parse_request(node->data.request, node->data.clientToServerBuffer);
-					if (node->data.request->parser_state == PS_ERROR) {
+					parse_request(node->data.parser, node->data.clientToServerBuffer);
+					if (node->data.parser->data.parser_state == PS_ERROR) {
 						send_parse_error(fd_client, node);
 						return -1; // fix codigo de error
 					}
@@ -266,10 +266,10 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 			}
 		}
 
-		if (node->data.request->package_status != PARSE_CONNECT_METHOD) {
-			if (buffer_can_read(node->data.request->parsed_request)) {
+		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+			if (buffer_can_read(node->data.parser->data.parsed_request)) {
 
-				result_bytes = handle_operation(fd_server, node->data.request->parsed_request, WRITE, SERVER, node->data.file);
+				result_bytes = handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.file);
 				if (result_bytes <= 0) {
 					loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
@@ -278,7 +278,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
 					// si el buffer de salida se vacio, no nos interesa intentar escribir
-					if (!buffer_can_read(node->data.request->parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
+					if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
 				}
 			} else {
 				FD_CLR(fd_server, &write_fd_set[BASE]);
@@ -329,14 +329,14 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 				loggerPeer(CLIENT, "client_fd: %d request sent completed", fd_client);
 				FD_CLR(fd_client, &read_fd_set[BASE]);
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
-				if (node->data.request->package_status != PARSE_CONNECT_METHOD) {
-					parse_request(node->data.request, node->data.clientToServerBuffer);
-					if (node->data.request->parser_state == PS_ERROR) {
+				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+					parse_request(node->data.parser, node->data.clientToServerBuffer);
+					if (node->data.parser->data.parser_state == PS_ERROR) {
 						send_parse_error(fd_client, node);
 						return -1;
 					}
 					if (node->data.addrInfoState == EMPTY) {
-						if (node->data.request->request_target_status == NOT_FOUND) {
+						if (node->data.parser->data.target_status == NOT_FOUND) {
 							logger(DEBUG, "Request target not solved yet");
 							return 1;
 						}
@@ -355,19 +355,19 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 						args->connection = malloc(sizeof(ConnectionNode));
 
 						// seteo los argumentos necesarios para conectarse al server
-						switch (node->data.request->start_line.destination.host_type) {
+						switch (node->data.parser->request.target.host_type) {
 							case IPV4:
 							case IPV6:
-								strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
+								strcpy(args->host, node->data.parser->request.target.request_target.ip_addr);
 								break;
 							case DOMAIN:
-								strcpy(args->host, node->data.request->start_line.destination.request_target.host_name);
+								strcpy(args->host, node->data.parser->request.target.request_target.host_name);
 								break;
 							default:
 								logger(ERROR, "Undefined domain type");
 						}
 
-						strcpy(args->service, node->data.request->start_line.destination.port);
+						strcpy(args->service, node->data.parser->request.target.port);
 						*args->main_thread_id = pthread_self();
 						args->connection = node;
 						pthread_t thread;
@@ -379,7 +379,7 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 						}
 					}
 					// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-					if (buffer_can_read(node->data.request->parsed_request) && fd_server != -1) {
+					if (buffer_can_read(node->data.parser->data.parsed_request) && fd_server != -1) {
 						FD_SET(fd_server, &write_fd_set[BASE]);
 					}
 				} else if (buffer_can_read(node->data.clientToServerBuffer) && fd_server != -1)

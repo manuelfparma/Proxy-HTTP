@@ -1,7 +1,7 @@
 #include <connection.h>
 #include <errno.h>
 #include <logger.h>
-#include <parser.h>
+#include <http_parser.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,31 +53,31 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 
 	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
-	new->data.request = malloc(sizeof(http_request));
-	if (new->data.request == NULL) goto FREE_BUFFER_2_DATA;
+	new->data.parser = malloc(sizeof(http_parser));
+	if (new->data.parser == NULL) goto FREE_BUFFER_2_DATA;
 
-	new->data.request->parsed_request = malloc(sizeof(buffer));
-	if (new->data.request->parsed_request == NULL) goto FREE_REQUEST;
+	new->data.parser->data.parsed_request = malloc(sizeof(buffer));
+	if (new->data.parser->data.parsed_request == NULL) goto FREE_REQUEST;
 
-	new->data.request->parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	if (new->data.request->parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
+	new->data.parser->data.parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.parser->data.parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
-	new->data.request->parser_state = PS_METHOD;
-	new->data.request->package_status = PARSE_START_LINE_INCOMPLETE;
-	new->data.request->request_target_status = NOT_FOUND;
-	new->data.request->copy_index = 0;
-	new->data.request->start_line.method[0] = '\0';
-	new->data.request->start_line.schema[0] = '\0';
-	new->data.request->start_line.destination.port[0] = '\0';
-	new->data.request->start_line.destination.relative_path[0] = '\0';
-	new->data.request->start_line.version.major = EMPTY_VERSION;
-	new->data.request->start_line.version.minor = EMPTY_VERSION;
-	new->data.request->header.header_type[0] = '\0';
-	new->data.request->header.header_value[0] = '\0';
+	new->data.parser->data.parser_state = PS_METHOD;
+	new->data.parser->data.request_status = PARSE_START_LINE_INCOMPLETE;
+	new->data.parser->data.target_status = NOT_FOUND;
+	new->data.parser->data.copy_index = 0;
+	new->data.parser->request.method[0] = '\0';
+	new->data.parser->request.schema[0] = '\0';
+	new->data.parser->request.target.port[0] = '\0';
+	new->data.parser->request.target.relative_path[0] = '\0';
+	new->data.parser->request.version.major = EMPTY_VERSION;
+	new->data.parser->request.version.minor = EMPTY_VERSION;
+	new->data.parser->request.header.type[0] = '\0';
+	new->data.parser->request.header.value[0] = '\0';
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
-	buffer_init(new->data.request->parsed_request, BUFFER_SIZE, new->data.request->parsed_request->data);
+	buffer_init(new->data.parser->data.parsed_request, BUFFER_SIZE, new->data.parser->data.parsed_request->data);
 
 	char file_name[1024] = {0};
 	const char *name = "./logs/log_connection_";
@@ -95,9 +95,9 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	return new;
 
 FREE_REQUEST_BUFFER:
-	free(new->data.request->parsed_request);
+	free(new->data.parser->data.parsed_request);
 FREE_REQUEST:
-	free(new->data.request);
+	free(new->data.parser);
 FREE_BUFFER_2_DATA:
 	free(new->data.serverToClientBuffer->data);
 FREE_BUFFER_2:
@@ -136,9 +136,9 @@ void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *wr
 	free(node->data.clientToServerBuffer->data);
 	free(node->data.clientToServerBuffer);
 	free(node->data.serverToClientBuffer);
-	free(node->data.request->parsed_request->data);
-	free(node->data.request->parsed_request);
-	free(node->data.request);
+	free(node->data.parser->data.parsed_request->data);
+	free(node->data.parser->data.parsed_request);
+	free(node->data.parser);
 	fclose(node->data.file);
 
 	if (previous == NULL) {

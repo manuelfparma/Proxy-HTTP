@@ -2,7 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
-#include <parser.h>
+#include <http_parser.h>
 #include <proxy.h>
 #include <proxyutils.h>
 #include <pthread.h>
@@ -78,16 +78,16 @@ int main(int argc, char **argv) {
 							logger(DEBUG, "Trying setup_connection()");
 						}
 					} else if (node->data.addrInfoState == DNS_ERROR) {
-						logger(DEBUG, "is %s null", node == NULL || node->data.request == NULL ? "" : "not");
-						switch (node->data.request->start_line.destination.host_type) {
+						logger(DEBUG, "is %s null", node == NULL || node->data.parser == NULL ? "" : "not");
+						switch (node->data.parser->request.target.host_type) {
 							case IPV4:
 							case IPV6:
 								logger(DEBUG, "getaddrinfo failed for ip %s",
-									   node->data.request->start_line.destination.request_target.ip_addr);
+									   node->data.parser->request.target.request_target.ip_addr);
 								break;
 							case DOMAIN:
 								logger(DEBUG, "getaddrinfo failed for host %s",
-									   node->data.request->start_line.destination.request_target.host_name);
+									   node->data.parser->request.target.request_target.host_name);
 								break;
 							default:
 								logger(DEBUG, "Undefined host type");

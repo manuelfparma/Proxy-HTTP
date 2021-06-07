@@ -1,6 +1,5 @@
-//  DEPRECATED
-#ifndef _PROXY_UTILS_H_
-#define _PROXY_UTILS_H_
+#ifndef __PROXY_UTILS_H__
+#define __PROXY_UTILS_H__
 
 #define MAX_PENDING 10
 #define MAX_CLIENTS 510
