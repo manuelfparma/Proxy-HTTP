@@ -2,7 +2,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
-#include <parser.h>
+#include <http_parser.h>
 #include <proxy.h>
 #include <proxyutils.h>
 #include <pthread.h>
@@ -13,6 +13,10 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
+
+static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+static void find_max_id();
+static void wake_handler(const int signal);
 
 ConnectionHeader connections = {0};
 
@@ -57,7 +61,8 @@ int main(int argc, char **argv) {
 			if (errno == EINTR) {
 				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
 				int found = 0;
-				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;  prev = node, node = node->next) {
+				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;
+					 prev = node, node = node->next) {
 					if (node->data.addrInfoState == READY) {
 						found = 1;
 						// FIXME: verificar si la quedo el dns
@@ -72,8 +77,22 @@ int main(int argc, char **argv) {
 							}
 							logger(DEBUG, "Trying setup_connection()");
 						}
-					}else if(node->data.addrInfoState == DNS_ERROR){
-						logger(DEBUG, "getaddrinfo failed");
+					} else if (node->data.addrInfoState == DNS_ERROR) {
+						logger(DEBUG, "is %s null", node == NULL || node->data.parser == NULL ? "" : "not");
+						switch (node->data.parser->request.target.host_type) {
+							case IPV4:
+							case IPV6:
+								logger(DEBUG, "getaddrinfo failed for ip %s",
+									   node->data.parser->request.target.request_target.ip_addr);
+								break;
+							case DOMAIN:
+								logger(DEBUG, "getaddrinfo failed for host %s",
+									   node->data.parser->request.target.request_target.host_name);
+								break;
+							default:
+								logger(DEBUG, "Undefined host type");
+								break;
+						}
 						close_connection(node, prev, writeFdSet, readFdSet);
 					}
 				}
@@ -110,14 +129,37 @@ int main(int argc, char **argv) {
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
 			handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
-			if (handle > -1) readyFds -= handle;
-			else
-				break; // Caso conexion cerrada
+			if (handle != -1) readyFds -= handle;
+			else {
+				// Caso conexion cerrada
+				handle_connection_error(node, previous, readFdSet, writeFdSet);
+				break;
+			}
 			handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
-			if (handle > -1) readyFds -= handle;
-			else
-				break; // Caso conexion cerrada
+			if (handle != -1) readyFds -= handle;
+			else {
+				// Caso conexion cerrada
+				if(!buffer_can_read(node->data.serverToClientBuffer))
+					handle_connection_error(node, previous, readFdSet, writeFdSet);
+				break;
+			}
 		}
+	}
+}
+
+static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+	int aux_server_sock = node->data.serverSock >= connections.maxFd;
+	int aux_client_sock = node->data.clientSock >= connections.maxFd;
+	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
+	// si se debe buscar otro maximo
+	close_connection(node, previous, write_fd_set, read_fd_set);
+	if (aux_server_sock >= connections.maxFd || aux_client_sock >= connections.maxFd) find_max_id();
+}
+
+static void find_max_id() {
+	for (ConnectionNode *node = connections.first; node != NULL; node = node->next) {
+		if (node->data.clientSock >= connections.maxFd) connections.maxFd = node->data.clientSock;
+		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock;
 	}
 }
 

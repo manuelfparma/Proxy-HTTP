@@ -1,12 +1,14 @@
-#ifndef __PARSER_H__
-#define __PARSER_H__
+#ifndef __HTTP_PARSER_H__
+#define __HTTP_PARSER_H__
 
 #include <buffer.h>
 #include <netinet/in.h>
 #include <stdint.h>
 
 typedef enum {
-	UNSOLVED, SOLVED,
+	NOT_FOUND,
+	FOUND,
+	SOLVED,
 } http_request_target_status;
 
 typedef enum {
@@ -17,13 +19,14 @@ typedef enum {
 	PARSE_HEADER_LINE_COMPLETE,
 	PARSE_BODY_INCOMPLETE,
 	PARSE_END,
-} parser_status_code;
+	PARSE_CONNECT_METHOD,
+} http_request_status_code;
 // deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
 
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
-	MAX_HEADER_TYPE_LENGTH = 255,
-	MAX_HEADER_VALUE_LENGTH = 255,
+	MAX_HEADER_TYPE_LENGTH = 64,
+	MAX_HEADER_VALUE_LENGTH = 1024,
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_SCHEMA_LENGTH = 24,
@@ -40,6 +43,7 @@ typedef enum {
 typedef enum {
 	PS_METHOD,
 	PS_PATH,
+	PS_ASTERISK_FORM,
 	PS_RELATIVE_PATH,
 	PS_PATH_SCHEMA,
 	PS_PATH_SLASHES,
@@ -55,11 +59,15 @@ typedef enum {
 	PS_CR,
 	PS_LF,
 	PS_CR_END,
-	PS_LF_END, 
+	PS_LF_END,
 	PS_BODY,
 	PS_END,
 	PS_ERROR // cuando se recibe \cr\lf\cr\lf
 } http_parser_state;
+
+typedef enum { ABSOLUTE, RELATIVE, ASTERISK_FORM } http_path_type;
+
+typedef enum { IPV4, IPV6, DOMAIN } http_host_type;
 
 typedef struct {
 	char when;
@@ -74,10 +82,8 @@ typedef struct {
 	char minor; // parte derecha de la version http1.0 -> 0
 } http_version;
 
-typedef enum { ABSOLUTE, RELATIVE, NO_RESOURCE } http_path_type;
 
-typedef enum { IPV4, IPV6, DOMAIN } http_host_type;
-
+// TODO: chequear si se usa o no
 typedef union {
 	struct sockaddr_in ipv4;
 	struct sockaddr_in6 ipv6;
@@ -95,31 +101,35 @@ typedef struct {
 	http_host_type host_type;
 	http_host host;
 	char port[MAX_PORT_LENGTH + 1];
-	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1];	//ojo no se guarda con primer /
+	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1]; // ojo no se guarda con primer /
 } http_target;
+
+typedef struct {
+	char type[MAX_HEADER_TYPE_LENGTH + 1];
+	char value[MAX_HEADER_VALUE_LENGTH + 1];
+} http_header;
 
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
 	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del request
-	http_target destination;
+	http_target target;
 	http_version version;
-} http_start_line;
+	http_header header; // header actual(por si no se completo)
+} http_request_data;
 
 typedef struct {
-	char header_type[MAX_HEADER_TYPE_LENGTH + 1];
-	char header_value[MAX_HEADER_VALUE_LENGTH + 1];
-} http_header;
+	buffer *parsed_request;			// request parseada lista para enviar
+	http_parser_state parser_state; // estado actual
+	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
+	http_request_status_code request_status; // codigo que indica el estado de los recursos leidos
+	http_request_target_status target_status;	// estado del hostname en el parseo
+} http_parser_data;
 
 typedef struct {
-	http_start_line start_line;		   // start_line(por si no se completo)
-	http_header header;				   // header actual(por si no se completo)
-	buffer *parsed_request;			   // listo para enviar
-	http_parser_state parser_state;	   // estado actual
-	size_t copy_index;				   // indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
-	parser_status_code package_status; // codigo que indica el estado de los recursos leidos
-	http_request_target_status request_target_status;
-} http_request;
+	http_request_data request;	//datos de la request parseada
+	http_parser_data data;		//datos de la maquina
+} http_parser;
 
-int parse_request(http_request *request, buffer *read_buffer);
+int parse_request(http_parser *request, buffer *read_buffer);
 
 #endif

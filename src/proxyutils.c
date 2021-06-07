@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <logger.h>
 #include <netdb.h>
-#include <parser.h>
+#include <http_parser.h>
 #include <proxyutils.h>
 #include <pthread.h>
 #include <signal.h>
@@ -18,6 +18,25 @@
 #include <unistd.h>
 
 extern ConnectionHeader connections;
+
+static void send_parse_error(int fd_client, ConnectionNode *node) {
+	// TODO: CAMBIAR A SEND CUANDO SE BORREN LOS LOGS
+	logger(INFO, "Connection established");
+	char *response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+	buffer *buffer_response;
+	buffer_response = malloc(sizeof(buffer));
+	buffer_response->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	buffer_init(buffer_response, BUFFER_SIZE, buffer_response->data);
+	strncpy((char *)buffer_response->write, response, strlen(response));
+	buffer_write_adv(buffer_response, strlen(response));
+	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.file);
+	if (result_bytes <= 0) logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+
+	free(buffer_response->data);
+	free(buffer_response);
+
+	buffer_reset(node->data.clientToServerBuffer); // por si quedaron cosas sin parsear del request
+}
 
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
@@ -89,7 +108,7 @@ int acceptConnection(int passiveSock) {
 	// Non blocking
 	fcntl(clntSock, F_SETFL, O_NONBLOCK);
 	// clntSock is connected to a client!
-	logger(INFO, "Handling client with socket fd: %d", clntSock);
+	logger(DEBUG, "Created active socket for client with fd: %d", clntSock);
 	return clntSock;
 }
 
@@ -122,8 +141,8 @@ void *resolve_addr(void *args) {
 		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
 		free(host);
 		free(service);
-		free(threadArgs);
 		free(main_thread_id);
+		free(threadArgs);
 		// freeaddrinfo(servAddr);
 		node->data.addrInfoState = DNS_ERROR;
 		pthread_kill(aux_main_pthread_id, SIGIO);
@@ -153,17 +172,20 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	int fd_server = node->data.serverSock;
 	int fd_client = node->data.clientSock;
 	int return_value = 0;
-	size_t result_bytes;
+	ssize_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
-				loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
+		loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
 
 		if (buffer_can_write(node->data.serverToClientBuffer)) {
-			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ);
-			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
+			result_bytes = handle_operation(fd_server, node->data.serverToClientBuffer, READ, SERVER, node->data.file);
+			if (result_bytes < 0) {
+				// loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server,
+				// fd_client); return -1; TODO: FIX!
+			} else if (result_bytes == 0) {
+				// server quiere cerrar la conexion
 				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return -1;
 			} else {
@@ -181,7 +203,7 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
-						loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
+		loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
 
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
@@ -190,6 +212,9 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 			if (ans <= -1) {
 				// en caso de error, chequear la señal, si la conexion fue rechazada, probar con la siguiente
 				if (errno == ECONNREFUSED) {
+					// borro el socket que fallo en la conexion
+					FD_CLR(node->data.serverSock, &write_fd_set[BASE]);
+					close(node->data.serverSock);
 					node->data.addr_info_current = node->data.addr_info_current->ai_next;
 					if (setup_connection(node, write_fd_set) == -1) {
 						logger(ERROR, "setup_connection(): %d", errno);
@@ -200,37 +225,87 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 					// error de getsockopt, saco el socket de prueba
 					logger(ERROR, "getsockopt(): %s", strerror(errno));
 					FD_CLR(fd_server, &write_fd_set[BASE]);
+					close(node->data.serverSock);
 					return -1;
 				}
 			} else {
-				loggerPeer(SERVER, "Connected to server for client with fd %d", node->data.clientSock);
+				loggerPeer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.serverSock,
+						   node->data.clientSock);
 				node->data.addrInfoState = CONNECTED;
 				freeaddrinfo(node->data.addr_info_header);
 				node->data.addr_info_current = node->data.addr_info_header = NULL;
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd_server, &read_fd_set[BASE]);
+				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+					// ya que estoy conectado, me fijo si quedo algo para parsear
+					parse_request(node->data.parser, node->data.clientToServerBuffer);
+					if (node->data.parser->data.parser_state == PS_ERROR) {
+						send_parse_error(fd_client, node);
+						return -1; // fix codigo de error
+					}
+
+				} else {
+					// enviamos al cliente que nos conectamos satisfactoriamente al servidor
+					// TODO: CAMBIAR A SEND CUANDO SE BORREN LOS LOGS
+					logger(INFO, "Connection established");
+					char *response_connect_method = "HTTP/1.1 200 Connection Established\r\n\r\n";
+					buffer *buffer_response;
+					buffer_response = malloc(sizeof(buffer));
+					buffer_response->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+					buffer_init(buffer_response, BUFFER_SIZE, buffer_response->data);
+					strncpy((char *)buffer_response->write, response_connect_method, strlen(response_connect_method));
+					buffer_write_adv(buffer_response, strlen(response_connect_method));
+					result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.file);
+					if (result_bytes <= 0) logger(ERROR, "Couldnt send connection established to client with fd: %d", fd_client);
+
+					free(buffer_response->data);
+					free(buffer_response);
+
+					buffer_reset(node->data.clientToServerBuffer); // por si quedaron cosas sin parsear del request
+				}
 			}
 		}
 
-		if (buffer_can_read(node->data.request->parsed_request)) {
-			result_bytes = handle_operation(fd_server, node->data.request->parsed_request, WRITE);
-			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
-				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
-				return -1;
-			} else {
-				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
-				FD_SET(fd_client, &read_fd_set[BASE]);
+		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+			if (buffer_can_read(node->data.parser->data.parsed_request)) {
 
-				// si el buffer de salida se vacio, no nos interesa intentar escribir
-				if (!buffer_can_read(node->data.request->parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
+				result_bytes = handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.file);
+				if (result_bytes <= 0) {
+					loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
+							   fd_client);
+					return -1;
+				} else {
+					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
+					FD_SET(fd_client, &read_fd_set[BASE]);
+					// si el buffer de salida se vacio, no nos interesa intentar escribir
+					if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
+				}
+			} else {
+				FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
-		}else{
-			FD_CLR(fd_server, &write_fd_set[BASE]);
+		} else {
+			if (buffer_can_read(node->data.clientToServerBuffer)) {
+
+				result_bytes = handle_operation(fd_server, node->data.clientToServerBuffer, WRITE, SERVER, node->data.file);
+				if (result_bytes < 0) {
+					// loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
+					//    fd_client);
+					// return -1; TODO: FIX!
+				} else if (result_bytes == 0) {
+					// por alguna razon no le llego nada, paso la iteracion y el pselect se levantara cuando este disponible para
+					// recibirlo
+				} else {
+					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
+					FD_SET(fd_client, &read_fd_set[BASE]);
+					// si el buffer de salida se vacio, no nos interesa intentar escribir
+					if (!buffer_can_read(node->data.clientToServerBuffer)) FD_CLR(fd_server, &write_fd_set[BASE]);
+				}
+			} else {
+				FD_CLR(fd_server, &write_fd_set[BASE]);
+			}
 		}
 		return_value++;
 	}
-
 	return return_value;
 }
 
@@ -239,68 +314,76 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	int fd_server = node->data.serverSock;
 	int fd_client = node->data.clientSock;
 	int return_value = 0;
-	size_t result_bytes;
+	ssize_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_client, &read_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to read from fd %d", fd_client);
 		if (buffer_can_write(node->data.clientToServerBuffer)) {
-			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ);
-			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
+			result_bytes = handle_operation(fd_client, node->data.clientToServerBuffer, READ, CLIENT, node->data.file);
+			if (result_bytes < 0) {
 				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
-				return -1;
+				// return -1;
+			} else if (result_bytes == 0) {
+				loggerPeer(CLIENT, "client_fd: %d request sent completed", fd_client);
+				FD_CLR(fd_client, &read_fd_set[BASE]);
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
-				parse_request(node->data.request, node->data.clientToServerBuffer);
-				
-				if (node->data.addrInfoState == EMPTY) {
-					if (node->data.request->request_target_status == UNSOLVED) {
-						logger(DEBUG, "Request target not solved yet");
-						return 1;
+				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+					parse_request(node->data.parser, node->data.clientToServerBuffer);
+					if (node->data.parser->data.parser_state == PS_ERROR) {
+						send_parse_error(fd_client, node);
+						return -1;
 					}
+					if (node->data.addrInfoState == EMPTY) {
+						if (node->data.parser->data.target_status == NOT_FOUND) {
+							logger(DEBUG, "Request target not solved yet");
+							return 1;
+						}
 
-					node->data.addrInfoState = FETCHING;
-					// creo los recursos para la resolucion DNS mediante thread nuevo
-					ThreadArgs *args = malloc(sizeof(ThreadArgs));
-					if (args == NULL) {
-						logger(ERROR, "malloc(): %s", strerror(errno));
-						return -1; // TODO: ???????
+						node->data.addrInfoState = FETCHING;
+						// creo los recursos para la resolucion DNS mediante thread nuevo
+						ThreadArgs *args = malloc(sizeof(ThreadArgs));
+						if (args == NULL) {
+							logger(ERROR, "malloc(): %s", strerror(errno));
+							return -1; // TODO: ???????
+						}
+
+						args->host = malloc(1024 * sizeof(char));
+						args->service = malloc(5 * sizeof(char));
+						args->main_thread_id = malloc(10 * sizeof(char));
+						args->connection = malloc(sizeof(ConnectionNode));
+
+						// seteo los argumentos necesarios para conectarse al server
+						switch (node->data.parser->request.target.host_type) {
+							case IPV4:
+							case IPV6:
+								strcpy(args->host, node->data.parser->request.target.request_target.ip_addr);
+								break;
+							case DOMAIN:
+								strcpy(args->host, node->data.parser->request.target.request_target.host_name);
+								break;
+							default:
+								logger(ERROR, "Undefined domain type");
+						}
+
+						strcpy(args->service, node->data.parser->request.target.port);
+						*args->main_thread_id = pthread_self();
+						args->connection = node;
+						pthread_t thread;
+
+						int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
+						if (ret != 0) {
+							logger(ERROR, "pthread_create(): %s", strerror(errno));
+							return -1; // TODO: ?????
+						}
 					}
-
-					args->host = malloc(1024 * sizeof(char));
-					args->service = malloc(5 * sizeof(char));
-					args->main_thread_id = malloc(10 * sizeof(char));
-					args->connection = malloc(sizeof(ConnectionNode));
-
-					// seteo los argumentos necesarios para conectarse al server
-					switch (node->data.request->start_line.destination.host_type) {
-						case IPV4:
-						case IPV6:
-							strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
-							break;
-						case DOMAIN:
-							strcpy(args->host, node->data.request->start_line.destination.request_target.host_name);
-							break;
-						default:
-							logger(ERROR, "Undefined domain type");
+					// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
+					if (buffer_can_read(node->data.parser->data.parsed_request) && fd_server != -1) {
+						FD_SET(fd_server, &write_fd_set[BASE]);
 					}
-
-					strcpy(args->service, node->data.request->start_line.destination.port);
-					*args->main_thread_id = pthread_self();
-					args->connection = node;
-					pthread_t thread;
-
-					int ret = pthread_create(&thread, NULL, resolve_addr, (void *)args);
-					if (ret != 0) {
-						logger(ERROR, "pthread_create(): %s", strerror(errno));
-						return -1; // TODO: ?????
-					}
-				}
-				// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-				if(buffer_can_read(node->data.request->parsed_request) && fd_server != -1){ 
-					FD_SET(fd_server, &write_fd_set[BASE]); 
-				}
+				} else if (buffer_can_read(node->data.clientToServerBuffer) && fd_server != -1)
+					FD_SET(fd_server, &write_fd_set[BASE]);
 			}
 		} else {
 			loggerPeer(CLIENT, "Client with fd: %d has buffer full", fd_server);
@@ -315,14 +398,13 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
 		loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.serverToClientBuffer)) {
-			// char aux_buffer[BUFFER_SIZE] = {0};
-			// strncpy(aux_buffer, (char *)node->data.serverToClientBuffer->read,(size_t) (node->data.serverToClientBuffer->write - node->data.serverToClientBuffer->read));
-			// logger(DEBUG, "Response: %s", aux_buffer);
-			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE);
-			if (result_bytes <= 0) {
-				close_connection(node, prev, write_fd_set, read_fd_set);
-				loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
-				return -1;
+			result_bytes = handle_operation(fd_client, node->data.serverToClientBuffer, WRITE, CLIENT, node->data.file);
+			if (result_bytes < 0) {
+				// loggerPeer(CLIENT, "Close connection for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
+				// fd_client); return -1; TODO: FIX!
+			} else if (result_bytes == 0) {
+				// por alguna razon no le llego nada, paso la iteracion y el pselect se levantara cuando este disponible para
+				// recibirlo
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
@@ -342,10 +424,13 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 		// FIXME: Liberar cliente
 		return -1;
 	}
-	if (node->data.serverSock != -1) FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+	if (node->data.serverSock != -1) {
+		FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
+		close(node->data.serverSock);
+	};
 	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
 								   node->data.addr_info_current->ai_protocol);
-
+	logger(DEBUG, "Created active socket to origin server with fd %d", node->data.serverSock);
 	if (node->data.serverSock >= 0) {
 		// configuracion para socket no bloqueante
 		if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
@@ -383,32 +468,44 @@ int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
 }
 
 // Leer o escribir a un socket
-size_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
+ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation, PEER peer, FILE *file) {
 	ssize_t resultBytes;
-	size_t bytesToSend;
+	ssize_t bytesToSend;
 	switch (operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
 			resultBytes = send(fd, buffer->read, bytesToSend, 0);
 			if (resultBytes <= 0) {
-				if (resultBytes == -1) logger(ERROR, "send(): %s", strerror(errno));
+				logger(ERROR, "send(): %s", strerror(errno));
 			} else {
 				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Sent info on fd: %d", fd);
+				uint8_t aux_buffer[BUFFER_SIZE] = {0};
+				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	PROXY %s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
+				fprintf(file, "%s\n", aux_buffer);
+				fprintf(file, "---------------------------------------------------------\n");
+
 				buffer_read_adv(buffer, resultBytes);
 			}
 			break;
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
-			if (resultBytes <= 0) {
-				if (resultBytes == -1 && errno != EWOULDBLOCK) {
-					logger(ERROR, "recv(): %s", strerror(errno));
+			if (resultBytes < 0) {
+				if (resultBytes == -1 && (errno != EWOULDBLOCK || errno == EAGAIN)) {
+					loggerPeer(peer, "recv(): %s", strerror(errno));
 					return -1;
 				}
+			} else if (resultBytes == 0) {
+				if (peer == SERVER) logger(INFO, "Server with fd: %d closing connection", fd);
 			} else {
-				// TODO pasar a arreglo auxiliar (con strncpy)
 				logger(INFO, "Received info on fd: %d", fd);
 				buffer_write_adv(buffer, resultBytes);
+				uint8_t aux_buffer[BUFFER_SIZE] = {0};
+				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
+				fprintf(file, "-------------------	%s SERVER	-------------------\n", peer == SERVER ? "ORIGIN" : "CLIENT");
+				fprintf(file, "%s\n", aux_buffer);
+				fprintf(file, "---------------------------------------------------------\n");
 			}
 			break;
 		default:

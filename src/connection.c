@@ -1,14 +1,33 @@
 #include <connection.h>
 #include <errno.h>
 #include <logger.h>
+#include <http_parser.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <parser.h>
 
 extern ConnectionHeader connections;
+
+static size_t connection_number = 1;
+
+static size_t power(size_t base, size_t exp) {
+	size_t ret = 1;
+	for (size_t i = 0; i < exp; i++) {
+		ret *= base;
+	}
+	return ret;
+}
+
+static void number_to_str(size_t n, char *buffer) {
+	size_t copy_n = n, length = 0;
+	for( ; copy_n > 0; copy_n /= 10, length++){};
+	copy_n = n;
+	for(size_t i = 0; copy_n > 0; i++, copy_n /= 10){
+		buffer[i] = '0' + ((n / power(10, length - i - 1)) % 10);
+	}
+}
 
 ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	// asignacion de recursos para la conexion
@@ -32,44 +51,53 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
 	if (new->data.serverToClientBuffer->data == NULL) goto FREE_BUFFER_2;
 
-	// TODO: discutir si se necesita acceder a futuro
-	// new->data.addr_info_header = malloc(sizeof(struct addrinfo));
-	// if (new->data.addr_info_header == NULL) goto FREE_BUFFER_2_DATA;
-
 	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
-	new->data.request = malloc(sizeof(http_request));
-	if (new->data.request == NULL) goto FREE_BUFFER_2_DATA;
+	new->data.parser = malloc(sizeof(http_parser));
+	if (new->data.parser == NULL) goto FREE_BUFFER_2_DATA;
 
-	new->data.request->parsed_request = malloc(sizeof(buffer));
-	if (new->data.request->parsed_request == NULL) goto FREE_REQUEST;
+	new->data.parser->data.parsed_request = malloc(sizeof(buffer));
+	if (new->data.parser->data.parsed_request == NULL) goto FREE_REQUEST;
 
-	new->data.request->parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	if (new->data.request->parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
+	new->data.parser->data.parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.parser->data.parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
-	new->data.request->parser_state = PS_METHOD;
-	new->data.request->package_status = PARSE_START_LINE_INCOMPLETE;
-	new->data.request->request_target_status = UNSOLVED;
-	new->data.request->copy_index = 0;
-	new->data.request->start_line.method[0] = '\0';
-	new->data.request->start_line.schema[0] = '\0';
-	new->data.request->start_line.destination.port[0] = '\0';
-	new->data.request->start_line.destination.relative_path[0] = '\0';
-	new->data.request->start_line.version.major = EMPTY_VERSION;
-	new->data.request->start_line.version.minor = EMPTY_VERSION;
-	new->data.request->header.header_type[0] = '\0';
-	new->data.request->header.header_value[0] = '\0';
+	new->data.parser->data.parser_state = PS_METHOD;
+	new->data.parser->data.request_status = PARSE_START_LINE_INCOMPLETE;
+	new->data.parser->data.target_status = NOT_FOUND;
+	new->data.parser->data.copy_index = 0;
+	new->data.parser->request.method[0] = '\0';
+	new->data.parser->request.schema[0] = '\0';
+	new->data.parser->request.target.port[0] = '\0';
+	new->data.parser->request.target.relative_path[0] = '\0';
+	new->data.parser->request.version.major = EMPTY_VERSION;
+	new->data.parser->request.version.minor = EMPTY_VERSION;
+	new->data.parser->request.header.type[0] = '\0';
+	new->data.parser->request.header.value[0] = '\0';
 
 	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
 	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
-	buffer_init(new->data.request->parsed_request, BUFFER_SIZE, new->data.request->parsed_request->data);
+	buffer_init(new->data.parser->data.parsed_request, BUFFER_SIZE, new->data.parser->data.parsed_request->data);
+
+	char file_name[1024] = {0};
+	const char *name = "./logs/log_connection_";
+	strcpy(file_name, name);
+	char number[1024] = {0};
+	number_to_str(connection_number++, number);
+	strcpy(file_name + strlen(name), number);
+	logger(DEBUG, "File with name %s created", file_name);
+	new->data.file = fopen(file_name, "w+");
+	if (new->data.file == NULL) {
+		logger(ERROR, "fopen: %s", strerror(errno));
+		goto FREE_REQUEST_BUFFER;
+	}
 
 	return new;
 
 FREE_REQUEST_BUFFER:
-	free(new->data.request->parsed_request);
+	free(new->data.parser->data.parsed_request);
 FREE_REQUEST:
-	free(new->data.request);
+	free(new->data.parser);
 FREE_BUFFER_2_DATA:
 	free(new->data.serverToClientBuffer->data);
 FREE_BUFFER_2:
@@ -108,9 +136,10 @@ void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *wr
 	free(node->data.clientToServerBuffer->data);
 	free(node->data.clientToServerBuffer);
 	free(node->data.serverToClientBuffer);
-	free(node->data.request->parsed_request->data);
-	free(node->data.request->parsed_request);
-	free(node->data.request);
+	free(node->data.parser->data.parsed_request->data);
+	free(node->data.parser->data.parsed_request);
+	free(node->data.parser);
+	fclose(node->data.file);
 
 	if (previous == NULL) {
 		// Caso primer nodo
@@ -126,7 +155,7 @@ void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *wr
 	FD_CLR(serverFd, &read_fd_set[BASE]);
 	FD_CLR(serverFd, &write_fd_set[BASE]);
 	close(clientFd);
-	close(serverFd);
+	if (serverFd > 0) close(serverFd);
 
 	connections.clients--;
 }

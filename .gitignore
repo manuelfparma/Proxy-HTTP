@@ -16,3 +16,6 @@ httpd
 
 # Objects files
 src/*.o
+
+# Output files
+log_connection_*
