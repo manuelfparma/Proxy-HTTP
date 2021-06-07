@@ -8,12 +8,13 @@
 #define EMPTY -2
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
+#define DISTANCE 'a' - 'A'
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
 static void parse_header_line(char current_char);
-static int check_method_is_connect();
 static void copy_port();
+static int strcmp_lower_case(char *str1, char *str2);
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
@@ -114,7 +115,11 @@ static const http_parser_state_transition ST_IPv6[6] = {
 	 .upper_bound = EMPTY,
 	 .destination = PS_HTTP_VERSION,
 	 .transition = tr_solve_request_target},
-	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
+	{.when = ':',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_IPv6,
+	 .transition = tr_copy_byte_to_buffer}, // TODO: FIX PUERTO
 	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
 	{.when = '/',
 	 .lower_bound = EMPTY,
@@ -250,10 +255,11 @@ static void tr_check_asterisk_form(char current_char) {
 
 static void tr_check_method(char current_char) {
 	tr_reset_copy_index(current_char);
-
 	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
+		logger(INFO, "Identified CONNECT method");
 		current_request->parser_state = PS_PATH_DOMAIN;
 		current_request->start_line.destination.path_type = ABSOLUTE;
+		current_request->package_status = PARSE_CONNECT_METHOD;
 	}
 }
 
@@ -271,6 +277,20 @@ static void tr_request_ended(char current_char) {
 static void tr_incomplete_header(char current_char) {
 	current_request->package_status = PARSE_HEADER_LINE_INCOMPLETE;
 	tr_copy_byte_to_buffer(current_char);
+}
+
+// deben ser NULL TERMINATED
+static int strcmp_lower_case(char *str1, char *str2) {
+	int i = 0, diff;
+	for (; str1[i] != '\0' && str2[i] != '\0'; i++) {
+		diff = (('A' <= str1[i] && str1[i] <= 'Z') ? str1[i] + DISTANCE : str1[i]) -
+			   (('A' <= str2[i] && str2[i] <= 'Z') ? str2[i] + DISTANCE : str2[i]);
+		// hago la resta de sus mayusculas para ser case-insensitive
+		if (diff != 0) return diff;
+	}
+	if(str1[i] == '\0' && str2[i] == '\0'){	return 0;}
+	else if (str1[i] == '\0') { return -1; }
+	else { return 1; }
 }
 
 static void tr_copy_byte_to_buffer(char current_char) {
@@ -351,8 +371,9 @@ static void parse_header_line(char current_char) {
 	char *cr_lf = "\r\n";
 	// logger(DEBUG, "Finished parsing header [%s: %s]", current_request->header.header_type,
 	// current_request->header.header_value);
+	int strcmp_host = strcmp_lower_case("Host", current_request->header.header_type);
 	if (current_request->start_line.destination.path_type != ABSOLUTE && current_request->request_target_status == NOT_FOUND &&
-		strcmp("Host", current_request->header.header_type) == 0) {
+		strcmp_host == 0) {
 		// Busco el indice del delimitador entre el path y el puerto, en caso de no existir retorna -1
 		int idx_port = find_idx(current_request->header.header_value, ':');
 		if (idx_port == -1) {
@@ -388,7 +409,7 @@ static void parse_header_line(char current_char) {
 							   strlen(current_request->header.header_value));
 		current_request->request_target_status = FOUND;
 		copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
-	} else if (strcmp("Host", current_request->header.header_type) != 0) {
+	} else if (strcmp_host != 0) {
 		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
 		copy_to_request_buffer(current_request->parsed_request, current_request->header.header_type,
 							   strlen(current_request->header.header_type));
@@ -438,33 +459,21 @@ static void copy_port() {
 	if (strlen(current_request->start_line.destination.port) == 0) {
 		logger(DEBUG, "No port");
 		char *port;
-		if (strcmp("http", current_request->start_line.schema) == 0) {
+		if (strcmp_lower_case("http", current_request->start_line.schema) == 0) {
 			port = "80";
 			strcpy(current_request->start_line.destination.port, port);
-		} else if (strcmp("https", current_request->start_line.schema) == 0) {
+		} else if (strcmp_lower_case("https", current_request->start_line.schema) == 0) {
 			port = "433";
 			strcpy(current_request->start_line.destination.port, port);
 		}
 	}
 }
 
-static int check_method_is_connect() {
-	if (strcmp("CONNECT", current_request->start_line.method) == 0) {
-		logger(INFO, "Identified CONNECT method");
-		current_request->parser_state = PS_BODY;
-		current_request->package_status = PARSE_BODY_INCOMPLETE;
-		return 1;
-	}
-	return 0;
-}
-
 static void parse_start_line(char current_char) {
 	logger(DEBUG, "Parsing start_line");
-	int connect_method = check_method_is_connect();
-	if (connect_method == 1) {
-		return 1;
-	}
 
+	copy_to_request_buffer(current_request->parsed_request, current_request->start_line.method,
+						   strlen(current_request->start_line.method));
 	copy_char_to_request_buffer(current_request->parsed_request, ' ');
 
 	if (current_request->start_line.destination.path_type != ASTERISK_FORM)
@@ -480,7 +489,7 @@ static void parse_start_line(char current_char) {
 	char *cr_lf = "\r\n";
 	copy_to_request_buffer(current_request->parsed_request, cr_lf, strlen(cr_lf));
 
-	if (current_request->start_line.destination.path_type == ABSOLUTE && !connect_method) {
+	if (current_request->start_line.destination.path_type == ABSOLUTE) {
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_request->parsed_request, header_host, strlen(header_host));
 		copy_to_request_buffer_request_target();
@@ -537,10 +546,7 @@ static void tr_reset_copy_index(char current_char) {
 	// no copio el caracter, solo reinicio el indice de copiado
 }
 
-static void tr_parse_error(char current_char) {
-	// TODO: implementar
-	current_request->package_status = PARSE_ERROR;
-}
+static void tr_parse_error(char current_char) { current_request->package_status = PARSE_ERROR; }
 
 static void tr_adv(char current_char) {}
 
@@ -549,7 +555,7 @@ int parse_request(http_request *request, buffer *read_buffer) {
 	char current_char;
 	http_parser_state current_state;
 
-	while (buffer_can_read(read_buffer)) {
+	while (buffer_can_read(read_buffer) && request->parser_state != PS_ERROR) {
 		current_char = buffer_read(read_buffer);
 		current_state = current_request->parser_state;
 		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);

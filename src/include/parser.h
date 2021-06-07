@@ -17,6 +17,7 @@ typedef enum {
 	PARSE_HEADER_LINE_COMPLETE,
 	PARSE_BODY_INCOMPLETE,
 	PARSE_END,
+	PARSE_CONNECT_METHOD,
 } parser_status_code;
 // deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
 
