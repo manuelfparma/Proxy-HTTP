@@ -10,12 +10,12 @@
 #include <sys/socket.h>
 
 static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n);
-static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancount);
+static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *ancount);
 static int parse_dns_answers(ConnectionNode *node, uint16_t ancount);
+static void consume_buffer_bytes(ConnectionNode *node, ssize_t count);
 
-extern http_dns_request test_request;
-extern dns_header test_dns_header;
-extern dns_question test_dns_question;
+extern http_dns_request doh_request_template;
+extern dns_header dns_header_template;
 
 // Función que dado un FD de un socket lee de este, esperando una respuesta
 // de DoH, y vuelca el mensaje DNS en una esctructura dns_answer.
@@ -147,42 +147,47 @@ int parse_dns_message(ConnectionNode *node) {
 		return DOH_PARSE_INCOMPLETE;
 
 	uint16_t qdcount, ancount;
-	if (parse_dns_header(message, &qdcount, &ancount) == -1) {
+	if (parse_dns_header(node, &qdcount, &ancount) == -1) {
 		return DOH_PARSE_ERROR;
 	}
 
 	// Saltamos a la question section y salteamos cada pregunta
-	buffer_read_adv(message, 3 * SIZE_16);
+	consume_buffer_bytes(node, 3 * SIZE_16);
 
 	for (size_t i = 0; i < qdcount; i++) {
 		// Salteamos hasta encontrar el octeto nulo que indica la label raiz en la pregunta
 		while (*(message->read) != 0)
-			buffer_read_adv(message, SIZE_8);
+			consume_buffer_bytes(node, SIZE_8);
 
 		// Salteamos QTYPE y QCLASS
-		buffer_read_adv(message, 5 * SIZE_8);
+		consume_buffer_bytes(node, 5 * SIZE_8);
 	}
 
 	if (parse_dns_answers(node, ancount) == -1) {
 		return DOH_PARSE_ERROR;
 	}
 
+	// Si quedaron secciones de la respuesta para consumir, no nos interesan
+	if (node->data.doh->response_content_length != 0)
+		consume_buffer_bytes(node, node->data.doh->response_content_length);
+
 	return DOH_PARSE_COMPLETE;
 }
 
-static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancount) {
+static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *ancount) {
 	dns_header header_info;
+	buffer *message = node->data.doh->doh_response_buffer;
 
 	// Obtenemos el id y validamos
 	read_big_endian_16(&header_info.id, message->read, 1);
 
-	if (header_info.id != test_dns_header.id) {
+	if (header_info.id != dns_header_template.id) {
 		// No es nuestra request
-		logger(ERROR, "parse_dns_message(): expected id %d, got %d", test_dns_header.id, header_info.id);
+		logger(ERROR, "parse_dns_message(): expected id %d, got %d", dns_header_template.id, header_info.id);
 		return -1;
 	}
 
-	buffer_read_adv(message, SIZE_16);
+	consume_buffer_bytes(node, SIZE_16);
 
 	// Obtenemos el flag QR y validamos
 	header_info.qr = (*message->read >> 7);
@@ -193,7 +198,7 @@ static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancoun
 		return -1;
 	}
 
-	buffer_read_adv(message, SIZE_8);
+	consume_buffer_bytes(node, SIZE_8);
 
 	// Obtenemos el RCODE y validamos
 	header_info.rcode = (*message->read & 15);
@@ -205,10 +210,10 @@ static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancoun
 	}
 
 	// Obtenemos la cantidad de preguntas y de respuestas en el mensaje
-	buffer_read_adv(message, SIZE_8);
+	consume_buffer_bytes(node, SIZE_8);
 
 	read_big_endian_16(qdcount, message->read, 1);
-	buffer_read_adv(message, SIZE_16);
+	consume_buffer_bytes(node, SIZE_16);
 	read_big_endian_16(ancount, message->read, 1);
 
 	return 0;
@@ -228,68 +233,69 @@ static int parse_dns_answers(ConnectionNode *node, uint16_t ancount) {
 			//	Checkeamos si estan activados los flags de pointer
 			if ((label_count >> 6) == 3) {
 				// Es un puntero, por ende saltamos 16 bits y termina la seccion de NAME
-				buffer_read_adv(message, SIZE_16);
+				consume_buffer_bytes(node, SIZE_16);
 				is_compressed = true;
 				break;
 			}
 
 			// Si no era puntero avanzamos tantas posiciones como especifica label_count
 			do {
-				buffer_read_adv(message, SIZE_8);
+				consume_buffer_bytes(node, SIZE_8);
 			} while (label_count--);
 		} while (*message->read != 0);
 
 		// Si salio del ciclo por encontrar la longitud de la label de root (0x0), avanzamos 1 byte
-		if (!is_compressed) buffer_read_adv(message, SIZE_8);
+		if (!is_compressed) consume_buffer_bytes(node, SIZE_8);
 
 		// Aca ya pasamos el name
 		// Vemos si coincide el type con el solicitado en la query
 		uint16_t type;
 		read_big_endian_16(&type, message->read, 1);
 
-		if (type != test_dns_question.type) {
-			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
-			return -1;
-			// Error
-		}
+//		if (type != test_dns_question.type) {
+//			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
+//			return -1;
+//			// Error
+//		}
 
 		// Vemos lo mismo con class
-		buffer_read_adv(message, SIZE_16);
+		consume_buffer_bytes(node, SIZE_16);
 		uint16_t class;
 		read_big_endian_16(&class, message->read, 1);
 
-		if (class != test_dns_question.class) {
-			logger(ERROR, "parse_dns_message(): expected class %d record, got class = %d", test_dns_question.class, class);
+		if (class != IN_CLASS) {
+			logger(ERROR, "parse_dns_message(): expected class %d record, got class = %d", IN_CLASS, class);
 			return -1;
 			// Error
 		}
 
 		// Avanzamos CLASS y Salteamos TTL
-		buffer_read_adv(message, 3 * SIZE_16);
+		consume_buffer_bytes(node, 3 * SIZE_16);
 
 		uint16_t rdlength;
 		read_big_endian_16(&rdlength, message->read, 1);
 
-		buffer_read_adv(message, SIZE_16);
+		consume_buffer_bytes(node, SIZE_16);
 
 		int ip_family;
 		switch (type) {
-			case 1:
+			case IPV4_TYPE:
 				ip_family = AF_INET;
 				break;
-			case 28:
+			case IPV6_TYPE:
 				ip_family = AF_INET6;
 				break;
 			default:
-				return -1;
+				// Caso de otro type de Answer, la ignoramos
+				ip_family = -1;
+				break;
 		}
 
-		if(add_ip_address(node, ip_family, message->read) == -1) {
+		if(ip_family != -1 && add_ip_address(node, ip_family, message->read) == -1) {
 			return -1;
 		}
 
-		buffer_read_adv(message, rdlength);
-		message += rdlength;
+		consume_buffer_bytes(node, rdlength);
 	}
 
 	return 0;
@@ -300,4 +306,14 @@ static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n) {
 	for (i = 0; i < n && s1[i] != 0 && s2[i] != 0 && tolower(s1[i]) == tolower(s2[i]); i++)
 		;
 	return n - i;
+}
+
+static void consume_buffer_bytes(ConnectionNode *node, ssize_t count) {
+	buffer_read_adv(node->data.doh->doh_response_buffer, count);
+
+	long *content_length = &node->data.doh->response_content_length;
+	if(*content_length - count >= 0)
+		node->data.doh->response_content_length -= count;
+	else
+		logger(ERROR, "consume_buffer_bytes(): content-length already 0, cannot subtract value %ld", count);
 }

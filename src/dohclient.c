@@ -16,31 +16,29 @@
 
 extern ConnectionHeader connections;
 
-http_dns_request test_request = {.method = "POST",
-								 .path = "/dns-query",
-								 .http_version = "1.1",
-								 .host = "localhost",
-								 .accept = "application/dns-message",
-								 .content_type = "application/dns-message",
-								 .content_length = 0,
-								 .body = NULL};
+http_dns_request doh_request_template = {.method = "POST",
+										 .path = "/dns-query",
+										 .http_version = "1.1",
+										 .host = "localhost",
+										 .accept = "application/dns-message",
+										 .content_type = "application/dns-message",
+										 .content_length = 0,
+										 .body = NULL};
 
-dns_header test_dns_header = {.id = 1, // autoincrementar?
-							  .qr = 0,
-							  .opcode = 0,
-							  .aa = 0,
-							  .tc = 0,
-							  .rd = 1,
-							  .ra = 0,
-							  .z = 0,
-							  .rcode = 0,
-							  .qdcount = 1,
-							  .ancount = 0,
-							  .nscount = 0,
-							  .arcount = 0};
+dns_header dns_header_template = {.id = 0,
+								  .qr = 0,
+								  .opcode = 0,
+								  .aa = 0,
+								  .tc = 0,
+								  .rd = 1,
+								  .ra = 0,
+								  .z = 0,
+								  .rcode = 0,
+								  .qdcount = 2,
+								  .ancount = 0,
+								  .nscount = 0,
+								  .arcount = 0};
 
-// TODO: Guarda que el type puede variar segun si pide IPv4 o IPv6 (A/AAAA record)
-dns_question test_dns_question = {.name = "www.netflix.com", .class = 1, .type = 1};
 
 // int solve_name(ConnectionNode *node, char *doh_addr, char *doh_port, char *doh_hostname) {
 //	// TODO: Malloc de structs de HTTP request, DNS, etc.
@@ -98,7 +96,6 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 		logger(ERROR, "connect_to_doh_server(): %s", strerror(errno));
 		return -1;
 	}
-
 
 	if (connect(doh_sock, (struct sockaddr *)&doh_addr_in, sizeof(doh_addr_in)) == -1 && errno != EINPROGRESS) {
 		close(doh_sock);
@@ -165,7 +162,7 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 			return -1;
 		}
 		buffer *response = node->data.doh->doh_response_buffer;
-		while(response->write - response->read) {
+		while (response->write - response->read) {
 			switch (node->data.doh->state) {
 					// TODO: el init se va?
 				case DOH_PARSER_INIT:
@@ -197,14 +194,13 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 			}
 
 			//	Necesito esperar al resto de la DoH response
-			if (result == DOH_PARSE_INCOMPLETE)
-				break;
+			if (result == DOH_PARSE_INCOMPLETE) break;
 			else if (result == DOH_PARSE_ERROR) {
-				return -1; //TODO manejo de error
+				return -1; // TODO manejo de error
 			}
 
 			if (node->data.doh->state == DNS_READY) {
-				node->data.addrInfoState = READY;	//TODO otro estado?
+				node->data.addrInfoState = READY; // TODO otro estado?
 				close(node->data.doh->sock);
 				FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
 				return 1;
@@ -214,5 +210,3 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 
 	return 0;
 }
-
-

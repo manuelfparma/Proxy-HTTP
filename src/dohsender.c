@@ -6,12 +6,11 @@
 #include <sys/socket.h>
 
 static size_t prepare_dns_question(dns_question question_info, uint8_t *question);
-static int prepare_dns_message(char *name, uint8_t *dns_message);
+static size_t prepare_dns_message(char *name, uint8_t *dns_message);
 static void copy_dns_header(uint8_t *dest, dns_header dns_header_info);
 
-extern http_dns_request test_request;
-extern dns_header test_dns_header;
-extern dns_question test_dns_question;
+extern http_dns_request doh_request_template;
+extern dns_header dns_header_template;
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
 ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
@@ -19,14 +18,14 @@ ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 
 	// Copiamos el mensaje de DNS en un buffer
-	int dns_message_length = prepare_dns_message(domain_name, dns_message);
+	size_t dns_message_length = prepare_dns_message(domain_name, dns_message);
 	logger(INFO, "DNS message prepared");
 
 	// Copiamos los headers del paquete HTTP en otro buffer
 	int http_headers_size =
-		sprintf((char *)request, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
-				test_request.method, test_request.path, test_request.http_version, test_request.host, test_request.accept,
-				test_request.content_type, dns_message_length);
+		sprintf((char *)request, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n\r\n",
+				doh_request_template.method, doh_request_template.path, doh_request_template.http_version,
+				doh_request_template.host, doh_request_template.accept, doh_request_template.content_type, dns_message_length);
 
 	memcpy(request + http_headers_size, dns_message, dns_message_length);
 	logger(INFO, "HTTP request prepared");
@@ -45,19 +44,29 @@ ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
 
 // Funcion que prepara un mensaje DNS completo con headers y question dado un FQDN
 // Devuelve la cantidad de bytes que ocupa el mensaje
-static int prepare_dns_message(char *name, uint8_t *dns_message) {
+static size_t prepare_dns_message(char *name, uint8_t *dns_message) {
 	// copiamos el header en el mensaje
-	copy_dns_header(dns_message, test_dns_header);
+	copy_dns_header(dns_message, dns_header_template);
 
 	uint8_t *dns_quest = dns_message + 6 * SIZE_16;
 
-	test_dns_question.name = name;
+	dns_question ip_question = {
+		.name = name,
+		.class = IN_CLASS,
+		.type = IPV4_TYPE
+	};
 
-	// copiamos la question al buffer
-	size_t question_length = prepare_dns_question(test_dns_question, dns_quest);
-	test_request.content_length = question_length + sizeof(dns_header);
+	// copiamos la question de ipv4 al buffer
+	size_t ipv4_question_length = prepare_dns_question(ip_question, dns_quest);
+	dns_quest += ipv4_question_length;
 
-	return test_request.content_length;
+	// luego copiamos la question de ipv6
+	ip_question.type = IPV6_TYPE;
+	size_t ipv6_question_length = prepare_dns_question(ip_question, dns_quest);
+
+	doh_request_template.content_length = sizeof(dns_header) + ipv4_question_length + ipv6_question_length;
+
+	return doh_request_template.content_length;
 }
 
 // Función uelca los campos de una estructura de DNS question a un buffer y devuelve la cantidad

@@ -14,6 +14,10 @@
 #define MAX_DOH_PACKET_SIZE 4096
 #define DNS_MESSAGE_LENGTH 512
 
+#define IN_CLASS 1
+#define IPV4_TYPE 1
+#define IPV6_TYPE 28
+
 /*
  Header DNS:
 								   1  1  1  1  1  1
@@ -67,14 +71,6 @@ typedef struct {
 	uint16_t type;	// Valor 1 para A
 	uint16_t class; // Valor 1 para IN (internet)
 } dns_question;
-
-typedef struct {
-	uint16_t type;
-	uint16_t class;
-	uint32_t ttl;
-	uint16_t rdlength;
-	uint8_t *rdata;
-} dns_answer;
 
 typedef struct {
 	char *method;
