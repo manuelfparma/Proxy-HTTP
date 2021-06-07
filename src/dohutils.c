@@ -85,7 +85,7 @@ void free_doh_resources(doh_data *data) {
 	addr_info_node *addr_node = data->addr_info_first;
 	addr_info_node *prev = addr_node;
 
-	for(;addr_node != NULL; addr_node = addr_node->next) {
+	while(addr_node != NULL) {
 		prev = addr_node;
 		addr_node = prev->next;
 		free(prev);

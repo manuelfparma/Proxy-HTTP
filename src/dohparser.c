@@ -125,7 +125,7 @@ int find_http_body(ConnectionNode *node) {
 
 	// Ahora buscamos el comienzo del mensaje DNS
 	for (; response->write - response->read >= 4  && !(response->read[0] == '\r' && response->read[1] == '\n' &&
-										response->read[2] == '\r' && response->read[4] == '\n');
+										response->read[2] == '\r' && response->read[3] == '\n');
 		 buffer_read_adv(response, SIZE_8))
 		;
 
@@ -160,7 +160,7 @@ int parse_dns_message(ConnectionNode *node) {
 			buffer_read_adv(message, SIZE_8);
 
 		// Salteamos QTYPE y QCLASS
-		buffer_read_adv(message, 2 * SIZE_16);
+		buffer_read_adv(message, 5 * SIZE_8);
 	}
 
 	if (parse_dns_answers(node, ancount) == -1) {
