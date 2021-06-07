@@ -419,7 +419,7 @@ static void tr_headers_ended(char current_char) {
 
 static void tr_request_ended(char current_char) {
 	logger(DEBUG, "tr_request_ended");
-	current_parser->data.parser_state = PARSE_END;
+	current_parser->data.request_status = PARSE_END;
 }
 
 static void tr_incomplete_header(char current_char) {
@@ -567,7 +567,7 @@ int parse_request(http_parser *parser, buffer *read_buffer) {
 	char current_char;
 	http_parser_state current_state;
 
-	while (buffer_can_read(read_buffer) && current_parser->data.parser_state != PS_ERROR) {
+	while (buffer_can_read(read_buffer) && current_parser->data.parser_state != PS_ERROR && current_parser->data.parser_state != PS_END) {
 		current_char = buffer_read(read_buffer);
 		current_state = current_parser->data.parser_state;
 		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
