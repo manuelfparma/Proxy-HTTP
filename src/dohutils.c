@@ -3,6 +3,7 @@
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dohdata.h>
 
 int setup_doh_resources(ConnectionNode *node, int doh_fd) {
 	node->data.doh = malloc(sizeof(doh_data));
@@ -20,6 +21,8 @@ int setup_doh_resources(ConnectionNode *node, int doh_fd) {
 	buffer_init(node->data.doh->doh_response_buffer, MAX_DOH_PACKET_SIZE, node->data.doh->doh_response_buffer->data);
 	node->data.doh->sock = doh_fd;
 
+	node->data.doh->addr_info_first = node->data.doh->addr_info_current = NULL;
+
 	return 0;
 
 FREE_BUFFER:
@@ -29,6 +32,68 @@ FREE_DOH_DATA:
 EXIT:
 	logger(ERROR, "malloc(): %s", strerror(errno));
 	return -1;
+}
+
+int add_ip_address(ConnectionNode *node, int addr_family, void *addr) {
+	
+	addr_info_node *new = malloc(sizeof(addr_info_node));
+	if (new == NULL)
+		goto EXIT;
+
+	long parsed_port = strtol(node->data.request->start_line.destination.port, NULL, 10);
+	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
+		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
+		goto FREE_NODE;
+	}
+
+	switch (addr_family) {
+		case AF_INET:
+			new->in4.sin_family = AF_INET;
+			new->in4.sin_addr = *((struct in_addr *)addr);
+			new->in4.sin_port = htons(parsed_port);
+			break;
+		case AF_INET6:
+			new->in6.sin6_family = AF_INET6;
+			new->in6.sin6_addr = *((struct in6_addr *) addr);
+			new->in6.sin6_port = htons(parsed_port);
+			break;
+		default:
+			return -1;
+	}
+
+	new->next = NULL;
+
+	if(node->data.doh->addr_info_first == NULL) {
+		node->data.doh->addr_info_first = new;
+		node->data.doh->addr_info_current = node->data.doh->addr_info_first;
+	} else {
+		addr_info_node *search = node->data.doh->addr_info_first;
+		while(search->next != NULL)
+			search = search->next;
+		search->next = new;
+	}
+
+	return 0;
+
+FREE_NODE:
+	free(new);
+EXIT:
+	return -1;
+}
+
+void free_doh_resources(doh_data *data) {
+	addr_info_node *addr_node = data->addr_info_first;
+	addr_info_node *prev = addr_node;
+
+	for(;addr_node != NULL; addr_node = addr_node->next) {
+		prev = addr_node;
+		addr_node = prev->next;
+		free(prev);
+	}
+
+	free(data->doh_response_buffer->data);
+	free(data->doh_response_buffer);
+	free(data);
 }
 
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {

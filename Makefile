@@ -8,10 +8,10 @@ SOURCES_LOGGER= src/logger.c
 SOURCES_CONNECTION= src/connection.c
 SOURCES_BUFFER = src/buffer.c
 SOURCES_DOH_CLIENT = src/dohclient.c
-SOURCES_DNS_UTILS = src/dnsutils.c
+SOURCES_DOH_UTILS = src/dohutils.c
 SOURCES_DOH_SENDER = src/dohsender.c
 SOURCES_DOH_PARSER = src/dohparser.c
-OBJECTS = src/proxy.o src/parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dnsutils.o
+OBJECTS = src/proxy.o src/parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o
 
 all: proxy
 

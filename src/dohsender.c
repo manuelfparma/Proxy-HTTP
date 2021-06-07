@@ -15,7 +15,7 @@ extern dns_question test_dns_question;
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
 ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
-	uint8_t request[HTTP_PACKET_LENGTH] = {0};
+	uint8_t request[MAX_DOH_PACKET_SIZE] = {0};
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 
 	// Copiamos el mensaje de DNS en un buffer

@@ -246,7 +246,7 @@ static void tr_headers_ended(char current_char) {
 
 static void tr_request_ended(char current_char) {
 	logger(DEBUG, "tr_request_ended");
-	current_request->parser_state = PARSE_END;
+	current_request->package_status = PARSE_END;
 }
 
 static void tr_incomplete_header(char current_char) {

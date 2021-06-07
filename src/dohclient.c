@@ -14,10 +14,6 @@
 
 #define HOST_NAME "foo.leak.com.ar" // TODO este valor viene por parametro al iniciar el server
 
-static const char *DOH_SERVER = "127.0.0.1";
-// TODO: PASAR A CHAR*
-static const uint16_t DOH_PORT = 8053;
-
 extern ConnectionHeader connections;
 
 http_dns_request test_request = {.method = "POST",
@@ -74,15 +70,26 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 	int doh_sock = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (doh_sock < 0) {
-		logger(ERROR, "doh_sock(): %s", strerror(errno));
+		logger(ERROR, "connect_to_doh_server :: socket(): %s", strerror(errno));
 		return -1;
 	}
 
-	fcntl(doh_sock, F_SETFL, O_NONBLOCK);
+	if (fcntl(doh_sock, F_SETFL, O_NONBLOCK) == -1) {
+		logger(ERROR, "connect_to_doh_server :: fcntl(): %s", strerror(errno));
+		return -1;
+	}
+
+	// TODO: USAR PARSED PORT
+	long parsed_port = strtol(doh_port, NULL, 10);
+	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
+		close(doh_sock);
+		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
+		return -1;
+	}
 
 	struct sockaddr_in doh_addr_in;
 	doh_addr_in.sin_family = AF_INET;
-	doh_addr_in.sin_port = htons(DOH_PORT);
+	doh_addr_in.sin_port = htons(parsed_port);
 
 	// TODO: esta llamada es para IPv4, para IPv6 se usa AF_INET6 y otra estructura
 	inet_pton(AF_INET, doh_addr, &doh_addr_in.sin_addr.s_addr);
@@ -92,12 +99,6 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 		return -1;
 	}
 
-	long parsed_port = strtol(doh_port, NULL, 10);
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
-		close(doh_sock);
-		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
-		return -1;
-	}
 
 	if (connect(doh_sock, (struct sockaddr *)&doh_addr_in, sizeof(doh_addr_in)) == -1 && errno != EINPROGRESS) {
 		close(doh_sock);
@@ -146,7 +147,6 @@ int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdS
 		if (doh_sock >= connections.maxFd) connections.maxFd = doh_sock + 1;
 
 		node->data.doh->state = DOH_PARSER_INIT;
-		node->data.doh->buffer_index = 0;
 
 		return 1;
 	}
@@ -173,30 +173,26 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 					break;
 				case FINDING_HTTP_STATUS_CODE:
 					result = parse_doh_status_code(node);
-					if (result == DOH_PARSE_COMPLETE)
-						node->data.doh->state = FINDING_CONTENT_LENGTH;
+					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = FINDING_CONTENT_LENGTH;
 					break;
 				case FINDING_CONTENT_LENGTH:
 					result = parse_doh_content_length_header(node);
-					if (result == DOH_PARSE_COMPLETE)
-						node->data.doh->state = PARSING_CONTENT_LENGTH;
+					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = PARSING_CONTENT_LENGTH;
 					break;
 				case PARSING_CONTENT_LENGTH:
 					result = parse_doh_content_length_value(node);
-					if (result == DOH_PARSE_COMPLETE)
-						node->data.doh->state = FINDING_HTTP_BODY;
+					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = FINDING_HTTP_BODY;
 					break;
 				case FINDING_HTTP_BODY:
 					result = find_http_body(node);
-					if (result == DOH_PARSE_COMPLETE)
-						node->data.doh->state = PARSING_DNS_MESSAGE;
+					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = PARSING_DNS_MESSAGE;
 					break;
 				case PARSING_DNS_MESSAGE:
 					result = parse_dns_message(node);
-					if (result == DOH_PARSE_COMPLETE)
-						node->data.doh->state = DNS_PARSING_COMPLETE;
+					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = DNS_READY;
 					break;
-				case DNS_PARSING_COMPLETE:
+					// TODO: Atajar parsing complete
+				case DNS_READY:
 					break;
 			}
 
@@ -205,6 +201,13 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 				break;
 			else if (result == DOH_PARSE_ERROR) {
 				return -1; //TODO manejo de error
+			}
+
+			if (node->data.doh->state == DNS_READY) {
+				node->data.addrInfoState = READY;	//TODO otro estado?
+				close(node->data.doh->sock);
+				FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+				return 1;
 			}
 		}
 	}

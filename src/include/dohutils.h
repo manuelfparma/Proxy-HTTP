@@ -91,6 +91,10 @@ typedef struct {
 //  persistir informacion utilizada al parsear la response DoH
 int setup_doh_resources(ConnectionNode *node, int doh_fd);
 
+int add_ip_address(ConnectionNode *node, int addr_family, void *addr);
+
+void free_doh_resources(doh_data *data);
+
 //	Funcion para copiar de informacion almacenada en 16 bits Big-Endian a un buffer dest n veces
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n);
 

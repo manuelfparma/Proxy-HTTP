@@ -3,19 +3,17 @@
 #include <buffer.h>
 #include <connection.h>
 #include <dohclient.h>
+#include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
 #include <netdb.h>
 #include <parser.h>
 #include <proxyutils.h>
-#include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 extern ConnectionHeader connections;
@@ -94,59 +92,59 @@ int acceptConnection(int passiveSock) {
 	return clntSock;
 }
 
-// funcion que rsuelve consulta DNS  asincronicamente
-void *resolve_addr(void *args) {
-	ThreadArgs *threadArgs = (ThreadArgs *)args;
-	char *host = threadArgs->host;
-	char *service = threadArgs->service;
-	pthread_t *main_thread_id = threadArgs->main_thread_id;
-	ConnectionNode *node = threadArgs->connection;
-
-	// asigno al nodo el ID del thread
-	node->data.addrInfoThread = pthread_self();
-
-	// Tell the system what kind(s) of address info we want
-	struct addrinfo addrCriteria;					// Criteria for address match
-	memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
-	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
-	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
-	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
-
-	logger(DEBUG, "hostname:%s, port:%s", host, service);
-
-	// Get address(es)
-	struct addrinfo *servAddr; // Holder for returned list of server addrs
-	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
-	pthread_t aux_main_pthread_id = *main_thread_id;
-
-	if (addrInfoResult != 0) {
-		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
-		free(host);
-		free(service);
-		free(threadArgs);
-		free(main_thread_id);
-		// freeaddrinfo(servAddr);
-		node->data.addrInfoState = DNS_ERROR;
-		pthread_kill(aux_main_pthread_id, SIGIO);
-		return NULL;
-	}
-
-	node->data.addr_info_current = node->data.addr_info_header = servAddr;
-
-	free(host);
-	free(service);
-	free(main_thread_id);
-	free(threadArgs);
-
-	// seteamos el cliente como listo
-	node->data.addrInfoState = READY;
-
-	// despertamos pselect con una señal
-	logger(INFO, "Thread ended");
-	pthread_kill(aux_main_pthread_id, SIGIO);
-
-	return NULL;
-}
+//// funcion que rsuelve consulta DNS  asincronicamente
+//void *resolve_addr(void *args) {
+//	ThreadArgs *threadArgs = (ThreadArgs *)args;
+//	char *host = threadArgs->host;
+//	char *service = threadArgs->service;
+//	pthread_t *main_thread_id = threadArgs->main_thread_id;
+//	ConnectionNode *node = threadArgs->connection;
+//
+//	// asigno al nodo el ID del thread
+//	node->data.addrInfoThread = pthread_self();
+//
+//	// Tell the system what kind(s) of address info we want
+//	struct addrinfo addrCriteria;					// Criteria for address match
+//	memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
+//	addrCriteria.ai_family = AF_UNSPEC;				// v4 or v6 is OK
+//	addrCriteria.ai_socktype = SOCK_STREAM;			// Only streaming sockets
+//	addrCriteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
+//
+//	logger(DEBUG, "hostname:%s, port:%s", host, service);
+//
+//	// Get address(es)
+//	struct addrinfo *servAddr; // Holder for returned list of server addrs
+//	int addrInfoResult = getaddrinfo(host, service, &addrCriteria, &servAddr);
+//	pthread_t aux_main_pthread_id = *main_thread_id;
+//
+//	if (addrInfoResult != 0) {
+//		logger(ERROR, "getaddrinfo(): %s", strerror(errno));
+//		free(host);
+//		free(service);
+//		free(threadArgs);
+//		free(main_thread_id);
+//		// freeaddrinfo(servAddr);
+//		node->data.addrInfoState = DNS_ERROR;
+//		pthread_kill(aux_main_pthread_id, SIGIO);
+//		return NULL;
+//	}
+//
+//	node->data.addr_info_current = node->data.addr_info_header = servAddr;
+//
+//	free(host);
+//	free(service);
+//	free(main_thread_id);
+//	free(threadArgs);
+//
+//	// seteamos el cliente como listo
+//	node->data.addrInfoState = READY;
+//
+//	// despertamos pselect con una señal
+//	logger(INFO, "Thread ended");
+//	pthread_kill(aux_main_pthread_id, SIGIO);
+//
+//	return NULL;
+//}
 
 int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
@@ -183,29 +181,41 @@ int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
 		loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
+
+		// TODO: Modularizar esta seccion
 		if (node->data.addrInfoState == CONNECTING) {
 			socklen_t optlen = sizeof(int);
+
 			// chequeamos el estado del socket
 			if (getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
-				// en caso de error, chequear la señal, si la conexion fue rechazada, probar con la siguiente
+
+				// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
 				if (errno == ECONNREFUSED) {
-					node->data.addr_info_current = node->data.addr_info_current->ai_next;
+					node->data.doh->addr_info_current = node->data.doh->addr_info_current->next;
+
+					FD_CLR(node->data.serverSock, &write_fd_set[BASE]);
+					close(node->data.serverSock);
+
+					// TODO: Si esto falla, liberar todo, no sabemos como tratarlo
 					if (setup_connection(node, write_fd_set) == -1) {
-						logger(ERROR, "setup_connection(): %s", strerror(errno));
+						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(errno));
 						// FIXME: ?????
+						free_doh_resources(node->data.doh);
+
 						return -1;
 					}
 				} else {
 					// error de getsockopt, saco el socket de prueba
-					logger(ERROR, "getsockopt(): %s", strerror(errno));
+					logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(errno));
 					FD_CLR(fd_server, &write_fd_set[BASE]);
+					// TODO: Manejo de errores - liberar recursos?
+					close(node->data.serverSock);
 					return -1;
 				}
 			} else {
 				loggerPeer(SERVER, "Connected to server for client with fd %d", node->data.clientSock);
 				node->data.addrInfoState = CONNECTED;
-				freeaddrinfo(node->data.addr_info_header);
-				node->data.addr_info_current = node->data.addr_info_header = NULL;
+				free_doh_resources(node->data.doh);
 				// en caso que el server mande un primer mensaje, quiero leerlo
 				FD_SET(fd_server, &read_fd_set[BASE]);
 			}
@@ -317,48 +327,50 @@ int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set 
 }
 
 int setup_connection(ConnectionNode *node, fd_set *writeFdSet) {
-	if (node->data.addr_info_current == NULL) {
-		logger(INFO, "No more addresses for client with fd %d", node->data.clientSock);
-		// FIXME: Liberar cliente
+	if (node->data.doh->addr_info_current == NULL) {
+		logger(INFO, "No more addresses to connect to for client with fd %d", node->data.clientSock);
+		// FIXME: Liberar cliente y estructuras de DoH desde afuera
 		return -1;
 	}
-	if (node->data.serverSock != -1) FD_CLR(node->data.serverSock, &writeFdSet[BASE]);
-	node->data.serverSock = socket(node->data.addr_info_current->ai_family, node->data.addr_info_current->ai_socktype,
-								   node->data.addr_info_current->ai_protocol);
 
-	if (node->data.serverSock >= 0) {
-		// configuracion para socket no bloqueante
-		if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
-			logger(INFO, "fcntl(): %s", strerror(errno));
-			// FIXME: PEPE???
-			return -1;
-		}
+	// TODO: está bien hardcodear SOCK_STREAM y el protocolo?
+	node->data.serverSock = socket(node->data.doh->addr_info_current->addr.sa_family, SOCK_STREAM, 0);
 
-		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
-
-		struct addrinfo aux_addr_info = *node->data.addr_info_current;
-		// Intento de connect
-		logger(INFO, "Trying to connect to server from client with fd: %d", node->data.clientSock);
-		if (connect(node->data.serverSock, aux_addr_info.ai_addr, aux_addr_info.ai_addrlen) != 0 && errno != EINPROGRESS) {
-			logger(ERROR, "connect(): %s", strerror((errno)));
-			// FIXME: QUE PASA CON EL CLIENTE MALLOQUEADO?
-			close(node->data.serverSock);
-			close(node->data.clientSock);
-			return -1;
-		} else {
-			// una vez conectado, liberamos la lista
-			logger(INFO, "Connecting to server from client with fd: %d", node->data.clientSock);
-			node->data.addrInfoState = CONNECTING;
-			// TODO: lista de estadisticas
-			// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
-			// agrego como escritura el fd activo
-			FD_SET(node->data.serverSock, &writeFdSet[BASE]);
-		}
-	} else {
-		logger(INFO, "Socket() failed");
-		// FIXME: OCTA ARREGLAME
+	if (node->data.serverSock < 0) {
+		logger(ERROR, "setup_connection :: socket(): %s", strerror(errno));
 		return -1;
 	}
+	// configuracion para socket no bloqueante
+	if (fcntl(node->data.serverSock, F_SETFL, O_NONBLOCK) == -1) {
+		logger(INFO, "fcntl(): %s", strerror(errno));
+		// FIXME: PEPE???
+		return -1;
+	}
+
+	if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock + 1;
+
+	struct addr_info_node aux_addr_info = *node->data.doh->addr_info_current;
+
+	// Intento de connect
+	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.clientSock);
+	if (connect(node->data.serverSock, &aux_addr_info.addr, sizeof(aux_addr_info.addr)) != 0 && errno != EINPROGRESS) {
+		// error inesperado en connect
+		logger(ERROR, "setup_connection :: connect(): %s", strerror((errno)));
+		// FIXME: QUE PASA CON EL CLIENTE MALLOQUEADO?
+		// TODO: Liberar recursos de DoH, close_connection
+		// TODO: Tirar 500 por HTTP al cliente
+		close(node->data.serverSock);
+		close(node->data.clientSock);
+		return -1;
+	}
+
+	logger(INFO, "Connecting to server from client with fd: %d", node->data.clientSock);
+	node->data.addrInfoState = CONNECTING;
+	// TODO: lista de estadisticas
+	// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
+	// agrego como escritura el fd activo
+	FD_SET(node->data.serverSock, &writeFdSet[BASE]);
+
 	return 0;
 }
 
@@ -381,6 +393,7 @@ size_t handle_operation(int fd, buffer *buffer, OPERATION operation) {
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
 			if (resultBytes <= 0) {
+				// TODO: EOF? Liberar recursos?
 				if (resultBytes == -1 && errno != EWOULDBLOCK) {
 					logger(ERROR, "recv(): %s", strerror(errno));
 					return -1;

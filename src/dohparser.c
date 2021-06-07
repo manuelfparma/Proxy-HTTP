@@ -11,7 +11,7 @@
 
 static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n);
 static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancount);
-static int parse_dns_answers(buffer *message, uint16_t ancount);
+static int parse_dns_answers(ConnectionNode *node, uint16_t ancount);
 
 extern http_dns_request test_request;
 extern dns_header test_dns_header;
@@ -24,7 +24,7 @@ int read_doh_response(ConnectionNode *node) {
 	// TODO: Manejar estados para recibir de a chunks
 	buffer *buff = node->data.doh->doh_response_buffer;
 
-	if (buffer_can_write(buff)) {
+	if (!buffer_can_write(buff)) {
 		logger(ERROR, "read_doh_reponse(): doh buffer full");
 		return -1;
 	}
@@ -163,7 +163,7 @@ int parse_dns_message(ConnectionNode *node) {
 		buffer_read_adv(message, 2 * SIZE_16);
 	}
 
-	if (parse_dns_answers(message, ancount) == -1) {
+	if (parse_dns_answers(node, ancount) == -1) {
 		return DOH_PARSE_ERROR;
 	}
 
@@ -214,9 +214,11 @@ static int parse_dns_header(buffer *message, uint16_t *qdcount, uint16_t *ancoun
 	return 0;
 }
 
-static int parse_dns_answers(buffer *message, uint16_t ancount) {
+static int parse_dns_answers(ConnectionNode *node, uint16_t ancount) {
 	// Parseo de answers - RFC 1035 - Sec. 4.1.3.
 	bool is_compressed = false;
+	buffer* message = node->data.doh->doh_response_buffer;
+
 	for (size_t i = 0; i < ancount; i++) {
 		// Salteamos campo NAME teniendo en cuenta posible compresion - RFC 1035 - Sec. 4.1.4.
 		uint8_t label_count;
@@ -270,11 +272,21 @@ static int parse_dns_answers(buffer *message, uint16_t ancount) {
 
 		buffer_read_adv(message, SIZE_16);
 
-		// s_addr debe estar en Big Endian
-		struct in_addr ip_addr;
-		ip_addr.s_addr = *((uint32_t *)message->read);
-		//TODO guardar en Address Info en vez de imprimir
-		logger(INFO, "found IP address %s", inet_ntoa(ip_addr));
+		int ip_family;
+		switch (type) {
+			case 1:
+				ip_family = AF_INET;
+				break;
+			case 28:
+				ip_family = AF_INET6;
+				break;
+			default:
+				return -1;
+		}
+
+		if(add_ip_address(node, ip_family, message->read) == -1) {
+			return -1;
+		}
 
 		buffer_read_adv(message, rdlength);
 		message += rdlength;
@@ -282,8 +294,6 @@ static int parse_dns_answers(buffer *message, uint16_t ancount) {
 
 	return 0;
 }
-
-static bool prefix(const char *pre, const char *str) { return strncmp(pre, str, strlen(pre)) == 0; }
 
 static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n) {
 	size_t i;

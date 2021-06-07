@@ -1,5 +1,6 @@
 #include <connection.h>
 #include <dohclient.h>
+#include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
@@ -14,8 +15,6 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
-
-static void wake_handler(const int signal);
 
 ConnectionHeader connections = {0};
 
@@ -41,11 +40,6 @@ int main(int argc, char **argv) {
 	sigset_t sigMask;
 	sigemptyset(&sigMask);
 	// configuracion de signal para interrumpir select desde otro thread
-	struct sigaction act = {
-		.sa_handler = wake_handler,
-	};
-
-	if (sigaction(SIGIO, &act, 0)) logger(FATAL, "sigaction(): %s", strerror(errno));
 
 	connections.maxFd = passiveSock + 1;
 
@@ -55,37 +49,6 @@ int main(int argc, char **argv) {
 		writeFdSet[TMP] = writeFdSet[BASE];
 
 		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
-		if (readyFds <= -1) {
-			// el select fue interrumpido por un thread que resolvio la consulta DNS
-			if (errno == EINTR) {
-				// chequeamos cual nodo resolvio la consulta DNS TODO: ineficiente????
-				int found = 0;
-				for (ConnectionNode *node = connections.first, *prev = NULL; node != NULL && !found;
-					 prev = node, node = node->next) {
-					if (node->data.addrInfoState == READY) {
-						found = 1;
-						// FIXME: verificar si la quedo el dns
-						int ans = pthread_join(node->data.addrInfoThread, NULL);
-						if (ans != 0) {
-							logger(ERROR, "pthread_join(): %s", strerror(errno));
-						} else {
-							if (setup_connection(node, writeFdSet) == -1) {
-								logger(INFO, "setup_connection()");
-								// FIXME: ?????
-								return -1;
-							}
-							logger(DEBUG, "Trying setup_connection()");
-						}
-					} else if (node->data.addrInfoState == DNS_ERROR) {
-						logger(DEBUG, "getaddrinfo failed");
-						close_connection(node, prev, writeFdSet, readFdSet);
-					}
-				}
-			} else {
-				logger(ERROR, "pselect(): %s", strerror(errno));
-			}
-			continue;
-		}
 
 		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// establezco conexión con cliente en socket activo
@@ -113,14 +76,25 @@ int main(int argc, char **argv) {
 		// itero por todas las conexiones cliente-servidor
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
-			if(node->data.addrInfoState == CONNECTING_TO_DOH) {
+			if (node->data.addrInfoState == CONNECTING_TO_DOH) {
 				handle = handle_doh_request(node, writeFdSet, readFdSet);
 				if (handle > -1) readyFds -= handle;
 				// TODO: Manejo de error
 			} else if (node->data.addrInfoState == FETCHING) {
 				// TODO: agregar read no bloqueante
 				handle = handle_doh_response(node, readFdSet);
-
+				if (handle >= 0) {
+					readyFds -= handle;
+					if (handle == 1)
+						if (setup_connection(node, writeFdSet) == -1) {
+							logger(ERROR, "setup_connection(): failed to connect");
+							// FIXME: ?????
+							return -1;
+						}
+				} else {
+					// TODO: Liberar recursos y cliente
+					free_doh_resources(node->data.doh);
+				}
 			} else {
 				handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
 				if (handle > -1) readyFds -= handle;
@@ -133,8 +107,4 @@ int main(int argc, char **argv) {
 			}
 		}
 	}
-}
-
-static void wake_handler(const int signal) {
-	// nada que hacer. está solo para interrumpir el select
 }
