@@ -81,18 +81,22 @@ int main(int argc, char **argv) {
 				if (handle > -1) readyFds -= handle;
 				// TODO: Manejo de error
 			} else if (node->data.addrInfoState == FETCHING) {
-				// TODO: agregar read no bloqueante
 				handle = handle_doh_response(node, readFdSet);
 				if (handle >= 0) {
 					readyFds -= handle;
-					if (handle == 1)
+					if (handle == 1) {
+						FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+						close(node->data.doh->sock);
 						if (setup_connection(node, writeFdSet) == -1) {
 							logger(ERROR, "setup_connection(): failed to connect");
 							// FIXME: ?????
 							return -1;
 						}
+					}
 				} else {
 					// TODO: Liberar recursos y cliente
+					FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+					close(node->data.doh->sock);
 					free_doh_resources(node->data.doh);
 				}
 			} else {

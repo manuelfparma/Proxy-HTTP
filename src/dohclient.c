@@ -201,8 +201,6 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 
 			if (node->data.doh->state == DNS_READY) {
 				node->data.addrInfoState = READY; // TODO otro estado?
-				close(node->data.doh->sock);
-				FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
 				return 1;
 			}
 		}
