@@ -81,7 +81,9 @@ EXIT:
 	return -1;
 }
 
-void free_doh_resources(doh_data *data) {
+void free_doh_resources(ConnectionNode *node) {
+	doh_data *data = node->data.doh;
+
 	addr_info_node *addr_node = data->addr_info_first;
 	addr_info_node *prev = addr_node;
 
@@ -94,6 +96,8 @@ void free_doh_resources(doh_data *data) {
 	free(data->doh_response_buffer->data);
 	free(data->doh_response_buffer);
 	free(data);
+
+	node->data.doh = NULL;
 }
 
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {

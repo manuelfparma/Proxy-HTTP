@@ -86,7 +86,7 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 		return -1;
 	}
 
-	node->data.addrInfoState = CONNECTING_TO_DOH;
+	node->data.connection_state = CONNECTING_TO_DOH;
 
 	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.clientSock, doh_sock);
 
@@ -109,7 +109,7 @@ int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdS
 			return -1;
 		}
 
-		node->data.addrInfoState = FETCHING;
+		node->data.connection_state = FETCHING_DNS;
 		logger(INFO, "connected to DoH, client fd: %d", node->data.clientSock);
 
 		if (write_doh_request(doh_sock, node->data.parser->request.target.request_target.host_name, HOST_NAME) < 0) {
@@ -132,7 +132,7 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 	int doh_sock = node->data.doh->sock;
 	doh_parser_status_code result;
 
-	//FIXME: DA SEGMENTATION FAULT A VECES
+	// FIXME: DA SEGMENTATION FAULT A VECES
 	if (FD_ISSET(doh_sock, &readFdSet[TMP])) {
 
 		if (read_doh_response(node) < 0) {
@@ -177,10 +177,8 @@ int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
 				return -1; // TODO manejo de error
 			}
 
-			if (node->data.doh->state == DNS_READY) {
-				node->data.addrInfoState = READY; // TODO otro estado?
+			if (node->data.doh->state == DNS_READY) // TODO otro estado?
 				return 1;
-			}
 		}
 	}
 

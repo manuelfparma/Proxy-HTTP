@@ -53,7 +53,7 @@ int parse_doh_status_code(ConnectionNode *node) {
 
 	// Buscamos que haya sido una response exitosa de HTTP
 	if (strncmp((char *)response->read, http_200, http_200_len) != 0) {
-		logger(ERROR, "read_doh_response(): expected \"HTTP/1.1 200 OK\r\rn\", got \"%.*s\"", (int)http_200_len, http_200);
+		logger(ERROR, "read_doh_response(): expected \"HTTP/1.1 200 OK\r\n\", got \"%.*s\"", (int)http_200_len, (char *)response->read);
 		return DOH_PARSE_ERROR;
 	}
 

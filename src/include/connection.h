@@ -12,16 +12,16 @@
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
 // TODO: Cambiar nombre a CONNECTION_STATE, porque usamos CONNECTING y CONNECTED y eso esta por fuera de addrinfo
-typedef enum { EMPTY, CONNECTING_TO_DOH, FETCHING, READY, CONNECTING, CONNECTED, DNS_ERROR } ADDR_INFO_STATE;
+typedef enum { DISCONNECTED, CONNECTING_TO_DOH, FETCHING_DNS, CONNECTING, CONNECTED } CONNECTION_STATE;
 
 typedef struct {
 	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee
 	buffer *serverToClientBuffer;		// buffer donde servidor escribe y cliente lee
 	int clientSock;						// socket activo con cliente
 	int serverSock;						// socket activo con servidor
-	ADDR_INFO_STATE addrInfoState;		// estado de la busqueda DNS
+	CONNECTION_STATE connection_state;		// estado de la busqueda DNS
 	http_parser * parser;				// estructura donde se guarda el estado del parseo
-	FILE * file;
+	FILE * log_file;
 	doh_data *doh;
 } ConnectionData;
 

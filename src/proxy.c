@@ -3,8 +3,8 @@
 #include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <logger.h>
 #include <http_parser.h>
+#include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
 #include <pthread.h>
@@ -16,7 +16,9 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+// Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+// Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por handle_connection_error
 static void find_max_id();
 
 ConnectionHeader connections = {0};
@@ -79,11 +81,11 @@ int main(int argc, char **argv) {
 		// itero por todas las conexiones cliente-servidor
 		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
 			 previous = node, node = node->next) {
-			if (node->data.addrInfoState == CONNECTING_TO_DOH) {
+			if (node->data.connection_state == CONNECTING_TO_DOH) {
 				handle = handle_doh_request(node, writeFdSet, readFdSet);
 				if (handle > -1) readyFds -= handle;
 				// TODO: Manejo de error
-			} else if (node->data.addrInfoState == FETCHING) {
+			} else if (node->data.connection_state == FETCHING_DNS) {
 				handle = handle_doh_response(node, readFdSet);
 				if (handle >= 0) {
 					readyFds -= handle;
@@ -100,22 +102,33 @@ int main(int argc, char **argv) {
 					// TODO: Liberar recursos y cliente
 					FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
 					close(node->data.doh->sock);
-					free_doh_resources(node->data.doh);
+					free_doh_resources(node);
+					close_connection(node, previous, writeFdSet, readFdSet);
 				}
 			} else {
 				handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
 				if (handle > -1) readyFds -= handle;
-				else{
+				else if (handle == CLOSE_CONNECTION_CODE) {
+					// Caso conexion cerrada, veo si no quedo nada para el cliente
+					if (!buffer_can_read(node->data.serverToClientBuffer)) {
+						handle_connection_error(node, previous, writeFdSet, readFdSet);
+						break;
+					}
+				} else {
 					handle_connection_error(node, previous, writeFdSet, readFdSet);
-					find_max_id();
-					break; // Caso conexion cerrada
+					break;
 				}
 				handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
 				if (handle > -1) readyFds -= handle;
-				else{
+				else if (handle == CLOSE_CONNECTION_CODE) {
+					// Caso conexion cerrada, veo si no quedo nada para el cliente
+					if (!buffer_can_read(node->data.serverToClientBuffer)) {
+						handle_connection_error(node, previous, writeFdSet, readFdSet);
+						break;
+					}
+				} else {
 					handle_connection_error(node, previous, writeFdSet, readFdSet);
-					find_max_id();
-					break; // Caso conexion cerrada
+					break;
 				}
 			}
 		}

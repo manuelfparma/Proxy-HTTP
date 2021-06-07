@@ -51,7 +51,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
 	if (new->data.serverToClientBuffer->data == NULL) goto FREE_BUFFER_2;
 
-	new->data.addrInfoState = EMPTY; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	new->data.connection_state = DISCONNECTED; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
 
 	new->data.parser = malloc(sizeof(http_parser));
 	if (new->data.parser == NULL) goto FREE_BUFFER_2_DATA;
@@ -86,8 +86,8 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	number_to_str(connection_number++, number);
 	strcpy(file_name + strlen(name), number);
 	logger(DEBUG, "File with name %s created", file_name);
-	new->data.file = fopen(file_name, "w+");
-	if (new->data.file == NULL) {
+	new->data.log_file = fopen(file_name, "w+");
+	if (new->data.log_file == NULL) {
 		logger(ERROR, "fopen: %s", strerror(errno));
 		goto FREE_REQUEST_BUFFER;
 	}
@@ -139,7 +139,7 @@ void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *wr
 	free(node->data.parser->data.parsed_request->data);
 	free(node->data.parser->data.parsed_request);
 	free(node->data.parser);
-	fclose(node->data.file);
+	fclose(node->data.log_file);
 
 	if (previous == NULL) {
 		// Caso primer nodo
