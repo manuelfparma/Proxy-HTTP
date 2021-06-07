@@ -7,7 +7,6 @@
 #include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -17,82 +16,88 @@
 #include <unistd.h>
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
-static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
-// Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por handle_connection_error
+static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+// Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
+// handle_connection_error
 static void find_max_id();
 
-ConnectionHeader connections = {0};
+connection_header connections = {0};
 
 int main(int argc, char **argv) {
 	if (argc != 2) { logger(FATAL, "Usage: %s <Proxy Port>\n", argv[0]); }
 
-	char *proxyPort = argv[1];
+	char *proxy_port = argv[1];
 
-	int passiveSock = setupPassiveSocket(proxyPort);
-	if (passiveSock < 0) logger(ERROR, "setupPassiveSocket() failed");
+	int passive_sock = setup_passive_socket(proxy_port);
+	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");
 
-	fd_set writeFdSet[FD_SET_ARRAY_SIZE];
-	fd_set readFdSet[FD_SET_ARRAY_SIZE];
+	const char *name = "./logs/proxy_log";
+	connections.proxy_log = fopen(name, "w+");
+	if (connections.proxy_log == NULL) { logger(FATAL, "fopen: %s", strerror(errno)); }
+	logger(DEBUG, "Proxy file log with name %s created", name);
+
+	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
+	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
 
 	for (int i = 0; i < FD_SET_ARRAY_SIZE; i++) {
-		FD_ZERO(&writeFdSet[i]);
-		FD_ZERO(&readFdSet[i]);
+		FD_ZERO(&write_fd_set[i]);
+		FD_ZERO(&read_fd_set[i]);
 	}
 
-	FD_SET(passiveSock, &readFdSet[BASE]);
+	FD_SET(passive_sock, &read_fd_set[BASE]);
 
-	int readyFds;
-	sigset_t sigMask;
-	sigemptyset(&sigMask);
-	// configuracion de signal para interrumpir select desde otro thread
+	int ready_fds;
+	// TODO: REVISAR SEÑALES
+	sigset_t sig_mask;
+	sigemptyset(&sig_mask);
 
-	connections.maxFd = passiveSock + 1;
+	connections.max_fd = passive_sock + 1;
 
 	while (1) {
 		// resetear fd_set
-		readFdSet[TMP] = readFdSet[BASE];
-		writeFdSet[TMP] = writeFdSet[BASE];
+		read_fd_set[TMP] = read_fd_set[BASE];
+		write_fd_set[TMP] = write_fd_set[BASE];
 
-		readyFds = pselect(connections.maxFd, &readFdSet[TMP], &writeFdSet[TMP], NULL, NULL, &sigMask);
+		ready_fds = pselect(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL, &sig_mask);
 
-		if (FD_ISSET(passiveSock, &readFdSet[TMP]) && connections.clients <= MAX_CLIENTS) {
+		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// establezco conexión con cliente en socket activo
-			int clientSock = acceptConnection(passiveSock);
-			if (clientSock > -1) {
+			int client_sock = accept_connection(passive_sock);
+			if (client_sock > -1) {
 				// la consulta DNS para la conexión con el servidor se realiza asincronicamente,
 				// esto imposibilita la creación de un socket activo con el servidor hasta que dicha consulta
 				// este resulta. Por lo tanto dicho FD arranca en -1 inicialmente.
 				// aloco recursos para el respectivo cliente
-				ConnectionNode *newConnection = setupConnectionResources(clientSock, -1);
-				if (newConnection != NULL) {
+				connection_node *new_connection = setup_connection_resources(client_sock, -1);
+				if (new_connection != NULL) {
 					// acepto lecturas del socket
-					FD_SET(clientSock, &readFdSet[BASE]);
-					addToConnections(newConnection);
-					if (clientSock >= connections.maxFd) connections.maxFd = clientSock + 1;
+					FD_SET(client_sock, &read_fd_set[BASE]);
+					add_to_connections(new_connection);
+					if (client_sock >= connections.max_fd) connections.max_fd = client_sock + 1;
 				} else {
-					close(clientSock);
-					logger(ERROR, "setupConnectionResources() failed with NULL value");
+					close(client_sock);
+					logger(ERROR, "setup_connection_resources() failed with NULL value");
 				}
 			}
-			readyFds--;
+			ready_fds--;
 		}
 
 		int handle;
 		// itero por todas las conexiones cliente-servidor
-		for (ConnectionNode *node = connections.first, *previous = NULL; node != NULL && readyFds > 0;
+		for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0;
 			 previous = node, node = node->next) {
 			if (node->data.connection_state == CONNECTING_TO_DOH) {
-				handle = handle_doh_request(node, writeFdSet, readFdSet);
-				if (handle > -1) readyFds -= handle;
+				handle = handle_doh_request(node, write_fd_set, read_fd_set);
+				if (handle > -1) ready_fds -= handle;
 				// TODO: Manejo de error
 			} else if (node->data.connection_state == FETCHING_DNS) {
-				handle = handle_doh_response(node, readFdSet);
+				handle = handle_doh_response(node, read_fd_set);
 				if (handle >= 0) {
-					readyFds -= handle;
+					ready_fds -= handle;
 					if (handle == 1) {
-						FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 						close(node->data.doh->sock);
-						if (setup_connection(node, writeFdSet) == -1) {
+						if (setup_connection(node, write_fd_set) == -1) {
 							logger(ERROR, "setup_connection(): failed to connect");
 							// FIXME: ?????
 							return -1;
@@ -100,34 +105,34 @@ int main(int argc, char **argv) {
 					}
 				} else {
 					// TODO: Liberar recursos y cliente
-					FD_CLR(node->data.doh->sock, &readFdSet[BASE]);
+					FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 					close(node->data.doh->sock);
 					free_doh_resources(node);
-					close_connection(node, previous, writeFdSet, readFdSet);
+					close_connection(node, previous, write_fd_set, read_fd_set);
 				}
 			} else {
-				handle = handle_client_connection(node, previous, readFdSet, writeFdSet);
-				if (handle > -1) readyFds -= handle;
+				handle = handle_client_connection(node, previous, read_fd_set, write_fd_set);
+				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.serverToClientBuffer)) {
-						handle_connection_error(node, previous, writeFdSet, readFdSet);
+					if (!buffer_can_read(node->data.server_to_client_buffer)) {
+						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
 					}
 				} else {
-					handle_connection_error(node, previous, writeFdSet, readFdSet);
+					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
 				}
-				handle = handle_server_connection(node, previous, readFdSet, writeFdSet);
-				if (handle > -1) readyFds -= handle;
+				handle = handle_server_connection(node, previous, read_fd_set, write_fd_set);
+				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.serverToClientBuffer)) {
-						handle_connection_error(node, previous, writeFdSet, readFdSet);
+					if (!buffer_can_read(node->data.server_to_client_buffer)) {
+						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
 					}
 				} else {
-					handle_connection_error(node, previous, writeFdSet, readFdSet);
+					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
 				}
 			}
@@ -135,18 +140,18 @@ int main(int argc, char **argv) {
 	}
 }
 
-static void handle_connection_error(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
-	int aux_server_sock = node->data.serverSock >= connections.maxFd;
-	int aux_client_sock = node->data.clientSock >= connections.maxFd;
+static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+	int aux_server_sock = node->data.server_sock >= connections.max_fd;
+	int aux_client_sock = node->data.client_sock >= connections.max_fd;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
 	// si se debe buscar otro maximo
 	close_connection(node, previous, write_fd_set, read_fd_set);
-	if (aux_server_sock >= connections.maxFd || aux_client_sock >= connections.maxFd) find_max_id();
+	if (aux_server_sock >= connections.max_fd || aux_client_sock >= connections.max_fd) find_max_id();
 }
 
 static void find_max_id() {
-	for (ConnectionNode *node = connections.first; node != NULL; node = node->next) {
-		if (node->data.clientSock >= connections.maxFd) connections.maxFd = node->data.clientSock;
-		if (node->data.serverSock >= connections.maxFd) connections.maxFd = node->data.serverSock;
+	for (connection_node *node = connections.first; node != NULL; node = node->next) {
+		if (node->data.client_sock >= connections.max_fd) connections.max_fd = node->data.client_sock;
+		if (node->data.server_sock >= connections.max_fd) connections.max_fd = node->data.server_sock;
 	}
 }

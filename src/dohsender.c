@@ -50,11 +50,7 @@ static size_t prepare_dns_message(char *name, uint8_t *dns_message) {
 
 	uint8_t *dns_quest = dns_message + 6 * SIZE_16;
 
-	dns_question ip_question = {
-		.name = name,
-		.class = IN_CLASS,
-		.type = IPV4_TYPE
-	};
+	dns_question ip_question = {.name = name, .class = IN_CLASS, .type = IPV4_TYPE};
 
 	// copiamos la question de ipv4 al buffer
 	size_t ipv4_question_length = prepare_dns_question(ip_question, dns_quest);

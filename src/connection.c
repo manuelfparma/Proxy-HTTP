@@ -1,14 +1,14 @@
 #include <connection.h>
 #include <errno.h>
-#include <logger.h>
 #include <http_parser.h>
+#include <logger.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-extern ConnectionHeader connections;
+extern connection_header connections;
 
 static size_t connection_number = 1;
 
@@ -22,36 +22,55 @@ static size_t power(size_t base, size_t exp) {
 
 static void number_to_str(size_t n, char *buffer) {
 	size_t copy_n = n, length = 0;
-	for( ; copy_n > 0; copy_n /= 10, length++){};
+	for (; copy_n > 0; copy_n /= 10, length++) {};
 	copy_n = n;
-	for(size_t i = 0; copy_n > 0; i++, copy_n /= 10){
+	for (size_t i = 0; copy_n > 0; i++, copy_n /= 10) {
 		buffer[i] = '0' + ((n / power(10, length - i - 1)) % 10);
 	}
 }
 
-ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
-	// asignacion de recursos para la conexion
-	ConnectionNode *new = malloc(sizeof(ConnectionNode));
+static void set_node_default_values(connection_node *node) {
+	node->data.parser->data.parser_state = PS_METHOD;
+	node->data.parser->data.request_status = PARSE_START_LINE_INCOMPLETE;
+	node->data.parser->data.target_status = NOT_FOUND;
+	node->data.parser->data.copy_index = 0;
+	node->data.parser->request.method[0] = '\0';
+	node->data.parser->request.schema[0] = '\0';
+	node->data.parser->request.target.port[0] = '\0';
+	node->data.parser->request.target.relative_path[0] = '\0';
+	node->data.parser->request.version.major = EMPTY_VERSION;
+	node->data.parser->request.version.minor = EMPTY_VERSION;
+	node->data.parser->request.header.type[0] = '\0';
+	node->data.parser->request.header.value[0] = '\0';
 
-	if (new->data.clientToServerBuffer == NULL) goto ERROR;
+	buffer_init(node->data.client_to_server_buffer, BUFFER_SIZE, node->data.client_to_server_buffer->data);
+	buffer_init(node->data.server_to_client_buffer, BUFFER_SIZE, node->data.server_to_client_buffer->data);
+	buffer_init(node->data.parser->data.parsed_request, BUFFER_SIZE, node->data.parser->data.parsed_request->data);
+}
+
+connection_node *setup_connection_resources(int client_sock, int server_sock) {
+	// asignacion de recursos para la conexion
+	connection_node *new = malloc(sizeof(connection_node));
+
+	if (new->data.client_to_server_buffer == NULL) goto ERROR;
 
 	new->next = NULL;
-	new->data.clientSock = clientSock;
-	new->data.serverSock = serverSock;
+	new->data.client_sock = client_sock;
+	new->data.server_sock = server_sock;
 
-	new->data.clientToServerBuffer = malloc(sizeof(buffer));
-	if (new->data.clientToServerBuffer == NULL) goto FREE_NEW;
+	new->data.client_to_server_buffer = malloc(sizeof(buffer));
+	if (new->data.client_to_server_buffer == NULL) goto FREE_NEW;
 
-	new->data.clientToServerBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	if (new->data.clientToServerBuffer->data == NULL) goto FREE_BUFFER_1;
+	new->data.client_to_server_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.client_to_server_buffer->data == NULL) goto FREE_BUFFER_1;
 
-	new->data.serverToClientBuffer = malloc(sizeof(buffer));
-	if (new->data.serverToClientBuffer == NULL) goto FREE_BUFFER_1_DATA;
+	new->data.server_to_client_buffer = malloc(sizeof(buffer));
+	if (new->data.server_to_client_buffer == NULL) goto FREE_BUFFER_1_DATA;
 
-	new->data.serverToClientBuffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	if (new->data.serverToClientBuffer->data == NULL) goto FREE_BUFFER_2;
+	new->data.server_to_client_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.server_to_client_buffer->data == NULL) goto FREE_BUFFER_2;
 
-	new->data.connection_state = DISCONNECTED; // hasta que el hilo de getaddrinfo resuelva la consulta DNS
+	new->data.connection_state = DISCONNECTED;
 
 	new->data.parser = malloc(sizeof(http_parser));
 	if (new->data.parser == NULL) goto FREE_BUFFER_2_DATA;
@@ -62,22 +81,7 @@ ConnectionNode *setupConnectionResources(int clientSock, int serverSock) {
 	new->data.parser->data.parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
 	if (new->data.parser->data.parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
-	new->data.parser->data.parser_state = PS_METHOD;
-	new->data.parser->data.request_status = PARSE_START_LINE_INCOMPLETE;
-	new->data.parser->data.target_status = NOT_FOUND;
-	new->data.parser->data.copy_index = 0;
-	new->data.parser->request.method[0] = '\0';
-	new->data.parser->request.schema[0] = '\0';
-	new->data.parser->request.target.port[0] = '\0';
-	new->data.parser->request.target.relative_path[0] = '\0';
-	new->data.parser->request.version.major = EMPTY_VERSION;
-	new->data.parser->request.version.minor = EMPTY_VERSION;
-	new->data.parser->request.header.type[0] = '\0';
-	new->data.parser->request.header.value[0] = '\0';
-
-	buffer_init(new->data.clientToServerBuffer, BUFFER_SIZE, new->data.clientToServerBuffer->data);
-	buffer_init(new->data.serverToClientBuffer, BUFFER_SIZE, new->data.serverToClientBuffer->data);
-	buffer_init(new->data.parser->data.parsed_request, BUFFER_SIZE, new->data.parser->data.parsed_request->data);
+	set_node_default_values(new);
 
 	char file_name[1024] = {0};
 	const char *name = "./logs/log_connection_";
@@ -99,13 +103,13 @@ FREE_REQUEST_BUFFER:
 FREE_REQUEST:
 	free(new->data.parser);
 FREE_BUFFER_2_DATA:
-	free(new->data.serverToClientBuffer->data);
+	free(new->data.server_to_client_buffer->data);
 FREE_BUFFER_2:
-	free(new->data.serverToClientBuffer);
+	free(new->data.server_to_client_buffer);
 FREE_BUFFER_1_DATA:
-	free(new->data.clientToServerBuffer->data);
+	free(new->data.client_to_server_buffer->data);
 FREE_BUFFER_1:
-	free(new->data.clientToServerBuffer);
+	free(new->data.client_to_server_buffer);
 FREE_NEW:
 	free(new);
 ERROR:
@@ -113,9 +117,9 @@ ERROR:
 	return NULL;
 }
 
-void addToConnections(ConnectionNode *node) {
+void add_to_connections(connection_node *node) {
 	//	busqueda para la insercion
-	ConnectionNode *last = connections.first;
+	connection_node *last = connections.first;
 	if (last != NULL) {
 		while (last->next != NULL) {
 			last = last->next;
@@ -128,14 +132,14 @@ void addToConnections(ConnectionNode *node) {
 	connections.clients++;
 }
 
-void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
-	int clientFd = node->data.clientSock, serverFd = node->data.serverSock;
-	loggerPeer(CLIENT, "Socket with fd: %d disconnected", clientFd);
-	loggerPeer(SERVER, "Socket with fd: %d disconnected", serverFd);
-	free(node->data.serverToClientBuffer->data);
-	free(node->data.clientToServerBuffer->data);
-	free(node->data.clientToServerBuffer);
-	free(node->data.serverToClientBuffer);
+void close_connection(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
+	loggerPeer(CLIENT, "Socket with fd: %d disconnected", client_fd);
+	loggerPeer(SERVER, "Socket with fd: %d disconnected", server_fd);
+	free(node->data.server_to_client_buffer->data);
+	free(node->data.client_to_server_buffer->data);
+	free(node->data.client_to_server_buffer);
+	free(node->data.server_to_client_buffer);
 	free(node->data.parser->data.parsed_request->data);
 	free(node->data.parser->data.parsed_request);
 	free(node->data.parser);
@@ -150,12 +154,12 @@ void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *wr
 
 	free(node);
 
-	FD_CLR(clientFd, &read_fd_set[BASE]);
-	FD_CLR(clientFd, &write_fd_set[BASE]);
-	FD_CLR(serverFd, &read_fd_set[BASE]);
-	FD_CLR(serverFd, &write_fd_set[BASE]);
-	close(clientFd);
-	if (serverFd > 0) close(serverFd);
+	FD_CLR(client_fd, &read_fd_set[BASE]);
+	FD_CLR(client_fd, &write_fd_set[BASE]);
+	FD_CLR(server_fd, &read_fd_set[BASE]);
+	FD_CLR(server_fd, &write_fd_set[BASE]);
+	close(client_fd);
+	if (server_fd > 0) close(server_fd);
 
 	connections.clients--;
 }

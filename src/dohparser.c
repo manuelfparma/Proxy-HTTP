@@ -10,16 +10,16 @@
 #include <sys/socket.h>
 
 static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n);
-static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *ancount);
-static int parse_dns_answers(ConnectionNode *node, uint16_t ancount);
-static void consume_buffer_bytes(ConnectionNode *node, ssize_t count);
+static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *ancount);
+static int parse_dns_answers(connection_node *node, uint16_t ancount);
+static void consume_buffer_bytes(connection_node *node, ssize_t count);
 
 extern http_dns_request doh_request_template;
 extern dns_header dns_header_template;
 
 // Función que dado un FD de un socket lee de este, esperando una respuesta
 // de DoH, y vuelca el mensaje DNS en una esctructura dns_answer.
-int read_doh_response(ConnectionNode *node) {
+int read_doh_response(connection_node *node) {
 	// TODO: Pasar a select con socket no bloqueante
 	// TODO: Manejar estados para recibir de a chunks
 	buffer *buff = node->data.doh->doh_response_buffer;
@@ -43,7 +43,7 @@ int read_doh_response(ConnectionNode *node) {
 	return 0;
 }
 
-int parse_doh_status_code(ConnectionNode *node) {
+int parse_doh_status_code(connection_node *node) {
 	char *http_200 = "HTTP/1.1 200 OK\r\n";
 	long http_200_len = 17;
 	buffer *response = node->data.doh->doh_response_buffer;
@@ -53,7 +53,8 @@ int parse_doh_status_code(ConnectionNode *node) {
 
 	// Buscamos que haya sido una response exitosa de HTTP
 	if (strncmp((char *)response->read, http_200, http_200_len) != 0) {
-		logger(ERROR, "read_doh_response(): expected \"HTTP/1.1 200 OK\r\n\", got \"%.*s\"", (int)http_200_len, (char *)response->read);
+		logger(ERROR, "read_doh_response(): expected \"HTTP/1.1 200 OK\r\n\", got \"%.*s\"", (int)http_200_len,
+			   (char *)response->read);
 		return DOH_PARSE_ERROR;
 	}
 
@@ -63,8 +64,7 @@ int parse_doh_status_code(ConnectionNode *node) {
 	return DOH_PARSE_COMPLETE;
 }
 
-
-int parse_doh_content_length_header(ConnectionNode *node) {
+int parse_doh_content_length_header(connection_node *node) {
 	char *content_length = "content-length:";
 	int content_length_len = 15;
 	buffer *response = node->data.doh->doh_response_buffer;
@@ -89,7 +89,7 @@ int parse_doh_content_length_header(ConnectionNode *node) {
 	return DOH_PARSE_INCOMPLETE;
 }
 
-int parse_doh_content_length_value(ConnectionNode *node) {
+int parse_doh_content_length_value(connection_node *node) {
 	buffer *response = node->data.doh->doh_response_buffer;
 
 	// Estando parados despues del ':' del header Content-Length avanzamos hasta
@@ -120,18 +120,16 @@ int parse_doh_content_length_value(ConnectionNode *node) {
 	return DOH_PARSE_COMPLETE;
 }
 
-int find_http_body(ConnectionNode *node) {
+int find_http_body(connection_node *node) {
 	buffer *response = node->data.doh->doh_response_buffer;
 
 	// Ahora buscamos el comienzo del mensaje DNS
-	for (; response->write - response->read >= 4  && !(response->read[0] == '\r' && response->read[1] == '\n' &&
-										response->read[2] == '\r' && response->read[3] == '\n');
+	for (; response->write - response->read >= 4 &&
+		   !(response->read[0] == '\r' && response->read[1] == '\n' && response->read[2] == '\r' && response->read[3] == '\n');
 		 buffer_read_adv(response, SIZE_8))
 		;
 
-	if (response->write - response->read < 4) {
-		return DOH_PARSE_INCOMPLETE;
-	}
+	if (response->write - response->read < 4) { return DOH_PARSE_INCOMPLETE; }
 
 	// Muevo offset al comienzo del cuerpo
 	buffer_read_adv(response, 4);
@@ -140,16 +138,13 @@ int find_http_body(ConnectionNode *node) {
 	return DOH_PARSE_COMPLETE;
 }
 
-int parse_dns_message(ConnectionNode *node) {
+int parse_dns_message(connection_node *node) {
 	buffer *message = node->data.doh->doh_response_buffer;
 	// Si todavia no llego el mensaje DNS completo esperamos
-	if (message->write - message->read < node->data.doh->response_content_length)
-		return DOH_PARSE_INCOMPLETE;
+	if (message->write - message->read < node->data.doh->response_content_length) return DOH_PARSE_INCOMPLETE;
 
 	uint16_t qdcount, ancount;
-	if (parse_dns_header(node, &qdcount, &ancount) == -1) {
-		return DOH_PARSE_ERROR;
-	}
+	if (parse_dns_header(node, &qdcount, &ancount) == -1) { return DOH_PARSE_ERROR; }
 
 	// Saltamos a la question section y salteamos cada pregunta
 	consume_buffer_bytes(node, 3 * SIZE_16);
@@ -163,18 +158,15 @@ int parse_dns_message(ConnectionNode *node) {
 		consume_buffer_bytes(node, 5 * SIZE_8);
 	}
 
-	if (parse_dns_answers(node, ancount) == -1) {
-		return DOH_PARSE_ERROR;
-	}
+	if (parse_dns_answers(node, ancount) == -1) { return DOH_PARSE_ERROR; }
 
 	// Si quedaron secciones de la respuesta para consumir, no nos interesan
-	if (node->data.doh->response_content_length != 0)
-		consume_buffer_bytes(node, node->data.doh->response_content_length);
+	if (node->data.doh->response_content_length != 0) consume_buffer_bytes(node, node->data.doh->response_content_length);
 
 	return DOH_PARSE_COMPLETE;
 }
 
-static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *ancount) {
+static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *ancount) {
 	dns_header header_info;
 	buffer *message = node->data.doh->doh_response_buffer;
 
@@ -192,7 +184,7 @@ static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *a
 	// Obtenemos el flag QR y validamos
 	header_info.qr = (*message->read >> 7);
 
-	if (header_info.qr == (unsigned int) 0) {
+	if (header_info.qr == (unsigned int)0) {
 		// No es una response
 		logger(ERROR, "parse_dns_message(): expected a DNS response, got DNS query instead");
 		return -1;
@@ -203,7 +195,7 @@ static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *a
 	// Obtenemos el RCODE y validamos
 	header_info.rcode = (*message->read & 15);
 
-	if (header_info.rcode != (unsigned int) 0) {
+	if (header_info.rcode != (unsigned int)0) {
 		// Hubo error al procesar la query en el servidor DNS
 		logger(ERROR, "parse_dns_message(): error in DNS query");
 		return -1;
@@ -219,10 +211,10 @@ static int parse_dns_header(ConnectionNode *node, uint16_t *qdcount, uint16_t *a
 	return 0;
 }
 
-static int parse_dns_answers(ConnectionNode *node, uint16_t ancount) {
+static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 	// Parseo de answers - RFC 1035 - Sec. 4.1.3.
 	bool is_compressed = false;
-	buffer* message = node->data.doh->doh_response_buffer;
+	buffer *message = node->data.doh->doh_response_buffer;
 
 	for (size_t i = 0; i < ancount; i++) {
 		// Salteamos campo NAME teniendo en cuenta posible compresion - RFC 1035 - Sec. 4.1.4.
@@ -252,11 +244,11 @@ static int parse_dns_answers(ConnectionNode *node, uint16_t ancount) {
 		uint16_t type;
 		read_big_endian_16(&type, message->read, 1);
 
-//		if (type != test_dns_question.type) {
-//			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
-//			return -1;
-//			// Error
-//		}
+		//		if (type != test_dns_question.type) {
+		//			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
+		//			return -1;
+		//			// Error
+		//		}
 
 		// Vemos lo mismo con class
 		consume_buffer_bytes(node, SIZE_16);
@@ -291,9 +283,7 @@ static int parse_dns_answers(ConnectionNode *node, uint16_t ancount) {
 				break;
 		}
 
-		if(ip_family != -1 && add_ip_address(node, ip_family, message->read) == -1) {
-			return -1;
-		}
+		if (ip_family != -1 && add_ip_address(node, ip_family, message->read) == -1) { return -1; }
 
 		consume_buffer_bytes(node, rdlength);
 	}
@@ -308,12 +298,11 @@ static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n) {
 	return n - i;
 }
 
-static void consume_buffer_bytes(ConnectionNode *node, ssize_t count) {
+static void consume_buffer_bytes(connection_node *node, ssize_t count) {
 	buffer_read_adv(node->data.doh->doh_response_buffer, count);
 
 	long *content_length = &node->data.doh->response_content_length;
-	if(*content_length - count >= 0)
-		node->data.doh->response_content_length -= count;
+	if (*content_length - count >= 0) node->data.doh->response_content_length -= count;
 	else
 		logger(ERROR, "consume_buffer_bytes(): content-length already 0, cannot subtract value %ld", count);
 }

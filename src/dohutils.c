@@ -1,22 +1,19 @@
+#include <dohdata.h>
 #include <dohutils.h>
 #include <errno.h>
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dohdata.h>
 
-int setup_doh_resources(ConnectionNode *node, int doh_fd) {
+int setup_doh_resources(connection_node *node, int doh_fd) {
 	node->data.doh = malloc(sizeof(doh_data));
-	if (node->data.doh == NULL)
-		goto EXIT;
+	if (node->data.doh == NULL) goto EXIT;
 
 	node->data.doh->doh_response_buffer = malloc(sizeof(buffer));
-	if (node->data.doh->doh_response_buffer == NULL)
-		goto FREE_DOH_DATA;
+	if (node->data.doh->doh_response_buffer == NULL) goto FREE_DOH_DATA;
 
 	node->data.doh->doh_response_buffer->data = malloc(MAX_DOH_PACKET_SIZE * SIZE_8);
-	if (node->data.doh->doh_response_buffer->data == NULL)
-		goto FREE_BUFFER;
+	if (node->data.doh->doh_response_buffer->data == NULL) goto FREE_BUFFER;
 
 	buffer_init(node->data.doh->doh_response_buffer, MAX_DOH_PACKET_SIZE, node->data.doh->doh_response_buffer->data);
 	node->data.doh->sock = doh_fd;
@@ -34,11 +31,10 @@ EXIT:
 	return -1;
 }
 
-int add_ip_address(ConnectionNode *node, int addr_family, void *addr) {
-	
+int add_ip_address(connection_node *node, int addr_family, void *addr) {
+
 	addr_info_node *new = malloc(sizeof(addr_info_node));
-	if (new == NULL)
-		goto EXIT;
+	if (new == NULL) goto EXIT;
 
 	long parsed_port = strtol(node->data.parser->request.target.port, NULL, 10);
 	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
@@ -54,7 +50,7 @@ int add_ip_address(ConnectionNode *node, int addr_family, void *addr) {
 			break;
 		case AF_INET6:
 			new->in6.sin6_family = AF_INET6;
-			new->in6.sin6_addr = *((struct in6_addr *) addr);
+			new->in6.sin6_addr = *((struct in6_addr *)addr);
 			new->in6.sin6_port = htons(parsed_port);
 			break;
 		default:
@@ -63,12 +59,12 @@ int add_ip_address(ConnectionNode *node, int addr_family, void *addr) {
 
 	new->next = NULL;
 
-	if(node->data.doh->addr_info_first == NULL) {
+	if (node->data.doh->addr_info_first == NULL) {
 		node->data.doh->addr_info_first = new;
 		node->data.doh->addr_info_current = node->data.doh->addr_info_first;
 	} else {
 		addr_info_node *search = node->data.doh->addr_info_first;
-		while(search->next != NULL)
+		while (search->next != NULL)
 			search = search->next;
 		search->next = new;
 	}
@@ -81,13 +77,13 @@ EXIT:
 	return -1;
 }
 
-void free_doh_resources(ConnectionNode *node) {
+void free_doh_resources(connection_node *node) {
 	doh_data *data = node->data.doh;
 
 	addr_info_node *addr_node = data->addr_info_first;
 	addr_info_node *prev = addr_node;
 
-	while(addr_node != NULL) {
+	while (addr_node != NULL) {
 		prev = addr_node;
 		addr_node = prev->next;
 		free(prev);
@@ -101,11 +97,11 @@ void free_doh_resources(ConnectionNode *node) {
 }
 
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {
-	for(size_t j = 0; j < n; j++) {
+	for (size_t j = 0; j < n; j++) {
 		*dest = 0;
 		for (size_t i = 0; i < SIZE_16; i++) {
 			*dest = *dest << 8;
-			*dest += (uint16_t) *src;
+			*dest += (uint16_t)*src;
 			src += 1;
 		}
 		dest += SIZE_16;
@@ -113,11 +109,11 @@ void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {
 }
 
 void read_big_endian_32(uint32_t *dest, uint8_t *src, size_t n) {
-	for(size_t j = 0; j < n; j++) {
+	for (size_t j = 0; j < n; j++) {
 		*dest = 0;
 		for (size_t i = 0; i < SIZE_32; i++) {
 			*dest = *dest << 8;
-			*dest += (uint32_t) *src;
+			*dest += (uint32_t)*src;
 			src += 1;
 		}
 		dest += SIZE_32;
@@ -125,10 +121,10 @@ void read_big_endian_32(uint32_t *dest, uint8_t *src, size_t n) {
 }
 
 void write_big_endian_16(uint8_t *dest, uint16_t *src, size_t n) {
-	for(size_t j = 0; j < n; j++) {
+	for (size_t j = 0; j < n; j++) {
 		*dest = 0;
 		for (int i = SIZE_16 - 1; i >= 0; i--) {
-			dest[i] = (uint8_t) *src;
+			dest[i] = (uint8_t)*src;
 			*src = *src >> 8;
 		}
 		dest += SIZE_16;
@@ -137,10 +133,10 @@ void write_big_endian_16(uint8_t *dest, uint16_t *src, size_t n) {
 }
 
 void write_big_endian_32(uint8_t *dest, uint32_t *src, size_t n) {
-	for(size_t j = 0; j < n; j++) {
+	for (size_t j = 0; j < n; j++) {
 		*dest = 0;
 		for (int i = SIZE_32 - 1; i >= 0; i--) {
-			dest[i] = (uint8_t) *src;
+			dest[i] = (uint8_t)*src;
 			*src = *src >> 8;
 		}
 		dest += SIZE_32;

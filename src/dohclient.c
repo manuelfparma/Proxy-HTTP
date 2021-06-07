@@ -14,7 +14,7 @@
 
 #define HOST_NAME "foo.leak.com.ar" // TODO este valor viene por parametro al iniciar el server
 
-extern ConnectionHeader connections;
+extern connection_header connections;
 
 http_dns_request doh_request_template = {.method = "POST",
 										 .path = "/dns-query",
@@ -39,8 +39,8 @@ dns_header dns_header_template = {.id = 0,
 								  .nscount = 0,
 								  .arcount = 0};
 
-int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_addr, char *doh_port) {
-	logger(INFO, "creating socket with DoH server for client with socket fd %d", node->data.clientSock);
+int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh_addr, char *doh_port) {
+	logger(INFO, "creating socket with DoH server for client with socket fd %d", node->data.client_sock);
 
 	int doh_sock = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -88,16 +88,16 @@ int connect_to_doh_server(ConnectionNode *node, fd_set *write_fd_set, char *doh_
 
 	node->data.connection_state = CONNECTING_TO_DOH;
 
-	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.clientSock, doh_sock);
+	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.client_sock, doh_sock);
 
-	if (doh_sock >= connections.maxFd) { connections.maxFd = doh_sock + 1; }
+	if (doh_sock >= connections.max_fd) { connections.max_fd = doh_sock + 1; }
 
 	FD_SET(doh_sock, write_fd_set);
 
 	return doh_sock;
 }
 
-int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdSet) {
+int handle_doh_request(connection_node *node, fd_set *writeFdSet, fd_set *read_fd_set) {
 	int doh_sock = node->data.doh->sock;
 
 	if (FD_ISSET(doh_sock, &writeFdSet[TMP])) {
@@ -110,15 +110,15 @@ int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdS
 		}
 
 		node->data.connection_state = FETCHING_DNS;
-		logger(INFO, "connected to DoH, client fd: %d", node->data.clientSock);
+		logger(INFO, "connected to DoH, client fd: %d", node->data.client_sock);
 
 		if (write_doh_request(doh_sock, node->data.parser->request.target.request_target.host_name, HOST_NAME) < 0) {
 			logger(ERROR, "handle_doh_request :: write_doh_request(): failed to write DoH HTTP request");
 			return -1;
 		}
 
-		FD_SET(doh_sock, &readFdSet[BASE]);
-		if (doh_sock >= connections.maxFd) connections.maxFd = doh_sock + 1;
+		FD_SET(doh_sock, &read_fd_set[BASE]);
+		if (doh_sock >= connections.max_fd) connections.max_fd = doh_sock + 1;
 
 		node->data.doh->state = DOH_PARSER_INIT;
 
@@ -128,12 +128,12 @@ int handle_doh_request(ConnectionNode *node, fd_set *writeFdSet, fd_set *readFdS
 	return 0;
 }
 
-int handle_doh_response(ConnectionNode *node, fd_set *readFdSet) {
+int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 	int doh_sock = node->data.doh->sock;
 	doh_parser_status_code result;
 
 	// FIXME: DA SEGMENTATION FAULT A VECES
-	if (FD_ISSET(doh_sock, &readFdSet[TMP])) {
+	if (FD_ISSET(doh_sock, &read_fd_set[TMP])) {
 
 		if (read_doh_response(node) < 0) {
 			logger(ERROR, "handle_doh_response(): unable to read DoH response");

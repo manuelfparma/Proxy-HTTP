@@ -1,45 +1,43 @@
 #ifndef _CONNECTION_H_
 #define _CONNECTION_H_
 
-#include <dohdata.h>
 #include <buffer.h>
+#include <dohdata.h>
+#include <http_parser.h>
 #include <netdb.h>
-#include <http_parser.h>
-#include <pthread.h>
-#include <sys/select.h>
-#include <http_parser.h>
 #include <stdio.h>
+#include <sys/select.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
-// TODO: Cambiar nombre a CONNECTION_STATE, porque usamos CONNECTING y CONNECTED y eso esta por fuera de addrinfo
-typedef enum { DISCONNECTED, CONNECTING_TO_DOH, FETCHING_DNS, CONNECTING, CONNECTED } CONNECTION_STATE;
+typedef enum { DISCONNECTED, CONNECTING_TO_DOH, FETCHING_DNS, CONNECTING, CONNECTED } connection_state;
 
 typedef struct {
-	buffer *clientToServerBuffer;		// buffer donde cliente escribe y servidor lee
-	buffer *serverToClientBuffer;		// buffer donde servidor escribe y cliente lee
-	int clientSock;						// socket activo con cliente
-	int serverSock;						// socket activo con servidor
-	CONNECTION_STATE connection_state;		// estado de la busqueda DNS
-	http_parser * parser;				// estructura donde se guarda el estado del parseo
-	FILE * log_file;
+	buffer *client_to_server_buffer;   // buffer donde cliente escribe y servidor lee
+	buffer *server_to_client_buffer;   // buffer donde servidor escribe y cliente lee
+	int client_sock;				   // socket activo con cliente
+	int server_sock;				   // socket activo con servidor
+	connection_state connection_state; // estado de la busqueda DNS
+	http_parser *parser;			   // estructura donde se guarda el estado del parseo
+	FILE *log_file;
 	doh_data *doh;
-} ConnectionData;
+} connection_data;
 
-typedef struct ConnectionNode {
-	ConnectionData data;
-	struct ConnectionNode *next;
-} ConnectionNode;
+typedef struct connection_node {
+	connection_data data;
+	struct connection_node *next;
+} connection_node;
 
 typedef struct {
 	unsigned int clients;
-	int maxFd;
-	ConnectionNode *first;
-} ConnectionHeader;
+	int max_fd;
+	connection_node *first;
+	FILE *proxy_log;
+} connection_header;
 
-ConnectionNode *setupConnectionResources(int clientSock, int serverSock);
+connection_node *setup_connection_resources(int client_sock, int server_sock);
 
-void addToConnections(ConnectionNode *node);
+void add_to_connections(connection_node *node);
 
-void close_connection(ConnectionNode *node, ConnectionNode *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+void close_connection(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set);
 
 #endif

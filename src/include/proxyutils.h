@@ -10,36 +10,27 @@
 #define TMP 1
 #define FD_SET_ARRAY_SIZE 2
 
-#include "connection.h"
+#include <connection.h>
 #include <stddef.h>
 
-typedef struct {
-	char *host;
-	char *service;
-	pthread_t *main_thread_id;
-	ConnectionNode *connection;
-} ThreadArgs;
+int setup_passive_socket(const char *service);
 
-int setupPassiveSocket(const char *service);
+int accept_connection(int passive_sock);
 
-void *resolve_addr(void *args);
+typedef enum { WRITE, READ } operation;
+typedef enum { CLIENT, SERVER } peer;
 
-int acceptConnection(int passiveSock);
+int handle_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], peer peer);
 
-typedef enum { WRITE, READ } OPERATION;
-typedef enum { CLIENT, SERVER } PEER;
+ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *log_file);
 
-int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
-					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
+int setup_connection(connection_node *node, fd_set *writeFdSet);
 
-ssize_t handle_operation(int fd, buffer *buffer, OPERATION operation, PEER peer, FILE *log_file);
+int handle_client_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
-int setup_connection(ConnectionNode *node, fd_set *writeFdSet);
-
-int handle_client_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
-					 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
-
-int handle_server_connection(ConnectionNode *node, ConnectionNode *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
-					 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+int handle_server_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
 #endif

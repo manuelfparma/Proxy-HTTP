@@ -1,11 +1,11 @@
 #include "include/logger.h"
 
-char *getLevelDescription(LEVEL level) {
+char *get_level_description(level level) {
 	char *description[] = {"[DEBUG]", "[INFO]", "[ERROR]", "[FATAL]"};
 	return description[level];
 }
 
-char *getPeerDescription(PEER peer) {
+char *get_peer_description(peer peer) {
 	char *description[] = {"[CLIENT]", "[SERVER]"};
 	return description[peer];
 }
