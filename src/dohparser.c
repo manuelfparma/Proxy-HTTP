@@ -22,7 +22,7 @@ extern dns_header dns_header_template;
 int read_doh_response(connection_node *node) {
 	// TODO: Pasar a select con socket no bloqueante
 	// TODO: Manejar estados para recibir de a chunks
-	buffer *buff = node->data.doh->doh_response_buffer;
+	buffer *buff = node->data.doh->doh_buffer;
 
 	if (!buffer_can_write(buff)) {
 		logger(ERROR, "read_doh_reponse(): doh buffer full");
@@ -31,6 +31,10 @@ int read_doh_response(connection_node *node) {
 
 	logger(INFO, "reading DoH response...");
 	ssize_t recv_bytes = recv(node->data.doh->sock, buff->write, buff->limit - buff->write, 0);
+	if (recv_bytes == 0) {
+		logger(INFO, "read_doh_response :: recv(): received EOF from socket %d", node->data.doh->sock);
+		return -1;
+	}
 	if (recv_bytes < 0) {
 		logger(ERROR, "recv(): %s", strerror(errno));
 		return -1;
@@ -46,7 +50,7 @@ int read_doh_response(connection_node *node) {
 int parse_doh_status_code(connection_node *node) {
 	char *http_200 = "HTTP/1.1 200 OK\r\n";
 	long http_200_len = 17;
-	buffer *response = node->data.doh->doh_response_buffer;
+	buffer *response = node->data.doh->doh_buffer;
 	long bytes_to_consume = response->write - response->read;
 
 	if (bytes_to_consume < http_200_len) return DOH_PARSE_INCOMPLETE;
@@ -67,7 +71,7 @@ int parse_doh_status_code(connection_node *node) {
 int parse_doh_content_length_header(connection_node *node) {
 	char *content_length = "content-length:";
 	int content_length_len = 15;
-	buffer *response = node->data.doh->doh_response_buffer;
+	buffer *response = node->data.doh->doh_buffer;
 
 	while (response->write - response->read >= 3) {
 		if (response->read[0] == '\r' && response->read[1] == '\n' && tolower(response->read[2]) == 'c') {
@@ -90,7 +94,7 @@ int parse_doh_content_length_header(connection_node *node) {
 }
 
 int parse_doh_content_length_value(connection_node *node) {
-	buffer *response = node->data.doh->doh_response_buffer;
+	buffer *response = node->data.doh->doh_buffer;
 
 	// Estando parados despues del ':' del header Content-Length avanzamos hasta
 	// encontrar \r\n, sin incrementar el buffer
@@ -121,7 +125,7 @@ int parse_doh_content_length_value(connection_node *node) {
 }
 
 int find_http_body(connection_node *node) {
-	buffer *response = node->data.doh->doh_response_buffer;
+	buffer *response = node->data.doh->doh_buffer;
 
 	// Ahora buscamos el comienzo del mensaje DNS
 	for (; response->write - response->read >= 4 &&
@@ -139,7 +143,7 @@ int find_http_body(connection_node *node) {
 }
 
 int parse_dns_message(connection_node *node) {
-	buffer *message = node->data.doh->doh_response_buffer;
+	buffer *message = node->data.doh->doh_buffer;
 	// Si todavia no llego el mensaje DNS completo esperamos
 	if (message->write - message->read < node->data.doh->response_content_length) return DOH_PARSE_INCOMPLETE;
 
@@ -168,7 +172,7 @@ int parse_dns_message(connection_node *node) {
 
 static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *ancount) {
 	dns_header header_info;
-	buffer *message = node->data.doh->doh_response_buffer;
+	buffer *message = node->data.doh->doh_buffer;
 
 	// Obtenemos el id y validamos
 	read_big_endian_16(&header_info.id, message->read, 1);
@@ -214,7 +218,7 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 	// Parseo de answers - RFC 1035 - Sec. 4.1.3.
 	bool is_compressed = false;
-	buffer *message = node->data.doh->doh_response_buffer;
+	buffer *message = node->data.doh->doh_buffer;
 
 	for (size_t i = 0; i < ancount; i++) {
 		// Salteamos campo NAME teniendo en cuenta posible compresion - RFC 1035 - Sec. 4.1.4.
@@ -299,7 +303,7 @@ static int strncmp_case_insensitive(uint8_t *s1, uint8_t *s2, size_t n) {
 }
 
 static void consume_buffer_bytes(connection_node *node, ssize_t count) {
-	buffer_read_adv(node->data.doh->doh_response_buffer, count);
+	buffer_read_adv(node->data.doh->doh_buffer, count);
 
 	long *content_length = &node->data.doh->response_content_length;
 	if (*content_length - count >= 0) node->data.doh->response_content_length -= count;
