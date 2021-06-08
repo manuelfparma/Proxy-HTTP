@@ -40,6 +40,27 @@ static void send_parse_error(int fd_client, connection_node *node) {
 	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
 }
 
+void send_server_error(int fd_client, connection_node *node) {
+	// TODO: CAMBIAR A SEND CUANDO SE BORREN LOS LOGS
+	logger(INFO, "Connection established");
+	char *response = "HTTP/1.1 500 Internal Server Error\r\n\r\n";
+	buffer *buffer_response;
+	buffer_response = malloc(sizeof(buffer));
+	buffer_response->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	buffer_init(buffer_response, BUFFER_SIZE, buffer_response->data);
+	strncpy((char *)buffer_response->write, response, strlen(response));
+	buffer_write_adv(buffer_response, strlen(response));
+	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
+	if (result_bytes <= 0)
+		// TODO: enviar denuevo?
+	logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+
+	free(buffer_response->data);
+	free(buffer_response);
+
+	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
+}
+
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
@@ -236,7 +257,11 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 					loggerPeer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
-				} else {
+				}
+				else if(result_bytes == CLOSE_CONNECTION_CODE) {
+					return CLOSE_CONNECTION_CODE;
+				}
+				else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
 					connections.total_proxy_to_origins_bytes += result_bytes;
@@ -255,7 +280,12 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 					loggerPeer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
-				} else {
+				}
+				else if (result_bytes < 0)
+				{
+					return result_bytes;
+				}
+				else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
 					connections.total_proxy_to_origins_bytes += result_bytes;
@@ -347,7 +377,11 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 			if (result_bytes == SEND_ERROR_CODE) {
 				// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 				loggerPeer(CLIENT, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
-			} else {
+			}
+			else if(result_bytes < 0) {
+				return result_bytes;
+			}
+			else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
 				connections.total_proxy_to_clients_bytes += result_bytes;
@@ -407,22 +441,24 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 
 // Leer o escribir a un socket
 ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *file) {
-	ssize_t resultBytes;
-	ssize_t bytesToSend;
+	ssize_t resultBytes = 0;
+	ssize_t bytesToSend = 0;
 	switch (operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
-			resultBytes = send(fd, buffer->read, bytesToSend, 0);
+			resultBytes = send(fd, buffer->read, bytesToSend, MSG_NOSIGNAL);
 			if (resultBytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					loggerPeer(peer, "send: %s", strerror(errno));
+					if(errno == EPIPE){
+						return BROKEN_PIPE_CODE;
+					}
 					return SEND_ERROR_CODE;
 				} else
 					// no envie nada, me desperte innecesariamente
 					return 0;
 			} else {
-				// TODO pasar a arreglo auxiliar (con strncpy)
 				// logger(DEBUG, "Sent info on fd: %d", fd);
 				uint8_t aux_buffer[BUFFER_SIZE] = {0};
 				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
@@ -436,12 +472,12 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
 			if (resultBytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
-					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					loggerPeer(peer, "recv(): %s", strerror(errno));
+					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					return RECV_ERROR_CODE;
-				} else
-					// no lei nada, me desperte innecesariamente
-					return 0;
+				}
+				// no lei nada, me desperte innecesariamente
+				return 0;
 			} else if (resultBytes == 0) {
 				// como es no bloqueante, un 0 indica cierre prematuro de conexion
 				if (peer == SERVER) logger(INFO, "Server with fd: %d closing connection", fd);

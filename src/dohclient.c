@@ -129,6 +129,9 @@ int handle_doh_request(connection_node *node, fd_set *writeFdSet, fd_set *read_f
 }
 
 int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
+	if(node == NULL || node->data.doh == NULL){
+		logger(FATAL, "%p - %p", (void *)node, (void *)node->data.doh);
+	}
 	int doh_sock = node->data.doh->sock;
 	doh_parser_status_code result;
 

@@ -33,4 +33,6 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 int handle_server_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
+void send_server_error(int fd_client, connection_node *node);
+
 #endif

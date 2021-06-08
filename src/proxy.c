@@ -2,8 +2,6 @@
 #include <dohclient.h>
 #include <dohutils.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <http_parser.h>
 #include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
@@ -101,10 +99,13 @@ int main(int argc, char **argv) {
 					if (handle == 1) {
 						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 						close(node->data.doh->sock);
-						if (setup_connection(node, write_fd_set) == -1) {
-							logger(ERROR, "setup_connection(): failed to connect");
-							// FIXME: ?????
-							return -1;
+						int ans_connection = setup_connection(node, write_fd_set);
+						if(ans_connection == CLOSE_CONNECTION_CODE) {
+							send_server_error(node->data.client_sock, node);
+							handle_connection_error(node, previous, write_fd_set, read_fd_set);
+						}else if(ans_connection == SETUP_CONNECTION_ERROR_CODE) {
+							logger(ERROR, "setup_connection found an error");
+							//TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
 						}
 					}
 				} else {
@@ -119,10 +120,10 @@ int main(int argc, char **argv) {
 				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					//if (!buffer_can_read(node->data.server_to_client_buffer)) {
+					if (!buffer_can_read(node->data.server_to_client_buffer)) {
 						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
-					//}
+					}
 				} else {
 					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
@@ -131,10 +132,10 @@ int main(int argc, char **argv) {
 				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					//if (!buffer_can_read(node->data.server_to_client_buffer)) {
+					if (!buffer_can_read(node->data.server_to_client_buffer)) {
 						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
-					//}
+					}
 				} else {
 					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
@@ -146,8 +147,8 @@ int main(int argc, char **argv) {
 }
 
 static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
-	int aux_server_sock = node->data.server_sock >= connections.max_fd;
-	int aux_client_sock = node->data.client_sock >= connections.max_fd;
+	int aux_server_sock = node->data.server_sock;
+	int aux_client_sock = node->data.client_sock;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
 	// si se debe buscar otro maximo
 	close_connection(node, previous, write_fd_set, read_fd_set);

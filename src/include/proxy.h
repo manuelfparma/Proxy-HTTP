@@ -9,6 +9,7 @@ typedef enum {
 	SEND_ERROR_CODE, // fallo el send por algo no relacionado al que socket sea no bloqueante
 	ACCEPT_CONNECTION_ERROR,
 	SETUP_CONNECTION_ERROR_CODE,
+	BROKEN_PIPE_CODE,
 } connection_status_code;
 
 #endif
