@@ -40,7 +40,7 @@ static const http_parser_state_transition ST_METHOD[2] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH, .transition = tr_check_method},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_METHOD, .transition = tr_copy_byte_to_buffer}};
 
-static const http_parser_state_transition ST_PATH[4] = {
+static const http_parser_state_transition ST_PATH[5] = {
 	{.when = '/',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -51,7 +51,8 @@ static const http_parser_state_transition ST_PATH[4] = {
 	 .upper_bound = EMPTY,
 	 .destination = PS_ASTERISK_FORM,
 	 .transition = tr_check_asterisk_form},
-	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
+	{.when = '[', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_set_host_type},
+	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_set_host_type},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SCHEMA, .transition = tr_set_http_path_type},
 };
 
@@ -69,27 +70,11 @@ static const http_parser_state_transition ST_PATH_SCHEMA[3] = {
 	 .transition = tr_copy_byte_to_buffer},
 };
 
-static const http_parser_state_transition ST_PATH_SLASHES[2] = {
+static const http_parser_state_transition ST_PATH_SLASHES[4] = {
 	{.when = '/', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SLASHES, .transition = tr_adv},
-	{.when = ANY,
-	 .lower_bound = EMPTY,
-	 .upper_bound = EMPTY,
-	 .destination = PS_PATH_DOMAIN,
-	 .transition = tr_copy_byte_to_buffer},
-};
-
-static const http_parser_state_transition ST_PATH_DOMAIN[3] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
-	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
+	{.when = '[', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_set_host_type},
+	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_set_host_type},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_DOMAIN, .transition = tr_set_host_type},
-};
-
-static const http_parser_state_transition ST_IP[5] = {
-	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
-	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_set_host_type},
-	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv4, .transition = tr_set_host_type},
-	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IP, .transition = tr_copy_byte_to_buffer},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
 static const http_parser_state_transition ST_IPv4[6] = {
@@ -110,23 +95,26 @@ static const http_parser_state_transition ST_IPv4[6] = {
 };
 
 static const http_parser_state_transition ST_IPv6[6] = {
+	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
+	{.when = ']', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6_END, .transition = tr_reset_copy_index},
+	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
+	{.when = EMPTY, .lower_bound = 'A', .upper_bound = 'F', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
+	{.when = EMPTY, .lower_bound = 'a', .upper_bound = 'f', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+};
+
+static const http_parser_state_transition ST_IPv6_END[4] = {
 	{.when = ' ',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_HTTP_VERSION,
 	 .transition = tr_solve_request_target},
-	{.when = ':',
-	 .lower_bound = EMPTY,
-	 .upper_bound = EMPTY,
-	 .destination = PS_IPv6,
-	 .transition = tr_copy_byte_to_buffer}, // TODO: FIX PUERTO
-	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
+	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PORT, .transition = tr_reset_copy_index},
 	{.when = '/',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
 	 .transition = tr_solve_request_target},
-	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
@@ -187,7 +175,6 @@ static const http_parser_state_transition ST_HEADER_TYPE[3] = {
 
 static const http_parser_state_transition ST_HEADER_VALUE[2] = {
 	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
-	//{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_VALUE, .transition = tr_adv},
 	{.when = ANY,
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -222,15 +209,14 @@ static const http_parser_state_transition ST_BODY[2] = {
 //----------- ESTRUCTURAS PARA SABER LAS TRANSICIONES DE CADA NODO -----------//
 
 static const http_parser_state_transition *states[] = {
-	ST_METHOD, ST_PATH,	  ST_ASTERISK_FORM, ST_RELATIVE_PATH, ST_PATH_SCHEMA,  ST_PATH_SLASHES, ST_PATH_DOMAIN,	 ST_IP,
-	ST_IPv4,   ST_IPv6,	  ST_DOMAIN,		ST_PORT,		  ST_HTTP_VERSION, ST_HEADER_TYPE,	ST_HEADER_VALUE, ST_CR,
-	ST_LF,	   ST_CR_END, ST_LF_END,		ST_BODY};
+	ST_METHOD, ST_PATH,		ST_ASTERISK_FORM, ST_RELATIVE_PATH, ST_PATH_SCHEMA,	 ST_PATH_SLASHES, ST_IPv4,
+	ST_IPv6,   ST_IPv6_END, ST_DOMAIN,		  ST_PORT,			ST_HTTP_VERSION, ST_HEADER_TYPE,  ST_HEADER_VALUE,
+	ST_CR,	   ST_LF,		ST_CR_END,		  ST_LF_END,		ST_BODY};
 
 static const size_t states_n[] = {
-	N(ST_METHOD),		N(ST_PATH),			N(ST_ASTERISK_FORM), N(ST_RELATIVE_PATH),
-	N(ST_PATH_SCHEMA),	N(ST_PATH_SLASHES), N(ST_PATH_DOMAIN),	 N(ST_IP),
-	N(ST_IPv4),			N(ST_IPv6),			N(ST_DOMAIN),		 N(ST_PORT),
-	N(ST_HTTP_VERSION), N(ST_HEADER_TYPE),	N(ST_HEADER_VALUE),	 N(ST_CR),
+	N(ST_METHOD),		N(ST_PATH),			N(ST_ASTERISK_FORM), N(ST_RELATIVE_PATH), N(ST_PATH_SCHEMA),
+	N(ST_PATH_SLASHES), N(ST_IPv4),			N(ST_IPv6),			 N(ST_IPv6_END),	  N(ST_DOMAIN),
+	N(ST_PORT),			N(ST_HTTP_VERSION), N(ST_HEADER_TYPE),	 N(ST_HEADER_VALUE),  N(ST_CR),
 	N(ST_LF),			N(ST_CR_END),		N(ST_LF_END),		 N(ST_BODY),
 };
 
@@ -402,7 +388,7 @@ static void tr_check_method(char current_char) {
 	tr_reset_copy_index(current_char);
 	if (strcmp("CONNECT", current_parser->request.method) == 0) {
 		logger(INFO, "Identified CONNECT method");
-		current_parser->data.parser_state = PS_PATH_DOMAIN;
+		current_parser->data.parser_state = PS_PATH_SLASHES;
 		current_parser->request.target.path_type = ABSOLUTE;
 		current_parser->data.request_status = PARSE_CONNECT_METHOD;
 	}
@@ -433,7 +419,6 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			limit = MAX_METHOD_LENGTH;
 			copy_buffer = current_parser->request.method;
 			break;
-		case PS_IP:
 		case PS_IPv4:
 		case PS_IPv6:
 			limit = MAX_IP_LENGTH;
@@ -443,7 +428,6 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			limit = MAX_SCHEMA_LENGTH;
 			copy_buffer = current_parser->request.schema;
 			break;
-		case PS_PATH_DOMAIN:
 		case PS_DOMAIN:
 			limit = MAX_HOST_NAME_LENGTH;
 			copy_buffer = current_parser->request.target.request_target.host_name;
@@ -522,17 +506,15 @@ static void tr_set_http_path_type(char current_char) {
 }
 
 static void tr_set_host_type(char current_char) {
-	switch (current_char) {
-		case '.':
+	if (current_char == '[') current_parser->request.target.host_type = IPV6;
+	else {
+		if (IS_DIGIT(current_char)) {
 			current_parser->request.target.host_type = IPV4;
-			break;
-		case ':':
-			current_parser->request.target.host_type = IPV6;
-			break;
-		default:
+		} else {
 			current_parser->request.target.host_type = DOMAIN;
+		}
+		tr_copy_byte_to_buffer(current_char);
 	}
-	tr_copy_byte_to_buffer(current_char);
 }
 
 static void tr_http_version(char current_char) {
@@ -564,7 +546,8 @@ int parse_request(http_parser *parser, buffer *read_buffer) {
 	char current_char;
 	http_parser_state current_state;
 
-	while (buffer_can_read(read_buffer) && current_parser->data.parser_state != PS_ERROR && current_parser->data.parser_state != PS_END) {
+	while (buffer_can_read(read_buffer) && current_parser->data.parser_state != PS_ERROR &&
+		   current_parser->data.parser_state != PS_END) {
 		current_char = buffer_read(read_buffer);
 		current_state = current_parser->data.parser_state;
 		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
