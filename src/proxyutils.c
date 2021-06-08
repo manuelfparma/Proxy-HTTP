@@ -239,6 +239,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
+					connections.total_proxy_to_origins_bytes += result_bytes;
 					// si el buffer de salida se vacio, no nos interesa intentar escribir
 					if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
 				}
@@ -257,6 +258,8 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
+					connections.total_proxy_to_origins_bytes += result_bytes;
+					connections.total_connect_method_bytes += result_bytes;
 					// si el buffer de salida se vacio, no nos interesa intentar escribir
 					if (!buffer_can_read(node->data.client_to_server_buffer)) FD_CLR(fd_server, &write_fd_set[BASE]);
 				}
@@ -347,7 +350,7 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
-
+				connections.total_proxy_to_clients_bytes += result_bytes;
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.server_to_client_buffer)) FD_CLR(fd_client, &write_fd_set[BASE]);
 			}
@@ -411,7 +414,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			bytesToSend = buffer->write - buffer->read;
 			resultBytes = send(fd, buffer->read, bytesToSend, 0);
 			if (resultBytes < 0) {
-				if (errno != EWOULDBLOCK || errno == EAGAIN) {
+				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					loggerPeer(peer, "send: %s", strerror(errno));
 					return SEND_ERROR_CODE;
@@ -432,7 +435,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 		case READ: // leer de un socket
 			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
 			if (resultBytes < 0) {
-				if (errno != EWOULDBLOCK || errno == EAGAIN) {
+				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					loggerPeer(peer, "recv(): %s", strerror(errno));
 					return RECV_ERROR_CODE;

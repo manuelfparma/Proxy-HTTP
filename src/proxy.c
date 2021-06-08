@@ -20,6 +20,8 @@ static void handle_connection_error(connection_node *node, connection_node *prev
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
 static void find_max_id();
+// Funcion para imprimir las estadisticas del server
+void write_proxy_statistics();
 
 connection_header connections = {0};
 
@@ -35,6 +37,8 @@ int main(int argc, char **argv) {
 	connections.proxy_log = fopen(name, "w+");
 	if (connections.proxy_log == NULL) { logger(FATAL, "fopen: %s", strerror(errno)); }
 	logger(DEBUG, "Proxy file log with name %s created", name);
+
+	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to clients\tBytes through connect\n");
 
 	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
 	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
@@ -115,10 +119,10 @@ int main(int argc, char **argv) {
 				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.server_to_client_buffer)) {
+					//if (!buffer_can_read(node->data.server_to_client_buffer)) {
 						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
-					}
+					//}
 				} else {
 					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
@@ -127,16 +131,17 @@ int main(int argc, char **argv) {
 				if (handle > -1) ready_fds -= handle;
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.server_to_client_buffer)) {
+					//if (!buffer_can_read(node->data.server_to_client_buffer)) {
 						handle_connection_error(node, previous, write_fd_set, read_fd_set);
 						break;
-					}
+					//}
 				} else {
 					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
 				}
 			}
 		}
+		// write_proxy_statistics();
 	}
 }
 
@@ -154,4 +159,10 @@ static void find_max_id() {
 		if (node->data.client_sock >= connections.max_fd) connections.max_fd = node->data.client_sock;
 		if (node->data.server_sock >= connections.max_fd) connections.max_fd = node->data.server_sock;
 	}
+}
+
+void write_proxy_statistics() {
+	ssize_t proxy_to_origins = connections.total_proxy_to_origins_bytes;
+	ssize_t proxy_to_clients = connections.total_proxy_to_clients_bytes;
+	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.total_connections, connections.clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients, connections.total_connect_method_bytes);
 }

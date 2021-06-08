@@ -30,6 +30,10 @@ typedef struct connection_node {
 typedef struct {
 	unsigned int clients;
 	int max_fd;
+	ssize_t total_connections;
+	ssize_t total_proxy_to_origins_bytes;
+	ssize_t total_proxy_to_clients_bytes;
+	ssize_t total_connect_method_bytes;
 	connection_node *first;
 	FILE *proxy_log;
 } connection_header;

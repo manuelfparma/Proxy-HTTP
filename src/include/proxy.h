@@ -1,5 +1,6 @@
 #ifndef _PROXY_H_
 #define _PROXY_H_
+void write_proxy_statistics();
 
 typedef enum {
 	CLOSE_CONNECTION_CODE =

@@ -319,10 +319,7 @@ static void parse_start_line(char current_char) {
 						   strlen(current_parser->request.target.relative_path));
 
 	// Hardcodeamos la version para, en el caso ideal, recibir el delimitador null terminated indicando que el servidor termino de
-	// enviar sus recursosvoid tr_check_asterisk_form(char current_char) {
-//	if (strcmp("OPTIONS", current_parser->request.method) == 0) tr_set_http_path_type(current_char);
-//	else
-//		tr_parse_error(current_char);
+	// enviar sus recursos
 	char *http = " HTTP/1.0";
 	copy_to_request_buffer(current_parser->data.parsed_request, http, strlen(http));
 	char *cr_lf = "\r\n";

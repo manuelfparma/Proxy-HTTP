@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <proxy.h>
 
 extern connection_header connections;
 
@@ -128,7 +129,7 @@ void add_to_connections(connection_node *node) {
 	} else {
 		connections.first = node;
 	}
-
+	connections.total_connections++;
 	connections.clients++;
 }
 
@@ -160,6 +161,6 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	FD_CLR(server_fd, &write_fd_set[BASE]);
 	close(client_fd);
 	if (server_fd > 0) close(server_fd);
-
+	write_proxy_statistics();
 	connections.clients--;
 }
