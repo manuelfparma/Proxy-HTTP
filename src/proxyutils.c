@@ -420,7 +420,7 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 
 	// Intento de connect
 	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.client_sock);
-	if (connect(node->data.server_sock, &aux_addr_info.addr, sizeof(aux_addr_info.addr)) != 0 && errno != EINPROGRESS) {
+	if (connect(node->data.server_sock, &aux_addr_info.addr, sizeof(aux_addr_info.storage)) != 0 && errno != EINPROGRESS) {
 		// error inesperado en connect
 		logger(ERROR, "setup_connection :: connect(): %s", strerror((errno)));
 		// TODO: Tirar 500 por HTTP al cliente
