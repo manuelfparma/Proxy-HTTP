@@ -9,21 +9,22 @@ int setup_doh_resources(connection_node *node, int doh_fd) {
 	node->data.doh = malloc(sizeof(doh_data));
 	if (node->data.doh == NULL) goto EXIT;
 
-	node->data.doh->doh_response_buffer = malloc(sizeof(buffer));
-	if (node->data.doh->doh_response_buffer == NULL) goto FREE_DOH_DATA;
+	node->data.doh->doh_buffer = malloc(sizeof(buffer));
+	if (node->data.doh->doh_buffer == NULL) goto FREE_DOH_DATA;
 
-	node->data.doh->doh_response_buffer->data = malloc(MAX_DOH_PACKET_SIZE * SIZE_8);
-	if (node->data.doh->doh_response_buffer->data == NULL) goto FREE_BUFFER;
+	node->data.doh->doh_buffer->data = malloc(MAX_DOH_PACKET_SIZE * SIZE_8);
+	if (node->data.doh->doh_buffer->data == NULL) goto FREE_BUFFER;
 
-	buffer_init(node->data.doh->doh_response_buffer, MAX_DOH_PACKET_SIZE, node->data.doh->doh_response_buffer->data);
+	buffer_init(node->data.doh->doh_buffer, MAX_DOH_PACKET_SIZE, node->data.doh->doh_buffer->data);
+
 	node->data.doh->sock = doh_fd;
-
+	node->data.doh->state = DOH_INIT;
 	node->data.doh->addr_info_first = node->data.doh->addr_info_current = NULL;
 
 	return 0;
 
 FREE_BUFFER:
-	free(node->data.doh->doh_response_buffer);
+	free(node->data.doh->doh_buffer);
 FREE_DOH_DATA:
 	free(node->data.doh);
 EXIT:
@@ -89,8 +90,8 @@ void free_doh_resources(connection_node *node) {
 		free(prev);
 	}
 
-	free(data->doh_response_buffer->data);
-	free(data->doh_response_buffer);
+	free(data->doh_buffer->data);
+	free(data->doh_buffer);
 	free(data);
 
 	node->data.doh = NULL;

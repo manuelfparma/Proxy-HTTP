@@ -88,35 +88,58 @@ int main(int argc, char **argv) {
 
 		int handle;
 		// itero por todas las conexiones cliente-servidor
+		// TODO: Emprolijar
 		for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0;
 			 previous = node, node = node->next) {
 			if (node->data.connection_state == CONNECTING_TO_DOH) {
 				handle = handle_doh_request(node, write_fd_set, read_fd_set);
-				if (handle > -1) ready_fds -= handle;
-				// TODO: Manejo de error
+
+				switch (handle) {
+					case DOH_SEND_ERROR:
+						close(node->data.doh->sock);
+						free_doh_resources(node);
+						close_connection(node, previous, write_fd_set, read_fd_set);
+						break;
+					case DOH_SEND_COMPLETE:
+						node->data.connection_state = FETCHING_DNS;
+						FD_SET(node->data.doh->sock, &read_fd_set[BASE]);
+					case DOH_SEND_INCOMPLETE:
+						ready_fds -= 1;
+						break;
+					default:
+						break;
+				}
+
 			} else if (node->data.connection_state == FETCHING_DNS) {
 				handle = handle_doh_response(node, read_fd_set);
-				if (handle >= 0) {
-					ready_fds -= handle;
+
+				if (handle == -1) {
+					FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
+					close(node->data.doh->sock);
+					free_doh_resources(node);
+					close_connection(node, previous, write_fd_set, read_fd_set);
+
+				} else {
+					ready_fds -= 1;
+
 					if (handle == 1) {
 						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 						close(node->data.doh->sock);
+
+						// Si ya parseo exitosamente, podemos arrancar la conexion con origin
 						if (setup_connection(node, write_fd_set) == -1) {
 							logger(ERROR, "setup_connection(): failed to connect");
 							// FIXME: ?????
 							return -1;
 						}
 					}
-				} else {
-					// TODO: Liberar recursos y cliente
-					FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
-					close(node->data.doh->sock);
-					free_doh_resources(node);
-					close_connection(node, previous, write_fd_set, read_fd_set);
 				}
+
 			} else {
 				handle = handle_client_connection(node, previous, read_fd_set, write_fd_set);
+
 				if (handle > -1) ready_fds -= handle;
+
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
 					//if (!buffer_can_read(node->data.server_to_client_buffer)) {
@@ -127,8 +150,11 @@ int main(int argc, char **argv) {
 					handle_connection_error(node, previous, write_fd_set, read_fd_set);
 					break;
 				}
+
 				handle = handle_server_connection(node, previous, read_fd_set, write_fd_set);
+
 				if (handle > -1) ready_fds -= handle;
+
 				else if (handle == CLOSE_CONNECTION_CODE) {
 					// Caso conexion cerrada, veo si no quedo nada para el cliente
 					//if (!buffer_can_read(node->data.server_to_client_buffer)) {

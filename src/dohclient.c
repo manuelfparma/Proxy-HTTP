@@ -97,35 +97,51 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	return doh_sock;
 }
 
-int handle_doh_request(connection_node *node, fd_set *writeFdSet, fd_set *read_fd_set) {
+int handle_doh_request(connection_node *node, fd_set *write_fd_set, fd_set *read_fd_set) {
 	int doh_sock = node->data.doh->sock;
 
-	if (FD_ISSET(doh_sock, &writeFdSet[TMP])) {
-		FD_CLR(doh_sock, &writeFdSet[BASE]);
+	if (FD_ISSET(doh_sock, &write_fd_set[TMP])) {
+		FD_CLR(doh_sock, &write_fd_set[BASE]);
 
-		socklen_t optlen = sizeof(int);
-		if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
-			logger(ERROR, "handle_doh_request :: getsockopt(): %s", strerror(errno));
-			return -1;
+		int result;
+		switch (node->data.doh->state) {
+			case DOH_INIT:
+				if (is_connected_to_doh(node)) {
+					node->data.doh->state = PREPARING_DOH_PACKET;
+				} else {
+					logger(ERROR, "handle_doh_request :: is_connected_to_doh(): cannot connect to DoH server");
+					return DOH_SEND_ERROR;
+				}
+			case PREPARING_DOH_PACKET:
+				prepare_doh_request(node);
+				node->data.doh->state = SENDING_DOH_PACKET;
+			case SENDING_DOH_PACKET:
+				result = send_doh_request(node, write_fd_set);
+				if (result == DOH_PARSE_COMPLETE) {
+					node->data.doh->state = FINDING_HTTP_STATUS_CODE;
+				}
+				return result;
+			default:
+				// No deberia pasar nunca
+				return DOH_SEND_ERROR;
 		}
-
-		node->data.connection_state = FETCHING_DNS;
-		logger(INFO, "connected to DoH, client fd: %d", node->data.client_sock);
-
-		if (write_doh_request(doh_sock, node->data.parser->request.target.request_target.host_name, HOST_NAME) < 0) {
-			logger(ERROR, "handle_doh_request :: write_doh_request(): failed to write DoH HTTP request");
-			return -1;
-		}
-
-		FD_SET(doh_sock, &read_fd_set[BASE]);
-		if (doh_sock >= connections.max_fd) connections.max_fd = doh_sock + 1;
-
-		node->data.doh->state = DOH_PARSER_INIT;
-
-		return 1;
 	}
 
-	return 0;
+	return DOH_WRITE_NOT_SET;
+}
+
+bool is_connected_to_doh(connection_node *node) {
+	int doh_sock = node->data.doh->sock;
+
+	socklen_t optlen = sizeof(int);
+	if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
+		logger(ERROR, "is_connected_to_doh :: getsockopt(): %s", strerror(errno));
+		return false;
+	}
+
+	logger(INFO, "connected to DoH, client fd: %d", node->data.client_sock);
+
+	return true;
 }
 
 int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
@@ -139,13 +155,9 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 			logger(ERROR, "handle_doh_response(): unable to read DoH response");
 			return -1;
 		}
-		buffer *response = node->data.doh->doh_response_buffer;
+		buffer *response = node->data.doh->doh_buffer;
 		while (response->write - response->read) {
 			switch (node->data.doh->state) {
-					// TODO: el init se va?
-				case DOH_PARSER_INIT:
-					node->data.doh->state = FINDING_HTTP_STATUS_CODE;
-					break;
 				case FINDING_HTTP_STATUS_CODE:
 					result = parse_doh_status_code(node);
 					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = FINDING_CONTENT_LENGTH;
@@ -169,6 +181,9 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 					// TODO: Atajar parsing complete
 				case DNS_READY:
 					break;
+				default:
+					// No deberia pasar nunca
+					return -1;
 			}
 
 			//	Necesito esperar al resto de la DoH response

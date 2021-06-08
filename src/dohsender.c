@@ -13,33 +13,47 @@ extern http_dns_request doh_request_template;
 extern dns_header dns_header_template;
 
 // Funcion que prepara y envia el paquete HTTP con la consulta DNS
-ssize_t write_doh_request(int fd, char *domain_name, char *host_name) {
-	uint8_t request[MAX_DOH_PACKET_SIZE] = {0};
+void prepare_doh_request(connection_node *node) {
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
+	buffer *request = node->data.doh->doh_buffer;
+	char *domain = node->data.parser->request.target.request_target.host_name;
 
 	// Copiamos el mensaje de DNS en un buffer
-	size_t dns_message_length = prepare_dns_message(domain_name, dns_message);
-	logger(INFO, "DNS message prepared");
+	size_t dns_message_length = prepare_dns_message(domain, dns_message);
 
 	// Copiamos los headers del paquete HTTP en otro buffer
-	int http_headers_size =
-		sprintf((char *)request, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n\r\n",
-				doh_request_template.method, doh_request_template.path, doh_request_template.http_version,
-				doh_request_template.host, doh_request_template.accept, doh_request_template.content_type, dns_message_length);
+	int http_headers_size = sprintf(
+		(char *)request->write, "%s %s HTTP/%s\r\nHost: %s\r\nAccept: %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n\r\n",
+		doh_request_template.method, doh_request_template.path, doh_request_template.http_version, doh_request_template.host,
+		doh_request_template.accept, doh_request_template.content_type, dns_message_length);
 
-	memcpy(request + http_headers_size, dns_message, dns_message_length);
-	logger(INFO, "HTTP request prepared");
+	buffer_write_adv(request, http_headers_size);
 
-	logger(INFO, "sending DoH request...");
-	ssize_t sent_bytes = send(fd, request, http_headers_size + dns_message_length, 0);
+	memcpy(request->write, dns_message, dns_message_length);
 
-	if (sent_bytes < 0) {
-		logger(ERROR, "send(): %s", strerror(errno));
-		return -1;
+	buffer_write_adv(request, dns_message_length);
+}
+
+int send_doh_request(connection_node *node, fd_set *write_fd_set) {
+	int doh_sock = node->data.doh->sock;
+	buffer *request = node->data.doh->doh_buffer;
+
+	ssize_t sent_bytes = send(doh_sock, request->read, request->write - request->read, 0);
+
+	if (sent_bytes < request->write - request->read) {
+		if (sent_bytes < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+			logger(ERROR, "send_doh_request :: send(): %s", strerror(errno));
+			return DOH_SEND_ERROR;
+		}
+		logger(INFO, "DoH request partially sent");
+		buffer_read_adv(request, sent_bytes);
+		FD_SET(doh_sock, &write_fd_set[BASE]);
+		return DOH_SEND_INCOMPLETE;
 	}
 
-	logger(INFO, "DoH request sent");
-	return sent_bytes;
+	logger(INFO, "DoH request fully sent");
+	buffer_read_adv(request, sent_bytes);
+	return DOH_SEND_COMPLETE;
 }
 
 // Funcion que prepara un mensaje DNS completo con headers y question dado un FQDN

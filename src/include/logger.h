@@ -21,7 +21,7 @@ char *get_peer_description(peer peer);
 		if (level == FATAL) exit(EXIT_FAILURE);                                                                                  \
 	}
 
-#define loggerPeer(peer, ...)                                                                                                    \
+#define logger_peer(peer, ...)                                                                                                    \
 	{                                                                                                                            \
 		fprintf(stderr, "%s : ", get_peer_description(peer));                                                                      \
 		fprintf(stderr, ##__VA_ARGS__);                                                                                          \

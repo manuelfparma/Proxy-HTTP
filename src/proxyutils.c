@@ -132,24 +132,24 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
-		// loggerPeer(SERVER, "Trying to read from fd %d", fd_server);
+		// logger_peer(SERVER, "Trying to read from fd %d", fd_server);
 
 		if (buffer_can_write(node->data.server_to_client_buffer)) {
 			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER, node->data.log_file);
 			if (result_bytes == RECV_ERROR_CODE) {
 				// error en el servidor en el receive, lo dejo para que intente denuevo en la proxima iteracion
-				loggerPeer(SERVER, "recv(): error for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
+				logger_peer(SERVER, "recv(): error for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 			} else if (result_bytes == CLOSE_CONNECTION_CODE) {
 				// server quiere cerrar la conexion, liberamos los recursos y cerramos la conexion pues no hay nada mas para
 				// recibir
-				loggerPeer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
+				logger_peer(SERVER, "Close connection for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 				return CLOSE_CONNECTION_CODE;
 			} else {
 				// Se escribio algo en el buffer, activo la escritura hacia el cliente
 				if (fd_client != -1) { FD_SET(fd_client, &write_fd_set[BASE]); }
 			}
 		} else {
-			loggerPeer(SERVER, "Server with fd: %d has buffer full", fd_server);
+			logger_peer(SERVER, "Server with fd: %d has buffer full", fd_server);
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd_server, &read_fd_set[BASE]);
 		}
@@ -159,7 +159,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_server, &write_fd_set[TMP])) {
-		// loggerPeer(SERVER, "Trying to write to fd %d", fd_server);
+		// logger_peer(SERVER, "Trying to write to fd %d", fd_server);
 
 		// TODO: Modularizar esta seccion
 		if (node->data.connection_state == CONNECTING) {
@@ -192,7 +192,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					return CLOSE_CONNECTION_CODE;
 				}
 			} else {
-				loggerPeer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.server_sock,
+				logger_peer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.server_sock,
 						   node->data.client_sock);
 				node->data.connection_state = CONNECTED;
 				free_doh_resources(node);
@@ -234,7 +234,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
 				if (result_bytes == SEND_ERROR_CODE) {
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
-					loggerPeer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
+					logger_peer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
 				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
@@ -253,7 +253,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					handle_operation(fd_server, node->data.client_to_server_buffer, WRITE, SERVER, node->data.log_file);
 				if (result_bytes == SEND_ERROR_CODE) {
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
-					loggerPeer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
+					logger_peer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
 							   fd_client);
 				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
@@ -282,16 +282,16 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_client, &read_fd_set[TMP])) {
-		// loggerPeer(CLIENT, "Trying to read from fd %d", fd_client);
+		// logger_peer(CLIENT, "Trying to read from fd %d", fd_client);
 		if (buffer_can_write(node->data.client_to_server_buffer)) {
 			result_bytes = handle_operation(fd_client, node->data.client_to_server_buffer, READ, CLIENT, node->data.log_file);
 			if (result_bytes == RECV_ERROR_CODE) {
 				// dio error el receive, lo dejamos para intentar denuevo luego
-				loggerPeer(CLIENT, "recv(): error for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
+				logger_peer(CLIENT, "recv(): error for server_fd: %d and client_fd: %d, READ operation", fd_server, fd_client);
 			} else if (result_bytes == CLOSE_CONNECTION_CODE) {
 				// el cliente me indica que no me va a enviar mas informacion, como quizas el servidor quiere seguir escribiendo
 				// dejo al cliente solo como receptor
-				loggerPeer(CLIENT, "client_fd: %d request sent completed", fd_client);
+				logger_peer(CLIENT, "client_fd: %d request sent completed", fd_client);
 				FD_CLR(fd_client, &read_fd_set[BASE]);
 			} else { // Si pudo leer algo, ahora debe ver si puede escribir al otro peer (siempre y cuando este seteado)
 				if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
@@ -331,7 +331,7 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 					FD_SET(fd_server, &write_fd_set[BASE]);
 			}
 		} else {
-			loggerPeer(CLIENT, "Client with fd: %d has buffer full", fd_server);
+			logger_peer(CLIENT, "Client with fd: %d has buffer full", fd_server);
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd_client, &read_fd_set[BASE]);
 		}
@@ -341,12 +341,12 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 	// Si un socket se activa para escritura, leo de la otra punta y
 	// mandamos lo que llego del otro peer en el buffer de salida interno
 	if (write_fd_set != NULL && FD_ISSET(fd_client, &write_fd_set[TMP])) {
-		// loggerPeer(CLIENT, "Trying to write to fd %d", fd_client);
+		// logger_peer(CLIENT, "Trying to write to fd %d", fd_client);
 		if (buffer_can_read(node->data.server_to_client_buffer)) {
 			result_bytes = handle_operation(fd_client, node->data.server_to_client_buffer, WRITE, CLIENT, node->data.log_file);
 			if (result_bytes == SEND_ERROR_CODE) {
 				// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
-				loggerPeer(CLIENT, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
+				logger_peer(CLIENT, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
 			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
@@ -416,7 +416,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			if (resultBytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
-					loggerPeer(peer, "send: %s", strerror(errno));
+					logger_peer(peer, "handle_operation :: send: %s", strerror(errno));
 					return SEND_ERROR_CODE;
 				} else
 					// no envie nada, me desperte innecesariamente
@@ -437,7 +437,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			if (resultBytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
-					loggerPeer(peer, "recv(): %s", strerror(errno));
+					logger_peer(peer, "handle_operation :: recv(): %s", strerror(errno));
 					return RECV_ERROR_CODE;
 				} else
 					// no lei nada, me desperte innecesariamente
