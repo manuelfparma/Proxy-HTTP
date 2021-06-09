@@ -53,6 +53,9 @@ int main(int argc, char **argv) {
 	sigset_t sig_mask;
 	sigemptyset(&sig_mask);
 
+	// ignoramos SIGPIPE, dado que tal error lo manejamos nosotros
+	signal(SIGPIPE, SIG_IGN);
+
 	connections.max_fd = passive_sock + 1;
 
 	while (1) {

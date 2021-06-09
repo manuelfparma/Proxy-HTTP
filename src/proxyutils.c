@@ -420,7 +420,19 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 
 	// Intento de connect
 	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.client_sock);
-	if (connect(node->data.server_sock, &aux_addr_info.addr, sizeof(aux_addr_info.storage)) != 0 && errno != EINPROGRESS) {
+
+	//fixme addrinfo length
+	socklen_t length;
+	switch (aux_addr_info.addr.sa_family) {
+		case AF_INET:
+			length = sizeof(aux_addr_info.in4);
+			break;
+		case AF_INET6:
+			length = sizeof(aux_addr_info.in6);
+			break;
+	}
+
+	if (connect(node->data.server_sock, &aux_addr_info.addr, length) != 0 && errno != EINPROGRESS) {
 		// error inesperado en connect
 		logger(ERROR, "setup_connection :: connect(): %s", strerror((errno)));
 		// TODO: Tirar 500 por HTTP al cliente
@@ -446,7 +458,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 	switch (operation) {
 		case WRITE: // escribir a un socket
 			bytesToSend = buffer->write - buffer->read;
-			resultBytes = send(fd, buffer->read, bytesToSend, MSG_NOSIGNAL);
+			resultBytes = send(fd, buffer->read, bytesToSend, 0);
 			if (resultBytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
