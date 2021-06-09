@@ -184,13 +184,13 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 
 		// TODO: Modularizar esta seccion
 		if (node->data.connection_state == CONNECTING) {
-			socklen_t optlen = sizeof(int);
-
 			// chequeamos el estado del socket
-			if (getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
+			int error_code = 0;
+			socklen_t error_code_size = sizeof(error_code);
+			if (getsockopt(fd_server, SOL_SOCKET, SO_ERROR, &error_code, &error_code_size) < 0 || error_code > 0) {
 
 				// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
-				if (errno == ECONNREFUSED) {
+				if (error_code == ECONNREFUSED) {
 					node->data.doh->addr_info_current = node->data.doh->addr_info_current->next;
 
 					FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
@@ -199,7 +199,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					int ans = setup_connection(node, write_fd_set);
 					if (ans == CLOSE_CONNECTION_CODE) {
 						// nos quedamos sin addresses en la lista
-						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(errno));
+						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(error_code));
 						free_doh_resources(node);
 						return CLOSE_CONNECTION_CODE;
 					} else if (ans == SETUP_CONNECTION_ERROR_CODE) {
@@ -208,7 +208,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					}
 				} else {
 					// error de getsockopt respecto al server, liberamos todos los recursos
-					logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(errno));
+					logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(error_code));
 					free_doh_resources(node);
 					return CLOSE_CONNECTION_CODE;
 				}

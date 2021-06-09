@@ -133,9 +133,10 @@ int handle_doh_request(connection_node *node, fd_set *write_fd_set, fd_set *read
 bool is_connected_to_doh(connection_node *node) {
 	int doh_sock = node->data.doh->sock;
 
-	socklen_t optlen = sizeof(int);
-	if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &(int){1}, &optlen) < 0) {
-		logger(ERROR, "is_connected_to_doh :: getsockopt(): %s", strerror(errno));
+	int error_code = 0;
+	socklen_t error_code_size = sizeof(error_code);
+	if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &error_code, &error_code_size) < 0 || error_code == ECONNREFUSED) {
+		logger(ERROR, "is_connected_to_doh :: getsockopt(): %s", strerror(error_code));
 		return false;
 	}
 
