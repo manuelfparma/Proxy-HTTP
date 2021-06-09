@@ -14,4 +14,15 @@ typedef enum {
 	BROKEN_PIPE_CODE,
 } connection_status_code;
 
+typedef struct {
+	char *doh_ip;
+	char *doh_host;
+	char *doh_port;
+	char *doh_path;
+	char *proxy_port;
+	char *management_port;
+	char *proxy_ip;
+	char *management_ip;
+} arguments;
+
 #endif

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <args.h>
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set);
@@ -23,10 +24,14 @@ void write_proxy_statistics();
 
 connection_header connections = {0};
 
-int main(int argc, char **argv) {
-	if (argc != 2) { logger(FATAL, "Usage: %s <Proxy Port>\n", argv[0]); }
+int main(const int argc, char **argv) {
 
-	char *proxy_port = argv[1];
+
+	arguments args;
+	// TODO: utilizarlos
+	parse_args(argc, argv, &args);
+
+	char *proxy_port = args.proxy_port;
 
 	int passive_sock = setup_passive_socket(proxy_port);
 	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");

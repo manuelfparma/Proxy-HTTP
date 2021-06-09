@@ -11,7 +11,8 @@ SOURCES_DOH_CLIENT = src/dohclient.c
 SOURCES_DOH_UTILS = src/dohutils.c
 SOURCES_DOH_SENDER = src/dohsender.c
 SOURCES_DOH_PARSER = src/dohparser.c
-OBJECTS = src/proxy.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o
+SOURCES_ARGS = src/args.c
+OBJECTS = src/proxy.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/args.o
 
 all: proxy
 
