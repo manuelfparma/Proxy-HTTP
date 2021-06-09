@@ -2,8 +2,10 @@
 
 #define DOH_SENDER_H
 
-#include "buffer.h"
-#include "connection.h"
+#include <dohdata.h>
+#include <buffer.h>
+#include <connection.h>
+#include <dohutils.h>
 #include <unistd.h>
 
 void prepare_doh_request(connection_node *node);

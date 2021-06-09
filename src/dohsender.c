@@ -1,3 +1,4 @@
+#include "dohdata.h"
 #include <dohsender.h>
 #include <dohutils.h>
 #include <errno.h>
@@ -6,7 +7,7 @@
 #include <sys/socket.h>
 
 static size_t prepare_dns_question(dns_question question_info, uint8_t *question);
-static size_t prepare_dns_message(char *name, uint8_t *dns_message);
+static size_t prepare_dns_message(const char *name, uint8_t *dns_message, uint16_t question_type);
 static void copy_dns_header(uint8_t *dest, dns_header dns_header_info);
 
 extern http_dns_request doh_request_template;
@@ -17,9 +18,10 @@ void prepare_doh_request(connection_node *node) {
 	uint8_t dns_message[DNS_MESSAGE_LENGTH] = {0};
 	buffer *request = node->data.doh->doh_buffer;
 	char *domain = node->data.parser->request.target.request_target.host_name;
+	uint16_t question_type = node->data.doh->question_types[node->data.doh->request_number];
 
 	// Copiamos el mensaje de DNS en un buffer
-	size_t dns_message_length = prepare_dns_message(domain, dns_message);
+	size_t dns_message_length = prepare_dns_message(domain, dns_message, question_type);
 
 	// Copiamos los headers del paquete HTTP en otro buffer
 	int http_headers_size = sprintf(
@@ -31,7 +33,7 @@ void prepare_doh_request(connection_node *node) {
 
 	memcpy(request->write, dns_message, dns_message_length);
 
-	buffer_write_adv(request, dns_message_length);
+	buffer_write_adv(request, (ssize_t) dns_message_length);
 }
 
 int send_doh_request(connection_node *node, fd_set *write_fd_set) {
@@ -58,23 +60,17 @@ int send_doh_request(connection_node *node, fd_set *write_fd_set) {
 
 // Funcion que prepara un mensaje DNS completo con headers y question dado un FQDN
 // Devuelve la cantidad de bytes que ocupa el mensaje
-static size_t prepare_dns_message(char *name, uint8_t *dns_message) {
+static size_t prepare_dns_message(const char *name, uint8_t *dns_message, uint16_t question_type) {
 	// copiamos el header en el mensaje
 	copy_dns_header(dns_message, dns_header_template);
 
 	uint8_t *dns_quest = dns_message + 6 * SIZE_16;
 
-	dns_question ip_question = {.name = name, .class = IN_CLASS, .type = IPV4_TYPE};
+	dns_question ip_question = {.name = name, .class = IN_CLASS, .type = question_type};
 
-	// copiamos la question de ipv4 al buffer
-	size_t ipv4_question_length = prepare_dns_question(ip_question, dns_quest);
-	dns_quest += ipv4_question_length;
+	size_t question_length = prepare_dns_question(ip_question, dns_quest);
 
-	// luego copiamos la question de ipv6
-	ip_question.type = IPV6_TYPE;
-	size_t ipv6_question_length = prepare_dns_question(ip_question, dns_quest);
-
-	doh_request_template.content_length = sizeof(dns_header) + ipv4_question_length + ipv6_question_length;
+	doh_request_template.content_length = sizeof(dns_header) + question_length;
 
 	return doh_request_template.content_length;
 }
@@ -83,7 +79,7 @@ static size_t prepare_dns_message(char *name, uint8_t *dns_message) {
 // de bytes copiados
 static size_t prepare_dns_question(dns_question question_info, uint8_t *question) {
 	size_t n = 0;
-	char *label = question_info.name;
+	const char *label = question_info.name;
 
 	while (*label != 0) {
 		// TODO: Verificar que name sea null terminated

@@ -1,3 +1,4 @@
+#include "dohdata.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dohparser.h>

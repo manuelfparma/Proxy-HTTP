@@ -9,7 +9,7 @@
 #include <sys/select.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
-typedef enum { DISCONNECTED, CONNECTING_TO_DOH, FETCHING_DNS, CONNECTING, CONNECTED } connection_state;
+typedef enum { DISCONNECTED, SENDING_DNS, FETCHING_DNS, CONNECTING, CONNECTED } connection_state;
 
 typedef struct addr_info_node {
 	union {

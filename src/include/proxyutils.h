@@ -12,13 +12,13 @@
 
 #include <connection.h>
 #include <stddef.h>
+#include <proxy.h>
 
 int setup_passive_socket(const char *service);
 
 int accept_connection(int passive_sock);
 
 typedef enum { WRITE, READ } operation;
-typedef enum { CLIENT, SERVER } peer;
 
 int handle_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], peer peer);
@@ -32,7 +32,5 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 
 int handle_server_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
-
-void send_server_error(int fd_client, connection_node *node);
 
 #endif

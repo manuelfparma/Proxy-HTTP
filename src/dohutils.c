@@ -20,6 +20,10 @@ int setup_doh_resources(connection_node *node, int doh_fd) {
 	node->data.doh->sock = doh_fd;
 	node->data.doh->state = DOH_INIT;
 
+	node->data.doh->question_types[0] = IPV4_TYPE;
+	node->data.doh->question_types[1] = IPV6_TYPE;
+	node->data.doh->request_number = 0;
+
 	return 0;
 
 FREE_BUFFER:
@@ -87,12 +91,12 @@ void free_doh_resources(connection_node *node) {
 		addr_node = prev->next;
 		free(prev);
 	}
-
-	free(node->data.doh->doh_buffer->data);
-	free(node->data.doh->doh_buffer);
-	free(node->data.doh);
-
-	node->data.doh = NULL;
+	if (node->data.parser->request.target.host_type == DOMAIN) {
+		free(node->data.doh->doh_buffer->data);
+		free(node->data.doh->doh_buffer);
+		free(node->data.doh);
+		node->data.doh = NULL;
+	}
 }
 
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {
