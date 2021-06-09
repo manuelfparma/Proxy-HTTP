@@ -20,6 +20,10 @@ int setup_doh_resources(connection_node *node, int doh_fd) {
 	node->data.doh->sock = doh_fd;
 	node->data.doh->state = DOH_INIT;
 
+	node->data.doh->question_types[0] = IPV4_TYPE;
+	node->data.doh->question_types[1] = IPV6_TYPE;
+	node->data.doh->request_number = 0;
+
 	return 0;
 
 FREE_BUFFER:

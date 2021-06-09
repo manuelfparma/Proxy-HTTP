@@ -1,3 +1,4 @@
+#include <dohdata.h>
 #include <arpa/inet.h>
 #include <dohclient.h>
 #include <dohparser.h>
@@ -34,7 +35,7 @@ dns_header dns_header_template = {.id = 0,
 								  .ra = 0,
 								  .z = 0,
 								  .rcode = 0,
-								  .qdcount = 2,
+								  .qdcount = 1,
 								  .ancount = 0,
 								  .nscount = 0,
 								  .arcount = 0};
@@ -80,7 +81,7 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 		goto ERROR;
 	}
 
-	node->data.connection_state = CONNECTING_TO_DOH;
+	node->data.connection_state = SENDING_DNS;
 
 	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.client_sock, doh_sock);
 
@@ -95,7 +96,7 @@ ERROR:
 	return -1;
 }
 
-int handle_doh_request(connection_node *node, fd_set *write_fd_set, fd_set *read_fd_set) {
+int handle_doh_request(connection_node *node, fd_set *write_fd_set) {
 	int doh_sock = node->data.doh->sock;
 
 	if (FD_ISSET(doh_sock, &write_fd_set[TMP])) {
@@ -200,4 +201,20 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 	}
 
 	return 0;
+}
+
+bool check_requests_sent(connection_node *node) {
+	node->data.doh->request_number++;
+
+	// Veo si ya manejé todas las requests doh
+	if (node->data.doh->request_number >= TYPE_COUNT) {
+		close(node->data.doh->sock);
+		return true;
+	}
+
+	// Todavia me faltan enviar requests
+	node->data.connection_state = SENDING_DNS;
+	node->data.doh->state = PREPARING_DOH_PACKET;
+
+	return false;
 }

@@ -92,8 +92,8 @@ int main(int argc, char **argv) {
 		// TODO: Emprolijar
 		for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0;
 			 previous = node, node = node->next) {
-			if (node->data.connection_state == CONNECTING_TO_DOH) {
-				handle = handle_doh_request(node, write_fd_set, read_fd_set);
+			if (node->data.connection_state == SENDING_DNS) {
+				handle = handle_doh_request(node, write_fd_set);
 
 				switch (handle) {
 					case DOH_SEND_ERROR:
@@ -125,15 +125,21 @@ int main(int argc, char **argv) {
 
 					if (handle == 1) {
 						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
-						close(node->data.doh->sock);
 
-						int ans_connection = setup_connection(node, write_fd_set);
-						if(ans_connection == CLOSE_CONNECTION_CODE) {
-							send_server_error(node->data.client_sock, node);
-							handle_connection_error(node, previous, write_fd_set, read_fd_set);
-						}else if(ans_connection == SETUP_CONNECTION_ERROR_CODE) {
-							logger(ERROR, "setup_connection found an error");
-							//TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
+						// Checkeo si ya se enviaron todos los request dns
+						if (check_requests_sent(node)) {
+							int ans_connection = setup_connection(node, write_fd_set);
+							if (ans_connection == CLOSE_CONNECTION_CODE) {
+								send_server_error(node->data.client_sock, node);
+								handle_connection_error(node, previous, write_fd_set, read_fd_set);
+							} else if (ans_connection == SETUP_CONNECTION_ERROR_CODE) {
+								logger(ERROR, "setup_connection found an error");
+								// TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
+							}
+						} else {
+							// Si devolvio 0, todavia tengo requests dns para hacer (los estados se setearon en check_requests_sent)
+							FD_SET(node->data.doh->sock, &write_fd_set[BASE]);
+							continue;
 						}
 					}
 				}
