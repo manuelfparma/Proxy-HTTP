@@ -101,16 +101,16 @@ static void version() {
 static void usage(const char *program_name) {
 	fprintf(stderr,
 			"OPTIONS\n"
-			"\t\t-h\n\t\t\tImprime el manual y finaliza.\n\n"
-			"\t\t-v\n\t\t\tImprime la versión del programa %s y finaliza.\n\n"
-			"\t\t-p puerto-local\n\t\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"
-            "\t\t-P puerto-de-management\n\t\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor 9090.\n\n"
-            "\t\t-l dirección-http\n\t\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas las interfaces.\n\n"
-            "\t\t-L dirección-de-management\n\t\t\tEstablece la dirección donde se brinda el servicio de management. Por defecto escucha en loopback.\n\n"
-            "\t\t--doh-ip dirección\n\t\t\tEstablece la direccion del servidor DoH. Por defecto toma el valor 127.0.0.1 .\n\n"
-            "\t\t--doh-port puerto\n\t\t\tPuerto donde se encuentra el servidor DoH. Por defecto toma el valor 8053.\n\n"
-            "\t\t--doh-host hostname\n\t\t\tEstablece el valor del header Host de la petición DoH. Por defecto localhost.\n\n"
-            "\t\t--doh-path path\n\t\t\tEstablece el path de la petición DoH. Por defecto toma el valor /getnsrecord.\n\n"
+			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
+			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
+			"\t-p puerto-local\n\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"
+            "\t-P puerto-de-management\n\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor 9090.\n\n"
+            "\t-l dirección-http\n\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas las interfaces.\n\n"
+            "\t-L dirección-de-management\n\t\tEstablece la dirección donde se brinda el servicio de management. Por defecto escucha en loopback.\n\n"
+            "\t--doh-ip dirección\n\t\tEstablece la direccion del servidor DoH. Por defecto toma el valor 127.0.0.1 .\n\n"
+            "\t--doh-port puerto\n\t\tPuerto donde se encuentra el servidor DoH. Por defecto toma el valor 8053.\n\n"
+            "\t--doh-host hostname\n\t\tEstablece el valor del header Host de la petición DoH. Por defecto localhost.\n\n"
+            "\t--doh-path path\n\t\tEstablece el path de la petición DoH. Por defecto toma el valor /getnsrecord.\n\n"
             ,
 			program_name);
 	exit(EXIT_SUCCESS);

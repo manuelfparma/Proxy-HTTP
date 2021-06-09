@@ -1,6 +1,8 @@
 #ifndef _PROXY_H_
 #define _PROXY_H_
 
+#include <connection.h>
+
 typedef enum { CLIENT, SERVER } peer;
 
 void write_proxy_statistics();
