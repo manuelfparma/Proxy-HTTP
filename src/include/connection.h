@@ -11,6 +11,16 @@
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
 typedef enum { DISCONNECTED, CONNECTING_TO_DOH, FETCHING_DNS, CONNECTING, CONNECTED } connection_state;
 
+typedef struct addr_info_node {
+	union {
+		struct sockaddr_storage storage;
+		struct sockaddr addr;
+		struct sockaddr_in in4;
+		struct sockaddr_in6 in6;
+	};
+	struct addr_info_node *next;
+} addr_info_node;
+
 typedef struct {
 	buffer *client_to_server_buffer;   // buffer donde cliente escribe y servidor lee
 	buffer *server_to_client_buffer;   // buffer donde servidor escribe y cliente lee
@@ -19,6 +29,8 @@ typedef struct {
 	connection_state connection_state; // estado de la busqueda DNS
 	http_parser *parser;			   // estructura donde se guarda el estado del parseo
 	FILE *log_file;
+	addr_info_node *addr_info_first;   // primer resultado de la consulta doh
+	addr_info_node *addr_info_current; // ip para conectarse utilizada actualmente
 	doh_data *doh;
 } connection_data;
 

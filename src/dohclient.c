@@ -51,15 +51,13 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 
 	if (fcntl(doh_sock, F_SETFL, O_NONBLOCK) == -1) {
 		logger(ERROR, "connect_to_doh_server :: fcntl(): %s", strerror(errno));
-		return -1;
+		goto ERROR;
 	}
 
-	// TODO: USAR PARSED PORT
 	long parsed_port = strtol(doh_port, NULL, 10);
 	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
-		close(doh_sock);
 		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
-		return -1;
+		goto ERROR;
 	}
 
 	struct sockaddr_in doh_addr_in;
@@ -69,21 +67,18 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	// TODO: esta llamada es para IPv4, para IPv6 se usa AF_INET6 y otra estructura
 	inet_pton(AF_INET, doh_addr, &doh_addr_in.sin_addr.s_addr);
 	if (doh_addr_in.sin_addr.s_addr == (in_addr_t)-1) {
-		close(doh_sock);
 		logger(ERROR, "connect_to_doh_server(): %s", strerror(errno));
-		return -1;
+		goto ERROR;
 	}
 
 	if (connect(doh_sock, (struct sockaddr *)&doh_addr_in, sizeof(doh_addr_in)) == -1 && errno != EINPROGRESS) {
-		close(doh_sock);
 		logger(ERROR, "connect(): %s", strerror(errno));
-		return -1;
+		goto ERROR;
 	}
 
 	if (setup_doh_resources(node, doh_sock) == -1) {
-		close(doh_sock);
 		logger(ERROR, "setup_doh_resources(): couldn't set up DoH connection resources");
-		return -1;
+		goto ERROR;
 	}
 
 	node->data.connection_state = CONNECTING_TO_DOH;
@@ -95,6 +90,10 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	FD_SET(doh_sock, write_fd_set);
 
 	return doh_sock;
+
+ERROR:
+	close(doh_sock);
+	return -1;
 }
 
 int handle_doh_request(connection_node *node, fd_set *write_fd_set, fd_set *read_fd_set) {

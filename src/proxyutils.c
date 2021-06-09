@@ -191,7 +191,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 
 				// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
 				if (error_code == ECONNREFUSED) {
-					node->data.doh->addr_info_current = node->data.doh->addr_info_current->next;
+					node->data.addr_info_current = node->data.addr_info_current->next;
 
 					FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
 					close(node->data.server_sock);
@@ -335,7 +335,9 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 							logger(DEBUG, "Request target not solved yet");
 							return 1;
 						}
+
 						// seteo los argumentos necesarios para conectarse al server
+						int doh_sock;
 						switch (node->data.parser->request.target.host_type) {
 							case IPV4:
 							case IPV6:
@@ -344,10 +346,13 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 								break;
 							case DOMAIN:
 								// TODO: Obtener doh addr, hostname y port de args
-								if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
+								doh_sock = connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053");
+								if (doh_sock == -1) {
 									logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
 									return CLOSE_CONNECTION_CODE; // cierro todas las conexiones
 								}
+
+
 								break;
 							default:
 								logger(ERROR, "Undefined domain type");
@@ -395,13 +400,13 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 }
 
 int setup_connection(connection_node *node, fd_set *writeFdSet) {
-	if (node->data.doh->addr_info_current == NULL) {
+	if (node->data.addr_info_current == NULL) {
 		logger(INFO, "No more addresses to connect to for client with fd %d", node->data.client_sock);
 		return CLOSE_CONNECTION_CODE;
 	}
 
 	// TODO: está bien hardcodear SOCK_STREAM y el protocolo?
-	node->data.server_sock = socket(node->data.doh->addr_info_current->addr.sa_family, SOCK_STREAM, 0);
+	node->data.server_sock = socket(node->data.addr_info_current->addr.sa_family, SOCK_STREAM, 0);
 
 	if (node->data.server_sock < 0) {
 		logger(ERROR, "setup_connection :: socket(): %s", strerror(errno));
@@ -416,7 +421,7 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 
 	if (node->data.server_sock >= connections.max_fd) connections.max_fd = node->data.server_sock + 1;
 
-	struct addr_info_node aux_addr_info = *node->data.doh->addr_info_current;
+	struct addr_info_node aux_addr_info = *node->data.addr_info_current;
 
 	// Intento de connect
 	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.client_sock);

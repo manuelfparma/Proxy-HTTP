@@ -19,7 +19,7 @@ int setup_doh_resources(connection_node *node, int doh_fd) {
 
 	node->data.doh->sock = doh_fd;
 	node->data.doh->state = DOH_INIT;
-	node->data.doh->addr_info_first = node->data.doh->addr_info_current = NULL;
+	node->data.addr_info_first = node->data.addr_info_current = NULL;
 
 	return 0;
 
@@ -60,11 +60,11 @@ int add_ip_address(connection_node *node, int addr_family, void *addr) {
 
 	new->next = NULL;
 
-	if (node->data.doh->addr_info_first == NULL) {
-		node->data.doh->addr_info_first = new;
-		node->data.doh->addr_info_current = node->data.doh->addr_info_first;
+	if (node->data.addr_info_first == NULL) {
+		node->data.addr_info_first = new;
+		node->data.addr_info_current = node->data.addr_info_first;
 	} else {
-		addr_info_node *search = node->data.doh->addr_info_first;
+		addr_info_node *search = node->data.addr_info_first;
 		while (search->next != NULL)
 			search = search->next;
 		search->next = new;
@@ -79,9 +79,9 @@ EXIT:
 }
 
 void free_doh_resources(connection_node *node) {
-	doh_data *data = node->data.doh;
 
-	addr_info_node *addr_node = data->addr_info_first;
+
+	addr_info_node *addr_node = node->data.addr_info_first;
 	addr_info_node *prev = addr_node;
 
 	while (addr_node != NULL) {
@@ -90,9 +90,9 @@ void free_doh_resources(connection_node *node) {
 		free(prev);
 	}
 
-	free(data->doh_buffer->data);
-	free(data->doh_buffer);
-	free(data);
+	free(node->data.doh->doh_buffer->data);
+	free(node->data.doh->doh_buffer);
+	free(node->data.doh);
 
 	node->data.doh = NULL;
 }
