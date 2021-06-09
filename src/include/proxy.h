@@ -1,17 +1,23 @@
 #ifndef _PROXY_H_
 #define _PROXY_H_
 
+typedef enum { CLIENT, SERVER } peer;
+
 void write_proxy_statistics();
 
+void send_message(char *message, int fd_client, connection_node *node);
+
 typedef enum {
-	CLOSE_CONNECTION_CODE =
-		-10,		 // estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
+	TRY_CLOSE_CONNECTION_ERROR_CODE =
+		-20,		 // estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
 	BAD_REQUEST_ERROR,
 	RECV_ERROR_CODE, // fallo el receive por algo no relacionado al que socket sea no bloqueante
 	SEND_ERROR_CODE, // fallo el send por algo no relacionado al que socket sea no bloqueante
 	ACCEPT_CONNECTION_ERROR,
 	SETUP_CONNECTION_ERROR_CODE,
-	BROKEN_PIPE_CODE,
-} connection_status_code;
+	CLOSE_CONNECTION_ERROR_CODE,
+	BROKEN_PIPE_ERROR_CODE,
+	INVALID_REQUEST_ERROR_CODE,
+} connection_error_code;
 
 #endif

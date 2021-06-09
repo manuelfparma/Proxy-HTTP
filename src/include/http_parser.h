@@ -81,14 +81,6 @@ typedef struct {
 	char minor; // parte derecha de la version http1.0 -> 0
 } http_version;
 
-
-// TODO: chequear si se usa o no
-typedef union {
-	struct sockaddr_in ipv4;
-	struct sockaddr_in6 ipv6;
-	// uint8_t domain[MAX_FQDN_LENGTH + 1];   // null terminated
-} http_host;
-
 typedef union {
 	char host_name[MAX_HOST_NAME_LENGTH + 1];
 	char ip_addr[MAX_IP_LENGTH + 1];
@@ -98,7 +90,6 @@ typedef struct {
 	http_path_type path_type;
 	http_request_target request_target;
 	http_host_type host_type;
-	http_host host;
 	char port[MAX_PORT_LENGTH + 1];
 	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1]; // ojo no se guarda con primer /
 } http_target;
@@ -120,13 +111,13 @@ typedef struct {
 	buffer *parsed_request;			// request parseada lista para enviar
 	http_parser_state parser_state; // estado actual
 	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
-	http_request_status_code request_status; // codigo que indica el estado de los recursos leidos
-	http_request_target_status target_status;	// estado del hostname en el parseo
+	http_request_status_code request_status;  // codigo que indica el estado de los recursos leidos
+	http_request_target_status target_status; // estado del hostname en el parseo
 } http_parser_data;
 
 typedef struct {
-	http_request_data request;	//datos de la request parseada
-	http_parser_data data;		//datos de la maquina
+	http_request_data request; // datos de la request parseada
+	http_parser_data data;	   // datos de la maquina
 } http_parser;
 
 int parse_request(http_parser *request, buffer *read_buffer);

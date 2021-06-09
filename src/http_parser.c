@@ -51,8 +51,8 @@ static const http_parser_state_transition ST_PATH[5] = {
 	 .upper_bound = EMPTY,
 	 .destination = PS_ASTERISK_FORM,
 	 .transition = tr_check_asterisk_form},
-	{.when = '[', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_set_host_type},
-	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_set_host_type},
+	{.when = '[', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_set_http_path_type},
+	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_set_http_path_type},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_PATH_SCHEMA, .transition = tr_set_http_path_type},
 };
 
@@ -263,9 +263,14 @@ static int find_idx(char *array, char c) {
 static void copy_to_request_buffer_request_target() {
 	switch (current_parser->request.target.host_type) {
 		case IPV4:
-		case IPV6:
 			copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.request_target.ip_addr,
 								   strlen(current_parser->request.target.request_target.ip_addr));
+			break;
+		case IPV6:
+			copy_char_to_request_buffer(current_parser->data.parsed_request, '[');
+			copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.request_target.ip_addr,
+								   strlen(current_parser->request.target.request_target.ip_addr));
+			copy_char_to_request_buffer(current_parser->data.parsed_request, ']');
 			break;
 		case DOMAIN:
 			copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.request_target.host_name,
@@ -279,7 +284,6 @@ static void copy_to_request_buffer_request_target() {
 
 static void copy_port() {
 	if (strlen(current_parser->request.target.port) == 0) {
-		logger(DEBUG, "No port");
 		char *port;
 		if (strcmp_lower_case("http", current_parser->request.schema) == 0) {
 			port = "80";
@@ -292,8 +296,6 @@ static void copy_port() {
 }
 
 static void parse_start_line(char current_char) {
-	logger(DEBUG, "Parsing start_line");
-
 	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.method,
 						   strlen(current_parser->request.method));
 	copy_char_to_request_buffer(current_parser->data.parsed_request, ' ');
@@ -330,9 +332,10 @@ static int parse_request_target() {
 		if (ipv6_length == -1 || ipv6_length > MAX_IP_LENGTH) {
 			return -1;
 		} else {
+			current_parser->request.target.host_type = IPV6;
 			strncpy(current_parser->request.target.request_target.ip_addr, current_parser->request.header.value + 1, ipv6_length);
 			current_parser->request.target.request_target.ip_addr[ipv6_length] = '\0';
-			idx_port = find_idx(current_parser->request.header.value + ipv6_length + 1, ':');
+			idx_port = find_idx(current_parser->request.header.value + ipv6_length + 1, ':'); // lo busco a partir del caracter ]
 			if (idx_port == -1) {
 				strcpy(current_parser->request.target.port, "80");
 			} else if (idx_port > MAX_PORT_LENGTH) {
@@ -340,8 +343,8 @@ static int parse_request_target() {
 				tr_parse_error(' ');
 			} else {
 				// almaceno en la estructura el puerto
-				strcpy(current_parser->request.target.port, current_parser->request.header.value + ipv6_length + (idx_port + 1));
-				current_parser->request.target.host_type = IPV6;
+				strcpy(current_parser->request.target.port,
+					   current_parser->request.header.value + ipv6_length + 1 + (idx_port + 1));
 			}
 		}
 	} else {
@@ -438,7 +441,6 @@ static void tr_headers_ended(char current_char) {
 }
 
 static void tr_request_ended(char current_char) {
-	logger(DEBUG, "tr_request_ended");
 	current_parser->data.request_status = PARSE_END;
 }
 
@@ -538,8 +540,8 @@ static void tr_set_http_path_type(char current_char) {
 			break;
 		default:
 			current_parser->request.target.path_type = ABSOLUTE;
+			tr_set_host_type(current_char);
 	}
-	tr_copy_byte_to_buffer(current_char);
 }
 
 static void tr_set_host_type(char current_char) {

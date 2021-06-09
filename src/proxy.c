@@ -14,7 +14,8 @@
 #include <unistd.h>
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
-static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
+									fd_set *write_fd_set, fd_set *read_fd_set, peer peer);
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
 static void find_max_id();
@@ -36,7 +37,9 @@ int main(int argc, char **argv) {
 	if (connections.proxy_log == NULL) { logger(FATAL, "fopen: %s", strerror(errno)); }
 	logger(DEBUG, "Proxy file log with name %s created", name);
 
-	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to clients\tBytes through connect\n");
+	fprintf(
+		connections.proxy_log,
+		"Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to clients\tBytes through connect\n");
 
 	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
 	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
@@ -126,18 +129,14 @@ int main(int argc, char **argv) {
 					if (handle == 1) {
 						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 
-						// Checkeo si ya se enviaron todos los request dns
 						if (check_requests_sent(node)) {
 							int ans_connection = setup_connection(node, write_fd_set);
-							if (ans_connection == CLOSE_CONNECTION_CODE) {
-								send_server_error(node->data.client_sock, node);
-								handle_connection_error(node, previous, write_fd_set, read_fd_set);
-							} else if (ans_connection == SETUP_CONNECTION_ERROR_CODE) {
-								logger(ERROR, "setup_connection found an error");
-								// TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
-							}
+							if (ans_connection < 0)
+								handle_connection_error(ans_connection, node, previous, read_fd_set, write_fd_set, CLIENT);
+							// TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
 						} else {
-							// Si devolvio 0, todavia tengo requests dns para hacer (los estados se setearon en check_requests_sent)
+							// Si devolvio 0, todavia tengo requests dns para hacer (los estados se setearon en
+							// check_requests_sent)
 							FD_SET(node->data.doh->sock, &write_fd_set[BASE]);
 							continue;
 						}
@@ -148,39 +147,61 @@ int main(int argc, char **argv) {
 				handle = handle_client_connection(node, previous, read_fd_set, write_fd_set);
 
 				if (handle > -1) ready_fds -= handle;
-
-				else if (handle == CLOSE_CONNECTION_CODE) {
-					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.server_to_client_buffer)) {
-						handle_connection_error(node, previous, write_fd_set, read_fd_set);
-						break;
-					}
-				} else {
-					handle_connection_error(node, previous, write_fd_set, read_fd_set);
-					break;
+				else {
+					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
+					break; // para que no atienda al servidor
 				}
 
 				handle = handle_server_connection(node, previous, read_fd_set, write_fd_set);
 
 				if (handle > -1) ready_fds -= handle;
-
-				else if (handle == CLOSE_CONNECTION_CODE) {
-					// Caso conexion cerrada, veo si no quedo nada para el cliente
-					if (!buffer_can_read(node->data.server_to_client_buffer)) {
-						handle_connection_error(node, previous, write_fd_set, read_fd_set);
-						break;
-					}
-				} else {
-					handle_connection_error(node, previous, write_fd_set, read_fd_set);
-					break;
-				}
+				else
+					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, SERVER);
 			}
 		}
 		// write_proxy_statistics();
 	}
 }
 
-static void handle_connection_error(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
+									fd_set *write_fd_set, fd_set *read_fd_set, peer peer) {
+	switch (error_code) {
+		case TRY_CLOSE_CONNECTION_ERROR_CODE:
+			if (buffer_can_read(node->data.server_to_client_buffer)) return;
+			// quedan cosas para el cliente asi que no cierro la conexion
+			break;
+		case RECV_ERROR_CODE:
+			// dio error el receive, lo dejamos para intentar denuevo luego
+			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,
+						node->data.server_sock);
+			return;
+		case SEND_ERROR_CODE:
+			// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
+			logger_peer(peer, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", node->data.server_sock,
+						node->data.server_sock);
+			return;
+		case ACCEPT_CONNECTION_ERROR:
+			// FIXME: Error message
+			send_message("HTTP/1.1 501 Couldnt connect to origin server\r\n\r\n", node->data.client_sock, node);
+			break;
+		case SETUP_CONNECTION_ERROR_CODE:
+			logger(ERROR, "Setup connection failed for client_fd: %d", node->data.server_sock);
+			break;
+		case CLOSE_CONNECTION_ERROR_CODE:
+			logger(INFO, "Closing connection for server_fd: %d and client_fd: %d", node->data.server_sock,
+				   node->data.server_sock);
+			break;
+		case BROKEN_PIPE_ERROR_CODE:
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
+			break;
+		case INVALID_REQUEST_ERROR_CODE:
+			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
+			break;
+		default:
+			logger(INFO, "UNKNOWN ERROR CODE");
+			break;
+	}
+
 	int aux_server_sock = node->data.server_sock;
 	int aux_client_sock = node->data.client_sock;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
@@ -199,5 +220,26 @@ static void find_max_id() {
 void write_proxy_statistics() {
 	ssize_t proxy_to_origins = connections.total_proxy_to_origins_bytes;
 	ssize_t proxy_to_clients = connections.total_proxy_to_clients_bytes;
-	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.total_connections, connections.clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients, connections.total_connect_method_bytes);
+	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.total_connections,
+			connections.clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients,
+			connections.total_connect_method_bytes);
+}
+
+void send_message(char *message, int fd_client, connection_node *node) {
+	// TODO: CAMBIAR A SEND CUANDO SE BORREN LOS LOGS, SE USA BUFFERS SOLO PARA QUE LOGEE EL MENSAJE
+	buffer *buffer_response;
+	buffer_response = malloc(sizeof(buffer));
+	buffer_response->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	buffer_init(buffer_response, BUFFER_SIZE, buffer_response->data);
+	strncpy((char *)buffer_response->write, message, strlen(message));
+	buffer_write_adv(buffer_response, strlen(message));
+	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
+	if (result_bytes <= 0)
+		// TODO: enviar denuevo?
+		logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+
+	free(buffer_response->data);
+	free(buffer_response);
+
+	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
 }
