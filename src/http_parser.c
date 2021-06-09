@@ -322,25 +322,41 @@ static void parse_start_line(char current_char) {
 	}
 }
 
-static void parse_header_line(char current_char) {
-	char *delimiter = ": ";
-	char *cr_lf = "\r\n";
-	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->request.header.type,
-	// current_parser->request.header.value);
-	int strcmp_host = strcmp_lower_case("Host", current_parser->request.header.type);
-	if (current_parser->request.target.path_type != ABSOLUTE && current_parser->data.target_status == NOT_FOUND &&
-		strcmp_host == 0) {
+static int parse_request_target() {
+	int idx_port;
+	if (current_parser->request.header.value[0] == '[') {
+		// CASO IPv6
+		int ipv6_length = find_idx(current_parser->request.header.value + 1, ']');
+		if (ipv6_length == -1 || ipv6_length > MAX_IP_LENGTH) {
+			return -1;
+		} else {
+			strncpy(current_parser->request.target.request_target.ip_addr, current_parser->request.header.value + 1, ipv6_length);
+			current_parser->request.target.request_target.ip_addr[ipv6_length] = '\0';
+			idx_port = find_idx(current_parser->request.header.value + ipv6_length + 1, ':');
+			if (idx_port == -1) {
+				strcpy(current_parser->request.target.port, "80");
+			} else if (idx_port > MAX_PORT_LENGTH) {
+				logger(ERROR, "Port excedeed length in header type Host");
+				tr_parse_error(' ');
+			} else
+				// almaceno en la estructura el puerto
+				strcpy(current_parser->request.target.port, current_parser->request.header.value + ipv6_length + (idx_port + 1));
+		}
+	} else {
 		// Busco el indice del delimitador entre el path y el puerto, en caso de no existir retorna -1
-		int idx_port = find_idx(current_parser->request.header.value, ':');
+		idx_port = find_idx(current_parser->request.header.value, ':');
+		if (idx_port > MAX_PORT_LENGTH) {
+			logger(ERROR, "Port excedeed length in header type Host");
+			tr_parse_error(' ');
+		}
 		if (idx_port == -1) {
 			strcpy(current_parser->request.target.port, "80"); // ojo podria ser 443?
-			logger(ERROR, "Not found ':' delimiter in header type Host");
 		} else
 			// almaceno en la estructura el puerto
 			strcpy(current_parser->request.target.port, current_parser->request.header.value + (idx_port + 1));
 
 		if (IS_DIGIT(current_parser->request.header.value[0])) {
-			// TODO: setear ipv4 o ipv6????
+			// CASO IPv4
 			if (idx_port >= 1) {
 				// tiene puerto no default
 				strncpy(current_parser->request.target.request_target.ip_addr, current_parser->request.header.value,
@@ -349,15 +365,31 @@ static void parse_header_line(char current_char) {
 			} else
 				strcpy(current_parser->request.target.request_target.ip_addr, current_parser->request.header.value);
 		} else {
+			// CASO DOMINIO
 			current_parser->request.target.host_type = DOMAIN;
 			if (idx_port >= 1) {
+				// tiene puerto no default
 				strncpy(current_parser->request.target.request_target.host_name, current_parser->request.header.value,
 						(size_t)idx_port);
 				current_parser->request.target.request_target.host_name[idx_port] = '\0';
 			} else
 				strcpy(current_parser->request.target.request_target.host_name, current_parser->request.header.value);
 		}
+	}
+}
 
+static void parse_header_line(char current_char) {
+	char *delimiter = ": ";
+	char *cr_lf = "\r\n";
+	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->request.header.type,
+	// current_parser->request.header.value);
+	int strcmp_host = strcmp_lower_case("Host", current_parser->request.header.type);
+	if (current_parser->request.target.path_type != ABSOLUTE && current_parser->data.target_status == NOT_FOUND &&
+		strcmp_host == 0) {
+		if (parse_request_target() == -1) {
+			logger(ERROR, "Request target in header Host invalid");
+			tr_parse_error();
+		}
 		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
 							   strlen(current_parser->request.header.type));
 		copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
@@ -506,8 +538,9 @@ static void tr_set_http_path_type(char current_char) {
 }
 
 static void tr_set_host_type(char current_char) {
-	if (current_char == '[') current_parser->request.target.host_type = IPV6;
-	else {
+	if (current_char == '[') {
+		current_parser->request.target.host_type = IPV6;
+	} else {
 		if (IS_DIGIT(current_char)) {
 			current_parser->request.target.host_type = IPV4;
 		} else {
