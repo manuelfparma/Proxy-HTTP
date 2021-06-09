@@ -53,7 +53,7 @@ void send_server_error(int fd_client, connection_node *node) {
 	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
 	if (result_bytes <= 0)
 		// TODO: enviar denuevo?
-	logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+		logger(ERROR, "Invalid request from client with fd: %d", fd_client);
 
 	free(buffer_response->data);
 	free(buffer_response);
@@ -200,7 +200,8 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					if (ans == CLOSE_CONNECTION_CODE) {
 						// nos quedamos sin addresses en la lista
 						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(error_code));
-						free_doh_resources(node);
+						if (node->data.parser->request.target.host_type == DOMAIN)
+							free_doh_resources(node);
 						return CLOSE_CONNECTION_CODE;
 					} else if (ans == SETUP_CONNECTION_ERROR_CODE) {
 						// intentara con la proxima direccion
@@ -214,7 +215,7 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				}
 			} else {
 				logger_peer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.server_sock,
-						   node->data.client_sock);
+							node->data.client_sock);
 				node->data.connection_state = CONNECTED;
 				free_doh_resources(node);
 				// en caso que el server mande un primer mensaje, quiero leerlo
@@ -256,12 +257,10 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				if (result_bytes == SEND_ERROR_CODE) {
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 					logger_peer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
-							   fd_client);
-				}
-				else if(result_bytes == CLOSE_CONNECTION_CODE) {
+								fd_client);
+				} else if (result_bytes == CLOSE_CONNECTION_CODE) {
 					return CLOSE_CONNECTION_CODE;
-				}
-				else {
+				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
 					connections.total_proxy_to_origins_bytes += result_bytes;
@@ -279,13 +278,10 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				if (result_bytes == SEND_ERROR_CODE) {
 					// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 					logger_peer(SERVER, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server,
-							   fd_client);
-				}
-				else if (result_bytes < 0)
-				{
+								fd_client);
+				} else if (result_bytes < 0) {
 					return result_bytes;
-				}
-				else {
+				} else {
 					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 					FD_SET(fd_client, &read_fd_set[BASE]);
 					connections.total_proxy_to_origins_bytes += result_bytes;
@@ -337,21 +333,52 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 						}
 
 						// seteo los argumentos necesarios para conectarse al server
-						int doh_sock;
+						// TODO: Modularizar switch
+						int connect_ret;
+						struct sockaddr_in addr_in4;
+						struct sockaddr_in6 addr_in6;
 						switch (node->data.parser->request.target.host_type) {
 							case IPV4:
+								if (inet_pton(AF_INET, node->data.parser->request.target.request_target.ip_addr,
+											  &addr_in4.sin_addr.s_addr) != 1) {
+									logger(ERROR, "handle_client_connection(): bad IPv4 address");
+									send_server_error(node->data.client_sock, node);
+									return BAD_REQUEST_ERROR;
+								}
+
+								if (add_ip_address(node, AF_INET, &addr_in4.sin_addr.s_addr) == -1) {
+									logger(ERROR, "handle_client_connection(): bad port number");
+									send_server_error(node->data.client_sock, node);
+									return BAD_REQUEST_ERROR;
+								}
+								connect_ret = setup_connection(node, &write_fd_set[BASE]);
+								if (connect_ret < 0)
+									return connect_ret;
+								break;
 							case IPV6:
-								// strcpy(args->host, node->data.request->start_line.destination.request_target.ip_addr);
-								// TODO: aca no hace falta hacer DoH, ya tenemos la IP
+								// FIXME: Codigo repetido con IPV4
+								if (inet_pton(AF_INET6, node->data.parser->request.target.request_target.ip_addr,
+											  &addr_in6.sin6_addr) != 1) {
+									logger(ERROR, "handle_client_connection(): bad IPv4 address");
+									send_server_error(node->data.client_sock, node);
+									return BAD_REQUEST_ERROR;
+								}
+
+								if (add_ip_address(node, AF_INET6, &addr_in6.sin6_addr) == -1) {
+									logger(ERROR, "handle_client_connection(): bad port number");
+									send_server_error(node->data.client_sock, node);
+									return BAD_REQUEST_ERROR;
+								}
+								connect_ret = setup_connection(node, &write_fd_set[BASE]);
+								if (connect_ret < 0)
+									return connect_ret;
 								break;
 							case DOMAIN:
 								// TODO: Obtener doh addr, hostname y port de args
-								doh_sock = connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053");
-								if (doh_sock == -1) {
+								if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
 									logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
 									return CLOSE_CONNECTION_CODE; // cierro todas las conexiones
 								}
-
 
 								break;
 							default:
@@ -382,11 +409,9 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 			if (result_bytes == SEND_ERROR_CODE) {
 				// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 				logger_peer(CLIENT, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", fd_server, fd_client);
-			}
-			else if(result_bytes < 0) {
+			} else if (result_bytes < 0) {
 				return result_bytes;
-			}
-			else {
+			} else {
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
 				FD_SET(fd_server, &read_fd_set[BASE]);
 				connections.total_proxy_to_clients_bytes += result_bytes;
@@ -426,7 +451,7 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 	// Intento de connect
 	logger(INFO, "Trying to connect to server from client with fd: %d", node->data.client_sock);
 
-	//fixme addrinfo length
+	// fixme addrinfo length
 	socklen_t length;
 	switch (aux_addr_info.addr.sa_family) {
 		case AF_INET:
@@ -468,9 +493,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					logger_peer(peer, "send: %s", strerror(errno));
-					if(errno == EPIPE){
-						return BROKEN_PIPE_CODE;
-					}
+					if (errno == EPIPE) { return BROKEN_PIPE_CODE; }
 					return SEND_ERROR_CODE;
 				} else
 					// no envie nada, me desperte innecesariamente

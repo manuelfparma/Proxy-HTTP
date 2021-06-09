@@ -19,7 +19,6 @@ int setup_doh_resources(connection_node *node, int doh_fd) {
 
 	node->data.doh->sock = doh_fd;
 	node->data.doh->state = DOH_INIT;
-	node->data.addr_info_first = node->data.addr_info_current = NULL;
 
 	return 0;
 
@@ -32,6 +31,7 @@ EXIT:
 	return -1;
 }
 
+// TODO: Mandar a otro .c mas generico
 int add_ip_address(connection_node *node, int addr_family, void *addr) {
 
 	addr_info_node *new = malloc(sizeof(addr_info_node));
@@ -79,8 +79,6 @@ EXIT:
 }
 
 void free_doh_resources(connection_node *node) {
-
-
 	addr_info_node *addr_node = node->data.addr_info_first;
 	addr_info_node *prev = addr_node;
 

@@ -126,6 +126,7 @@ int main(int argc, char **argv) {
 					if (handle == 1) {
 						FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 						close(node->data.doh->sock);
+
 						int ans_connection = setup_connection(node, write_fd_set);
 						if(ans_connection == CLOSE_CONNECTION_CODE) {
 							send_server_error(node->data.client_sock, node);

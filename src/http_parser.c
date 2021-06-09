@@ -338,9 +338,11 @@ static int parse_request_target() {
 			} else if (idx_port > MAX_PORT_LENGTH) {
 				logger(ERROR, "Port excedeed length in header type Host");
 				tr_parse_error(' ');
-			} else
+			} else {
 				// almaceno en la estructura el puerto
 				strcpy(current_parser->request.target.port, current_parser->request.header.value + ipv6_length + (idx_port + 1));
+				current_parser->request.target.host_type = IPV6;
+			}
 		}
 	} else {
 		// Busco el indice del delimitador entre el path y el puerto, en caso de no existir retorna -1
@@ -357,6 +359,7 @@ static int parse_request_target() {
 
 		if (IS_DIGIT(current_parser->request.header.value[0])) {
 			// CASO IPv4
+			current_parser->request.target.host_type = IPV4;
 			if (idx_port >= 1) {
 				// tiene puerto no default
 				strncpy(current_parser->request.target.request_target.ip_addr, current_parser->request.header.value,
@@ -376,6 +379,8 @@ static int parse_request_target() {
 				strcpy(current_parser->request.target.request_target.host_name, current_parser->request.header.value);
 		}
 	}
+
+	return 0;
 }
 
 static void parse_header_line(char current_char) {
@@ -388,7 +393,7 @@ static void parse_header_line(char current_char) {
 		strcmp_host == 0) {
 		if (parse_request_target() == -1) {
 			logger(ERROR, "Request target in header Host invalid");
-			tr_parse_error();
+			tr_parse_error(current_char);
 		}
 		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
 							   strlen(current_parser->request.header.type));

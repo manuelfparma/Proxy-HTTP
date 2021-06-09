@@ -65,9 +65,8 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	doh_addr_in.sin_port = htons(parsed_port);
 
 	// TODO: esta llamada es para IPv4, para IPv6 se usa AF_INET6 y otra estructura
-	inet_pton(AF_INET, doh_addr, &doh_addr_in.sin_addr.s_addr);
-	if (doh_addr_in.sin_addr.s_addr == (in_addr_t)-1) {
-		logger(ERROR, "connect_to_doh_server(): %s", strerror(errno));
+	if (inet_pton(AF_INET, doh_addr, &doh_addr_in.sin_addr.s_addr) != 1) {
+		logger(ERROR, "connect_to_doh_server(): bad IP address: %s", strerror(errno));
 		goto ERROR;
 	}
 
