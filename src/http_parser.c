@@ -197,7 +197,8 @@ static const http_parser_state_transition ST_CR_END[2] = {
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
-static const http_parser_state_transition ST_LF_END[1] = {
+static const http_parser_state_transition ST_LF_END[2] = {
+	{.when = '\0', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_END, .transition = tr_request_ended},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_copy_byte_to_buffer},
 };
 

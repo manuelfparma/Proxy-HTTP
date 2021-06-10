@@ -19,6 +19,8 @@
 
 extern connection_header connections;
 
+static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
@@ -114,7 +116,8 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 		if (buffer_can_write(node->data.server_to_client_buffer)) {
 			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
-			else if (fd_client != -1) {
+			else {
+				// lo prendo pues hay nueva informacion
 				FD_SET(fd_client, &write_fd_set[BASE]);
 			}
 		} else {
@@ -143,12 +146,12 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 					close(node->data.server_sock);
 
 					int ans = setup_connection(node, write_fd_set);
-					if (ans == TRY_CLOSE_CONNECTION_ERROR_CODE) {
+					if (ans == CLOSE_CONNECTION_ERROR_CODE) {
 						// nos quedamos sin addresses en la lista
 						logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(error_code));
 						free_doh_resources(node);
-						return CLOSE_CONNECTION_ERROR_CODE;
-					} else if (ans == SETUP_CONNECTION_ERROR_CODE) {
+						return ans;
+					} else {
 						// intentara con la proxima direccion
 						logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
 					}
@@ -186,8 +189,9 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				if (result_bytes < 0) {
 					return result_bytes;
 				} else {
-					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
-					FD_SET(fd_client, &read_fd_set[BASE]);
+					// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
+					if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
+
 					connections.total_proxy_to_origins_bytes += result_bytes;
 					// si el buffer de salida se vacio, no nos interesa intentar escribir
 					if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
@@ -203,8 +207,9 @@ int handle_server_connection(connection_node *node, connection_node *prev, fd_se
 				if (result_bytes < 0) {
 					return result_bytes;
 				} else {
-					// ahora que el buffer de entrada tiene espacio, intento leer del otro par
-					FD_SET(fd_client, &read_fd_set[BASE]);
+					// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
+					if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
+
 					connections.total_proxy_to_origins_bytes += result_bytes;
 					connections.total_connect_method_bytes += result_bytes;
 					// si el buffer de salida se vacio, no nos interesa intentar escribir
@@ -248,36 +253,10 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 							// TODO: Obtener doh addr, hostname y port de args
 							if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
 								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
-								return TRY_CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
+								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
 							}
 						} else {
-							struct sockaddr_in addr_in4;
-							struct sockaddr_in6 addr_in6;
-							int aux_af_inet;
-							void *aux_addr_in;
-							switch (node->data.parser->request.target.host_type) {
-								case IPV4:
-									aux_af_inet = AF_INET;
-									aux_addr_in = &addr_in4.sin_addr.s_addr;
-									break;
-								case IPV6:
-									aux_af_inet = AF_INET6;
-									aux_addr_in = &addr_in6.sin6_addr;
-									break;
-								default:
-									logger(ERROR, "Undefined host type");
-									return BAD_REQUEST_ERROR;
-							}
-							if (inet_pton(aux_af_inet, node->data.parser->request.target.request_target.ip_addr, aux_addr_in) !=
-								1) {
-								logger(ERROR, "handle_client_connection(): bad IP address");
-								return BAD_REQUEST_ERROR;
-							}
-							if (add_ip_address(node, aux_af_inet, aux_addr_in) == -1) {
-								logger(ERROR, "handle_client_connection(): bad port number");
-								return BAD_REQUEST_ERROR;
-							}
-							int connect_ret = setup_connection(node, &write_fd_set[BASE]);
+							int connect_ret = set_node_request_target(node, write_fd_set);
 							if (connect_ret < 0) return connect_ret;
 						}
 					}
@@ -308,11 +287,15 @@ int handle_client_connection(connection_node *node, connection_node *prev, fd_se
 			} else if (result_bytes < 0) {
 				return result_bytes;
 			} else {
-				// ahora que el buffer de entrada tiene espacio, intento leer del otro par
-				FD_SET(fd_server, &read_fd_set[BASE]);
+				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
+				if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
 				connections.total_proxy_to_clients_bytes += result_bytes;
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
-				if (!buffer_can_read(node->data.server_to_client_buffer)) FD_CLR(fd_client, &write_fd_set[BASE]);
+				if (!buffer_can_read(node->data.server_to_client_buffer)) {
+					FD_CLR(fd_client, &write_fd_set[BASE]);
+					// Si esta en un estado en el que se debe cerrar su conexion si no hay mas informacion para el, la cerramos
+					if (node->data.connection_state >= CLIENT_READ_CLOSE) return CLOSE_CONNECTION_ERROR_CODE;
+				}
 			}
 		}
 		return_value++;
@@ -418,9 +401,10 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 				// como es no bloqueante, un 0 indica cierre prematuro de conexion
 				if (peer == SERVER) {
 					logger(INFO, "Server with fd: %d closing connection", fd);
-					return CLOSE_CONNECTION_ERROR_CODE;
-				} else
-					return TRY_CLOSE_CONNECTION_ERROR_CODE;
+					return SERVER_CLOSE_READ_ERROR_CODE;
+				}
+				return CLIENT_CLOSE_READ_ERROR_CODE;
+
 			} else {
 				// logger(DEBUG, "Received info on fd: %d", fd);
 				buffer_write_adv(buffer, resultBytes);
@@ -439,4 +423,33 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 	}
 
 	return resultBytes;
+}
+
+static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
+	struct sockaddr_in addr_in4;
+	struct sockaddr_in6 addr_in6;
+	int aux_af_inet;
+	void *aux_addr_in;
+	switch (node->data.parser->request.target.host_type) {
+		case IPV4:
+			aux_af_inet = AF_INET;
+			aux_addr_in = &addr_in4.sin_addr.s_addr;
+			break;
+		case IPV6:
+			aux_af_inet = AF_INET6;
+			aux_addr_in = &addr_in6.sin6_addr;
+			break;
+		default:
+			logger(ERROR, "Undefined host type");
+			return BAD_REQUEST_ERROR;
+	}
+	if (inet_pton(aux_af_inet, node->data.parser->request.target.request_target.ip_addr, aux_addr_in) != 1) {
+		logger(ERROR, "handle_client_connection(): bad IP address");
+		return BAD_REQUEST_ERROR;
+	}
+	if (add_ip_address(node, aux_af_inet, aux_addr_in) == -1) {
+		logger(ERROR, "handle_client_connection(): bad port number");
+		return BAD_REQUEST_ERROR;
+	}
+	return setup_connection(node, &write_fd_set[BASE]);
 }

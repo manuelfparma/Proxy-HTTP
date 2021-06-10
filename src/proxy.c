@@ -1,3 +1,4 @@
+#include <args.h>
 #include <connection.h>
 #include <dohclient.h>
 #include <dohutils.h>
@@ -12,7 +13,6 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
-#include <args.h>
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
@@ -26,7 +26,6 @@ void write_proxy_statistics();
 connection_header connections = {0};
 
 int main(const int argc, char **argv) {
-
 
 	arguments args;
 	// TODO: utilizarlos
@@ -162,6 +161,11 @@ int main(const int argc, char **argv) {
 				if (handle > -1) ready_fds -= handle;
 				else
 					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, SERVER);
+
+				if(node->data.connection_state == SERVER_READ_CLOSE && !buffer_can_read(node->data.server_to_client_buffer)){
+					logger(DEBUG, "CLOSING CLIENT WITH FD: %d FROM PSELECT", node->data.client_sock);
+					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, write_fd_set, read_fd_set, SERVER);
+				}
 			}
 		}
 		// write_proxy_statistics();
@@ -171,10 +175,22 @@ int main(const int argc, char **argv) {
 static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 									fd_set *write_fd_set, fd_set *read_fd_set, peer peer) {
 	switch (error_code) {
-		case TRY_CLOSE_CONNECTION_ERROR_CODE:
-			if (buffer_can_read(node->data.server_to_client_buffer)) return;
-			// quedan cosas para el cliente asi que no cierro la conexion
-			break;
+		case SERVER_CLOSE_READ_ERROR_CODE:
+			logger(DEBUG, "SERVER_CLOSE_READ for client fd: %d", node->data.client_sock);
+
+			node->data.connection_state = SERVER_READ_CLOSE;
+			FD_CLR(node->data.server_sock, &read_fd_set[BASE]);
+			FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
+			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
+			// TODO: FREE DEL SERVIDOR ACA
+			return;
+		case CLIENT_CLOSE_READ_ERROR_CODE:
+			logger(DEBUG, "CLIENT_CLOSE_READ for client fd: %d", node->data.client_sock);
+
+			// dejo de leer del cliente
+			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
+			node->data.connection_state = CLIENT_READ_CLOSE;
+			return;
 		case RECV_ERROR_CODE:
 			// dio error el receive, lo dejamos para intentar denuevo luego
 			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,

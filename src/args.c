@@ -24,8 +24,8 @@ void parse_args(const int argc, char **argv, arguments *args) {
 	args->doh_path = "/getnsrecord";
 	args->proxy_port = "8080";
 	args->management_port = "9090";
-    args->proxy_ip = "0.0.0.0";
-    args->management_ip = "127.0.0.1";
+	args->proxy_ip = "0.0.0.0";
+	args->management_ip = "127.0.0.1";
 
 	// variables para getopt_long()
 	int c, long_opts_idx;
@@ -57,12 +57,12 @@ void parse_args(const int argc, char **argv, arguments *args) {
 				check_port(optarg);
 				args->management_port = optarg;
 				break;
-            case 'l':
-                args->proxy_ip = optarg;
-                break;
-            case 'L':
-                args->management_ip = optarg;
-                break;
+			case 'l':
+				args->proxy_ip = optarg;
+				break;
+			case 'L':
+				args->management_ip = optarg;
+				break;
 			case DOH_IP:
 				args->doh_ip = optarg;
 				break;
@@ -87,6 +87,7 @@ void parse_args(const int argc, char **argv, arguments *args) {
 			fprintf(stderr, " %s,", argv[optind++]);
 			if (optind == argc) fprintf(stderr, "%c", '\b');
 		}
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -104,14 +105,16 @@ static void usage(const char *program_name) {
 			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
 			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
 			"\t-p puerto-local\n\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"
-            "\t-P puerto-de-management\n\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor 9090.\n\n"
-            "\t-l dirección-http\n\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas las interfaces.\n\n"
-            "\t-L dirección-de-management\n\t\tEstablece la dirección donde se brinda el servicio de management. Por defecto escucha en loopback.\n\n"
-            "\t--doh-ip dirección\n\t\tEstablece la direccion del servidor DoH. Por defecto toma el valor 127.0.0.1 .\n\n"
-            "\t--doh-port puerto\n\t\tPuerto donde se encuentra el servidor DoH. Por defecto toma el valor 8053.\n\n"
-            "\t--doh-host hostname\n\t\tEstablece el valor del header Host de la petición DoH. Por defecto localhost.\n\n"
-            "\t--doh-path path\n\t\tEstablece el path de la petición DoH. Por defecto toma el valor /getnsrecord.\n\n"
-            ,
+			"\t-P puerto-de-management\n\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor "
+			"9090.\n\n"
+			"\t-l dirección-http\n\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas "
+			"las interfaces.\n\n"
+			"\t-L dirección-de-management\n\t\tEstablece la dirección donde se brinda el servicio de management. Por defecto "
+			"escucha en loopback.\n\n"
+			"\t--doh-ip dirección\n\t\tEstablece la direccion del servidor DoH. Por defecto toma el valor 127.0.0.1 .\n\n"
+			"\t--doh-port puerto\n\t\tPuerto donde se encuentra el servidor DoH. Por defecto toma el valor 8053.\n\n"
+			"\t--doh-host hostname\n\t\tEstablece el valor del header Host de la petición DoH. Por defecto localhost.\n\n"
+			"\t--doh-path path\n\t\tEstablece el path de la petición DoH. Por defecto toma el valor /getnsrecord.\n\n",
 			program_name);
 	exit(EXIT_SUCCESS);
 }

@@ -92,7 +92,6 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	char number[1024] = {0};
 	number_to_str(connection_number++, number);
 	strcpy(file_name + strlen(name), number);
-	logger(DEBUG, "File with name %s created", file_name);
 	new->data.log_file = fopen(file_name, "w+");
 	if (new->data.log_file == NULL) {
 		logger(ERROR, "fopen: %s", strerror(errno));
