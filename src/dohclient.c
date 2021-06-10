@@ -154,10 +154,17 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 	// FIXME: DA SEGMENTATION FAULT A VECES
 	if (FD_ISSET(doh_sock, &read_fd_set[TMP])) {
 
-		if (read_doh_response(node) < 0) {
+		int read = read_doh_response(node);
+
+		if (read < 0) {
 			logger(ERROR, "handle_doh_response(): unable to read DoH response");
 			return -1;
+		} else if (read == 0) {
+			// Caso: no hay response DoH, suponemos que no va a venir
+			// TODO: implementar un timeout???
+			return 1;
 		}
+
 		buffer *response = node->data.doh->doh_buffer;
 		while (response->write - response->read) {
 			switch (node->data.doh->state) {

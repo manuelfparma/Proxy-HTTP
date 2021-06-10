@@ -16,7 +16,7 @@
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
-									fd_set *write_fd_set, fd_set *read_fd_set, peer peer);
+									fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
 static void find_max_id();
@@ -106,7 +106,7 @@ int main(const int argc, char **argv) {
 					case DOH_SEND_ERROR:
 						close(node->data.doh->sock);
 						free_doh_resources(node);
-						close_connection(node, previous, write_fd_set, read_fd_set);
+						close_connection(node, previous, read_fd_set, write_fd_set);
 						break;
 					case DOH_SEND_COMPLETE:
 						node->data.connection_state = FETCHING_DNS;
@@ -125,7 +125,7 @@ int main(const int argc, char **argv) {
 					FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 					close(node->data.doh->sock);
 					free_doh_resources(node);
-					close_connection(node, previous, write_fd_set, read_fd_set);
+					close_connection(node, previous, read_fd_set, write_fd_set);
 
 				} else {
 					ready_fds -= 1;
@@ -136,7 +136,7 @@ int main(const int argc, char **argv) {
 						if (check_requests_sent(node)) {
 							int ans_connection = setup_connection(node, write_fd_set);
 							if (ans_connection < 0)
-								handle_connection_error(ans_connection, node, previous, read_fd_set, write_fd_set, CLIENT);
+								handle_connection_error(ans_connection, node, previous,  read_fd_set, write_fd_set, CLIENT);
 							// TODO: esta intentando con la proxima direccion? o se deberian liberar todos los recursos?
 						} else {
 							// Si devolvio 0, todavia tengo requests dns para hacer (los estados se setearon en
@@ -152,19 +152,19 @@ int main(const int argc, char **argv) {
 
 				if (handle > -1) ready_fds -= handle;
 				else {
-					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
+					handle_connection_error(handle, node, previous,  read_fd_set, write_fd_set, CLIENT);
 					break; // para que no atienda al servidor
 				}
 
-				handle = handle_server_connection(node, previous, read_fd_set, write_fd_set);
+				handle = handle_server_connection(node, previous,  read_fd_set, write_fd_set);
 
 				if (handle > -1) ready_fds -= handle;
 				else
-					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, SERVER);
+					handle_connection_error(handle, node, previous,  read_fd_set, write_fd_set, SERVER);
 
 				if(node->data.connection_state == SERVER_READ_CLOSE && !buffer_can_read(node->data.server_to_client_buffer)){
 					logger(DEBUG, "CLOSING CLIENT WITH FD: %d FROM PSELECT", node->data.client_sock);
-					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, write_fd_set, read_fd_set, SERVER);
+					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, SERVER);
 				}
 			}
 		}
@@ -173,7 +173,7 @@ int main(const int argc, char **argv) {
 }
 
 static void handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
-									fd_set *write_fd_set, fd_set *read_fd_set, peer peer) {
+									fd_set *read_fd_set, fd_set *write_fd_set, peer peer) {
 	switch (error_code) {
 		case SERVER_CLOSE_READ_ERROR_CODE:
 			logger(DEBUG, "SERVER_CLOSE_READ for client fd: %d", node->data.client_sock);
@@ -185,7 +185,7 @@ static void handle_connection_error(connection_error_code error_code, connection
 			// TODO: FREE DEL SERVIDOR ACA
 			return;
 		case CLIENT_CLOSE_READ_ERROR_CODE:
-			logger(DEBUG, "CLIENT_CLOSE_READ for client fd: %d", node->data.client_sock);
+//			logger(DEBUG, "CLIENT_CLOSE_READ for client fd: %d", node->data.client_sock);
 
 			// dejo de leer del cliente
 			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
@@ -227,7 +227,7 @@ static void handle_connection_error(connection_error_code error_code, connection
 	int aux_client_sock = node->data.client_sock;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
 	// si se debe buscar otro maximo
-	close_connection(node, previous, write_fd_set, read_fd_set);
+	close_connection(node, previous, read_fd_set, write_fd_set);
 	if (aux_server_sock >= connections.max_fd || aux_client_sock >= connections.max_fd) find_max_id();
 }
 

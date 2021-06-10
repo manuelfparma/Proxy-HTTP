@@ -134,7 +134,7 @@ void add_to_connections(connection_node *node) {
 	connections.clients++;
 }
 
-void close_connection(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
 	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
 	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
