@@ -41,8 +41,6 @@ dns_header dns_header_template = {.id = 0,
 								  .arcount = 0};
 
 int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh_addr, char *doh_port) {
-	logger(INFO, "creating socket with DoH server for client with socket fd %d", node->data.client_sock);
-
 	int doh_sock = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (doh_sock < 0) {
@@ -82,8 +80,6 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	}
 
 	node->data.connection_state = SENDING_DNS;
-
-	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.client_sock, doh_sock);
 
 	if (doh_sock >= connections.max_fd) { connections.max_fd = doh_sock + 1; }
 
@@ -138,8 +134,6 @@ bool is_connected_to_doh(connection_node *node) {
 		logger(ERROR, "is_connected_to_doh :: getsockopt(): %s", strerror(error_code));
 		return false;
 	}
-
-	logger(INFO, "connected to DoH, client fd: %d", node->data.client_sock);
 
 	return true;
 }
