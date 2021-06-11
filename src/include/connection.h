@@ -37,16 +37,16 @@ typedef struct {
 } information;
 
 typedef struct {
-	buffer *client_to_server_buffer;   	// buffer donde cliente escribe y servidor lee
-	buffer *server_to_client_buffer;   	// buffer donde servidor escribe y cliente lee
-	int client_sock;				   	// socket activo con cliente
-	int server_sock;				   	// socket activo con servidor
-	connection_state connection_state; 	// estado de la busqueda DNS
-	http_parser *parser;			   	// estructura donde se guarda el estado del parseo
+	buffer *client_to_server_buffer;   // buffer donde cliente escribe y servidor lee
+	buffer *server_to_client_buffer;   // buffer donde servidor escribe y cliente lee
+	int client_sock;				   // socket activo con cliente
+	int server_sock;				   // socket activo con servidor
+	connection_state connection_state; // estado de la busqueda DNS
+	http_parser *parser;			   // estructura donde se guarda el estado del parseo
 	FILE *log_file;
-	addr_info_node *addr_info_first;   	// primer resultado de la consulta doh
-	addr_info_node *addr_info_current; 	// ip para conectarse utilizada actualmente
-	information client_information;			// ip y puerto del cliente, ya formateados
+	addr_info_node *addr_info_first;   // primer resultado de la consulta doh
+	addr_info_node *addr_info_current; // ip para conectarse utilizada actualmente
+	information client_information;	   // ip y puerto del cliente, ya formateados
 	doh_data *doh;
 } connection_data;
 
@@ -56,13 +56,18 @@ typedef struct connection_node {
 } connection_node;
 
 typedef struct {
-	unsigned int clients;
-	int max_fd;
 	ssize_t total_connections;
 	ssize_t total_proxy_to_origins_bytes;
 	ssize_t total_proxy_to_clients_bytes;
 	ssize_t total_connect_method_bytes;
+} proxy_statistics;
+
+typedef struct {
+	unsigned int clients;
+	int max_fd;
+	proxy_statistics statistics;
 	connection_node *first;
+	char password_dissector;
 	FILE *proxy_log;
 } connection_header;
 

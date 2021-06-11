@@ -36,6 +36,7 @@ int main(const int argc, char **argv) {
 	parse_args(argc, argv, &args);
 
 	char *proxy_port = args.proxy_port;
+	connections.password_dissector = args.password_dissector;
 
 	int passive_sock = setup_passive_socket(proxy_port);
 	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");
@@ -263,11 +264,11 @@ static void find_max_id() {
 }
 
 void write_proxy_statistics() {
-	ssize_t proxy_to_origins = connections.total_proxy_to_origins_bytes;
-	ssize_t proxy_to_clients = connections.total_proxy_to_clients_bytes;
-	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.total_connections,
+	ssize_t proxy_to_origins = connections.statistics.total_proxy_to_origins_bytes;
+	ssize_t proxy_to_clients = connections.statistics.total_proxy_to_clients_bytes;
+	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.statistics.total_connections,
 			connections.clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients,
-			connections.total_connect_method_bytes);
+			connections.statistics.total_connect_method_bytes);
 }
 
 void send_message(char *message, int fd_client, connection_node *node) {

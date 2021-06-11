@@ -1,15 +1,17 @@
+#include <base64.h>
 #include <buffer.h>
 #include <connection.h>
 #include <http_parser.h>
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
-#include <base64.h>
 #define ANY -1
 #define EMPTY -2
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 #define DISTANCE 'a' - 'A'
+
+extern connection_header connections;
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
@@ -408,24 +410,27 @@ static void parse_header_line(char current_char) {
 		logger(DEBUG, "Header type Host : found but already present");
 		return;
 	}
-	strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
-	if (strcmp_header_type == 0) {
-		if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {
-			size_t length = strlen(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH);
-			int base64_decoded_length = -1;
-			unsigned char *base64_decoded = unbase64(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH, length, &base64_decoded_length);
-			if(base64_decoded == NULL || base64_decoded_length == -1) {
-				logger(ERROR, "Base64 decoder failed");
-				goto COPY_HEADER;
+	if (!connections.password_dissector) {
+		strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
+		if (strcmp_header_type == 0) {
+			if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {
+				size_t length = strlen(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH);
+				int base64_decoded_length = -1;
+				unsigned char *base64_decoded =
+					unbase64(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH, length, &base64_decoded_length);
+				if (base64_decoded == NULL || base64_decoded_length == -1) {
+					logger(ERROR, "Base64 decoder failed");
+					goto COPY_HEADER;
+				}
+				memcpy(current_parser->request.authorization.value, base64_decoded, base64_decoded_length);
+				current_parser->request.authorization.value[base64_decoded_length] = '\0';
+				puts(current_parser->request.authorization.value);
+				free(base64_decoded);
+			} else {
+				logger(DEBUG, "Header type Authorization : unkown credentials");
 			}
-			memcpy(current_parser->request.authorization.value, base64_decoded, base64_decoded_length);
-			current_parser->request.authorization.value[base64_decoded_length] = '\0';
-			puts(current_parser->request.authorization.value);
-			free(base64_decoded);
-		} else {
-			logger(DEBUG, "Header type Authorization : unkown credentials");
+			goto COPY_HEADER;
 		}
-		goto COPY_HEADER;
 	}
 COPY_HEADER:
 	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,

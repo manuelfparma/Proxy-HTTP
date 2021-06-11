@@ -161,7 +161,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 				if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
 
-				connections.total_proxy_to_origins_bytes += result_bytes;
+				connections.statistics.total_proxy_to_origins_bytes += result_bytes;
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
@@ -177,8 +177,8 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 				if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
 
-				connections.total_proxy_to_origins_bytes += result_bytes;
-				connections.total_connect_method_bytes += result_bytes;
+				connections.statistics.total_proxy_to_origins_bytes += result_bytes;
+				connections.statistics.total_connect_method_bytes += result_bytes;
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
 				if (!buffer_can_read(node->data.client_to_server_buffer)) FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
@@ -257,7 +257,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
-			connections.total_proxy_to_clients_bytes += result_bytes;
+			connections.statistics.total_proxy_to_clients_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
 			if (!buffer_can_read(node->data.server_to_client_buffer)) {
 				FD_CLR(fd_client, &write_fd_set[BASE]);

@@ -145,7 +145,7 @@ void add_to_connections(connection_node *node) {
 	} else {
 		connections.first = node;
 	}
-	connections.total_connections++;
+	connections.statistics.total_connections++;
 	connections.clients++;
 }
 
