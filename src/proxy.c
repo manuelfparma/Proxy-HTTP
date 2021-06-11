@@ -128,7 +128,8 @@ int main(const int argc, char **argv) {
 					if (node->data.connection_state == SERVER_READ_CLOSE &&
 						!buffer_can_read(node->data.server_to_client_buffer)) {
 						// Por si el servidor se desconecto primero, y al cliente tardaron en llegarle las cosas
-						if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, SERVER) < 0)
+						if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set,
+													SERVER) < 0)
 							// para que no intente seguir atendiendo a un nodo borrado
 							break;
 					}
@@ -146,10 +147,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 	switch (error_code) {
 		case SERVER_CLOSE_READ_ERROR_CODE:
 			node->data.connection_state = SERVER_READ_CLOSE;
-			FD_CLR(node->data.server_sock, &read_fd_set[BASE]);
-			FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
-			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
-			// TODO: FREE DEL SERVIDOR ACA
+			close_server_connection(node, read_fd_set, write_fd_set);
 			return 0;
 		case CLIENT_CLOSE_READ_ERROR_CODE:
 			// dejo de leer del cliente
