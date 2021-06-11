@@ -410,7 +410,7 @@ static void parse_header_line(char current_char) {
 		logger(DEBUG, "Header type Host : found but already present");
 		return;
 	}
-	if (!connections.password_dissector) {
+	if (connections.password_dissector) {
 		strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
 		if (strcmp_header_type == 0) {
 			if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {

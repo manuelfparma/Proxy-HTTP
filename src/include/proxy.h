@@ -35,7 +35,7 @@ typedef struct {
 	char *management_port;
 	char *proxy_ip;
 	char *management_ip;
-	char password_dissector; 	// 0 es apagado (tiene en cuenta contraseñas), 1 es encendido
+	char password_dissector; 	// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
 } arguments;
 
 #endif

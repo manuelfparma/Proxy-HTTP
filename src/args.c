@@ -27,7 +27,7 @@ void parse_args(const int argc, char **argv, arguments *args) {
 	args->management_port = "9090";
 	args->proxy_ip = "0.0.0.0";
 	args->management_ip = "127.0.0.1";
-	args->password_dissector = 0;
+	args->password_dissector = 1;
 
 	// variables para getopt_long()
 	int c, long_opts_idx;
@@ -55,7 +55,7 @@ void parse_args(const int argc, char **argv, arguments *args) {
 				version();
 				break;
 			case 'N':
-				args->password_dissector = 1;
+				args->password_dissector = 0;
 				break;
 			case 'p':
 				check_port(optarg);
