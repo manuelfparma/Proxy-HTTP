@@ -16,11 +16,13 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <time.h>
 
 extern connection_header connections;
 
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+static int copy_address_info(struct sockaddr *address, char *buffer);
 
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
@@ -82,7 +84,7 @@ int setup_passive_socket(const char *service) {
 	return passive_sock;
 }
 
-int accept_connection(int passive_sock) {
+int accept_connection(int passive_sock, char * client_info) {
 	struct sockaddr_storage clnt_addr; // Client address
 	// Set length of client address structure (in-out parameter)
 	socklen_t clnt_addrLen = sizeof(clnt_addr);
@@ -100,6 +102,13 @@ int accept_connection(int passive_sock) {
 	}
 	// clnt_sock is connected to a client!
 	logger(DEBUG, "Created active socket for client with fd: %d", clnt_sock);
+
+	// guardar registro del cliente
+	if(copy_address_info((struct sockaddr *)&clnt_addr, client_info) < 0) {
+		logger(ERROR, "copy_address_info() failed");
+		return ACCEPT_CONNECTION_ERROR;
+	}
+
 	return clnt_sock;
 }
 
@@ -227,6 +236,21 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		if (buffer_can_read(node->data.server_to_client_buffer)) {
 			result_bytes = handle_operation(fd_client, node->data.server_to_client_buffer, WRITE, CLIENT, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+
+			// si nunca hubo status code, lo seteamos
+			if(node->data.client_information.status_code == 0) {
+				uint8_t *status_response = node->data.server_to_client_buffer->read;
+				// TODO: magic number -> cambiar o repensar
+				status_response[4 + 1 + 3 + 1 + 3] = '\0';
+				unsigned short status_response_code = 0;
+				char version_major = -1, version_minor = -1;
+				sscanf((const char *)status_response, "HTTP/%c.%c %hu", &version_major, &version_minor, &status_response_code);
+				// TODO: agregar chequeos o directamente mover la cantidad de bytes
+				node->data.client_information.status_code = (unsigned short) status_response_code;
+			}
+			time_t timer = time(NULL);
+			struct tm local_time = *localtime(&timer);
+    		printf("%d-%02d-%02dT%02d:%02d:%02dZ\tA\t%s\t%s\t%hu\n", local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday, local_time.tm_hour, local_time.tm_min, local_time.tm_sec, node->data.client_information.ip_and_port, node->data.parser->request.method, node->data.client_information.status_code);
 
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
@@ -441,7 +465,41 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			// enviamos al cliente que nos conectamos satisfactoriamente al servidor
 			logger(INFO, "Connection established");
 			send_message("HTTP/1.1 200 Connection Established\r\n\r\n", node->data.client_sock, node);
+			node->data.client_information.status_code = 200;
 			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
+		}
+	}
+	return 0;
+}
+
+static int copy_address_info(struct sockaddr *address, char *buffer) {
+
+	void *ip_address;
+	in_port_t port;
+
+	switch (address->sa_family) {
+		case AF_INET:
+			ip_address = &(((struct sockaddr_in *)address)->sin_addr);
+			port = ((struct sockaddr_in *)address)->sin_port;
+			break;
+		case AF_INET6:
+			ip_address = &(((struct sockaddr_in6 *)address)->sin6_addr);
+			port = ((struct sockaddr_in6 *)address)->sin6_port;
+			break;
+		default:
+			logger(DEBUG, "Unkown address family");
+			return -1;
+	}
+
+	if (inet_ntop(address->sa_family, ip_address, buffer, INET6_ADDRSTRLEN) == NULL) {
+		logger(ERROR, "inet_ntop(): %s", strerror(errno));
+		return -1;
+	} else {
+		if(port > 0) {
+			sprintf(buffer + strlen(buffer), ":%u", port);
+		} else {
+			logger(DEBUG, "Invalid port number");
+			return -1;
 		}
 	}
 	return 0;

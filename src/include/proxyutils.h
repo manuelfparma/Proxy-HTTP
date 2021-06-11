@@ -16,7 +16,7 @@
 
 int setup_passive_socket(const char *service);
 
-int accept_connection(int passive_sock);
+int accept_connection(int passive_sock, char *client_info);
 
 typedef enum { WRITE, READ } operation;
 

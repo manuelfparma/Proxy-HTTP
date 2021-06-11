@@ -393,6 +393,7 @@ static void parse_header_line(char current_char) {
 	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->request.header.type,
 	// current_parser->request.header.value);
 	int strcmp_host = strcmp_lower_case("Host", current_parser->request.header.type);
+	int strcmp_auth = strcmp_lower_case("Authorization", current_parser->request.header.type);
 	if (current_parser->request.target.path_type != ABSOLUTE && current_parser->data.target_status == NOT_FOUND &&
 		strcmp_host == 0) {
 		if (parse_request_target() == -1) {
@@ -406,7 +407,14 @@ static void parse_header_line(char current_char) {
 							   strlen(current_parser->request.header.value));
 		current_parser->data.target_status = FOUND;
 		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
-	} else if (strcmp_host != 0) {
+	} else {
+		if (strcmp_auth == 0) {
+			// decode
+			size_t length = strlen(current_parser->request.header.value);
+			strncpy(current_parser->request.authorization.value, current_parser->request.header.value,
+							  length);
+			current_parser->request.authorization.value[length] = '\0';
+		}
 		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
 		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
 							   strlen(current_parser->request.header.type));
@@ -441,9 +449,7 @@ static void tr_headers_ended(char current_char) {
 	current_parser->data.request_status = PARSE_BODY_INCOMPLETE;
 }
 
-static void tr_request_ended(char current_char) {
-	current_parser->data.request_status = PARSE_END;
-}
+static void tr_request_ended(char current_char) { current_parser->data.request_status = PARSE_END; }
 
 static void tr_incomplete_header(char current_char) {
 	current_parser->data.request_status = PARSE_HEADER_LINE_INCOMPLETE;

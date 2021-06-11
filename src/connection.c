@@ -31,6 +31,9 @@ static void number_to_str(size_t n, char *buffer) {
 }
 
 static void set_node_default_values(connection_node *node) {
+	node->data.client_information.status_code = 0;
+
+	// parser info
 	node->data.parser->data.parser_state = PS_METHOD;
 	node->data.parser->data.request_status = PARSE_START_LINE_INCOMPLETE;
 	node->data.parser->data.target_status = NOT_FOUND;
@@ -43,6 +46,7 @@ static void set_node_default_values(connection_node *node) {
 	node->data.parser->request.version.minor = EMPTY_VERSION;
 	node->data.parser->request.header.type[0] = '\0';
 	node->data.parser->request.header.value[0] = '\0';
+	node->data.parser->request.authorization.value[0] = '\0';
 
 	buffer_init(node->data.client_to_server_buffer, BUFFER_SIZE, node->data.client_to_server_buffer->data);
 	buffer_init(node->data.server_to_client_buffer, BUFFER_SIZE, node->data.server_to_client_buffer->data);
@@ -54,15 +58,17 @@ static void set_node_default_values(connection_node *node) {
 connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	// asignacion de recursos para la conexion
 	connection_node *new = malloc(sizeof(connection_node));
-
-	if (new->data.client_to_server_buffer == NULL) goto ERROR;
+	if (new == NULL) goto ERROR;
 
 	new->next = NULL;
 	new->data.client_sock = client_sock;
 	new->data.server_sock = server_sock;
 
+	new->data.client_information.ip_and_port = malloc(MAX_ADDR_BUFFER + MAX_PORT_LENGTH + 2);
+	if(new->data.client_information.ip_and_port == NULL) goto FREE_NEW;
+
 	new->data.client_to_server_buffer = malloc(sizeof(buffer));
-	if (new->data.client_to_server_buffer == NULL) goto FREE_NEW;
+	if (new->data.client_to_server_buffer == NULL) goto FREE_CLIENT_INFORMATION;
 
 	new->data.client_to_server_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
 	if (new->data.client_to_server_buffer->data == NULL) goto FREE_BUFFER_1;
@@ -112,6 +118,8 @@ FREE_BUFFER_1_DATA:
 	free(new->data.client_to_server_buffer->data);
 FREE_BUFFER_1:
 	free(new->data.client_to_server_buffer);
+FREE_CLIENT_INFORMATION:
+	free(new->data.client_information.ip_and_port);
 FREE_NEW:
 	free(new);
 ERROR:
@@ -165,6 +173,7 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	}
 	free(node->data.server_to_client_buffer->data);
 	free(node->data.server_to_client_buffer);
+	free(node->data.client_information.ip_and_port);
 	fclose(node->data.log_file);
 
 	if (previous == NULL) {

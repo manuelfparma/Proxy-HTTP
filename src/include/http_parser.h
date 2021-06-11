@@ -100,11 +100,16 @@ typedef struct {
 } http_header;
 
 typedef struct {
+	char value[MAX_HEADER_VALUE_LENGTH + 1];
+} http_authorization;
+
+typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
 	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del request
 	http_target target;
 	http_version version;
 	http_header header; // header actual(por si no se completo)
+	http_authorization authorization;
 } http_request_data;
 
 typedef struct {
