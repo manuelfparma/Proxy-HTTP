@@ -1,9 +1,9 @@
-#include <args.h>
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h> /* LONG_MIN et al */
 #include <logger.h>
 #include <proxy.h>
+#include <proxyargs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> /* memset */
@@ -14,7 +14,7 @@ static void version();
 static void usage(const char *program_name);
 static void check_port(const char *service);
 
-void parse_args(const int argc, char **argv, arguments *args) {
+void parse_proxy_args(const int argc, char **argv, proxy_arguments *args) {
 
 	// cargo todo en cero y seteo defaults
 	memset(args, 0, sizeof(*args));
@@ -29,7 +29,7 @@ void parse_args(const int argc, char **argv, arguments *args) {
 
 	// variables para getopt_long()
 	int c, long_opts_idx;
-	char *flags = "hvp:P:l:L:";
+	char *flags = "hvp:o:l:L:";
 
 	// flags con formato long (precedidos por --)
 	static const struct option long_opts[] = {{.name = "doh-ip", .has_arg = required_argument, .flag = NULL, .val = DOH_IP},
@@ -53,7 +53,7 @@ void parse_args(const int argc, char **argv, arguments *args) {
 				check_port(optarg);
 				args->proxy_port = optarg;
 				break;
-			case 'P':
+			case 'o':
 				check_port(optarg);
 				args->management_port = optarg;
 				break;
@@ -105,7 +105,7 @@ static void usage(const char *program_name) {
 			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
 			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
 			"\t-p puerto-local\n\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"
-			"\t-P puerto-de-management\n\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor "
+			"\t-o puerto-de-management\n\t\tPuerto donde el servicio de management escucha conexiones. Por defecto toma el valor "
 			"9090.\n\n"
 			"\t-l dirección-http\n\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas "
 			"las interfaces.\n\n"

@@ -1,10 +1,10 @@
-#include <args.h>
 #include <connection.h>
 #include <dohclient.h>
 #include <dohutils.h>
 #include <errno.h>
 #include <logger.h>
 #include <proxy.h>
+#include <proxyargs.h>
 #include <proxyutils.h>
 #include <signal.h>
 #include <stddef.h>
@@ -31,9 +31,9 @@ connection_header connections = {0};
 
 int main(const int argc, char **argv) {
 
-	arguments args;
+	proxy_arguments args;
 	// TODO: utilizarlos
-	parse_args(argc, argv, &args);
+	parse_proxy_args(argc, argv, &args);
 
 	char *proxy_port = args.proxy_port;
 

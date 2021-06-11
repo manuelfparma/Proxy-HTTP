@@ -10,6 +10,6 @@ typedef enum {
     DOH_PATH,
 } long_opts_values;
 
-void parse_args(const int argc, char **argv, arguments *args);
+void parse_proxy_args(int argc, char **argv, proxy_arguments *args);
 
 #endif

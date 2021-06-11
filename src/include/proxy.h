@@ -34,6 +34,6 @@ typedef struct {
 	char *management_port;
 	char *proxy_ip;
 	char *management_ip;
-} arguments;
+} proxy_arguments;
 
 #endif

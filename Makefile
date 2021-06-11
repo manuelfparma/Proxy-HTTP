@@ -2,6 +2,9 @@ CFLAGS= -g -std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused
 FSANITIZE= -fsanitize=address
 
 SOURCES_PROXY= src/proxy.c 
+SOURCES_PCAMP_CLIENT= src/pcampclient.c
+SOURCES_PCAMP_SERVER= src/pcampserver.c
+SOURCES_PCAMP_ARGS= src/pcampargs.c
 SOURCES_PARSER= src/http_parser.c
 SOURCES_PROXY_UTILS= src/proxyutils.c
 SOURCES_LOGGER= src/logger.c
@@ -11,12 +14,16 @@ SOURCES_DOH_CLIENT = src/dohclient.c
 SOURCES_DOH_UTILS = src/dohutils.c
 SOURCES_DOH_SENDER = src/dohsender.c
 SOURCES_DOH_PARSER = src/dohparser.c
-SOURCES_ARGS = src/args.c
-OBJECTS = src/proxy.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/args.o
+SOURCES_ARGS = src/proxyargs.c
+PROXY_OBJECTS = src/proxy.o src/pcampserver.o src/http_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/proxyargs.o
+PCAMP_CLIENT_OBJECTS = src/pcampclient.o src/pcampargs.o
 
-all: proxy
+all: proxy pcampclient
 
-proxy: $(OBJECTS)
+pcampclient: $(PCAMP_CLIENT_OBJECTS)
+	$(CC) $(FSANITIZE) -o pcampclient $^
+
+proxy: $(PROXY_OBJECTS)
 	$(CC) $(FSANITIZE) -o httpd $^
 
 %.o: %.c
@@ -26,6 +33,6 @@ proxy: $(OBJECTS)
 # 	$(CC) $(CFLAGS) $(FSANITIZE) -I./src -I./src/include -o httpd $^
 
 clean:
-	rm -rf httpd src/*.o logs/log_connection_* logs/proxy_log
+	rm -rf httpd pcampclient src/*.o logs/log_connection_* logs/proxy_log
 
 .PHONY: all proxy clean
