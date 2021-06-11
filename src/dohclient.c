@@ -41,8 +41,6 @@ dns_header dns_header_template = {.id = 0,
 								  .arcount = 0};
 
 int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh_addr, char *doh_port) {
-	logger(INFO, "creating socket with DoH server for client with socket fd %d", node->data.client_sock);
-
 	int doh_sock = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (doh_sock < 0) {
@@ -82,8 +80,6 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	}
 
 	node->data.connection_state = SENDING_DNS;
-
-	logger(INFO, "connecting to DoH server for client with socket fd %d (DoH fd: %d)", node->data.client_sock, doh_sock);
 
 	if (doh_sock >= connections.max_fd) { connections.max_fd = doh_sock + 1; }
 
@@ -139,8 +135,6 @@ bool is_connected_to_doh(connection_node *node) {
 		return false;
 	}
 
-	logger(INFO, "connected to DoH, client fd: %d", node->data.client_sock);
-
 	return true;
 }
 
@@ -154,10 +148,17 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 	// FIXME: DA SEGMENTATION FAULT A VECES
 	if (FD_ISSET(doh_sock, &read_fd_set[TMP])) {
 
-		if (read_doh_response(node) < 0) {
+		int read = read_doh_response(node);
+
+		if (read < 0) {
 			logger(ERROR, "handle_doh_response(): unable to read DoH response");
 			return -1;
+		} else if (read == 0) {
+			// Caso: no hay response DoH, suponemos que no va a venir
+			// TODO: implementar un timeout???
+			return 1;
 		}
+
 		buffer *response = node->data.doh->doh_buffer;
 		while (response->write - response->read) {
 			switch (node->data.doh->state) {

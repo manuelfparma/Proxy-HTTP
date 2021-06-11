@@ -2,12 +2,12 @@
 #include <errno.h>
 #include <http_parser.h>
 #include <logger.h>
+#include <proxy.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <proxy.h>
 
 extern connection_header connections;
 
@@ -92,7 +92,6 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	char number[1024] = {0};
 	number_to_str(connection_number++, number);
 	strcpy(file_name + strlen(name), number);
-	logger(DEBUG, "File with name %s created", file_name);
 	new->data.log_file = fopen(file_name, "w+");
 	if (new->data.log_file == NULL) {
 		logger(ERROR, "fopen: %s", strerror(errno));
@@ -135,17 +134,37 @@ void add_to_connections(connection_node *node) {
 	connections.clients++;
 }
 
-void close_connection(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set) {
+void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
-	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
 	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
-	free(node->data.server_to_client_buffer->data);
 	free(node->data.client_to_server_buffer->data);
 	free(node->data.client_to_server_buffer);
-	free(node->data.server_to_client_buffer);
 	free(node->data.parser->data.parsed_request->data);
 	free(node->data.parser->data.parsed_request);
 	free(node->data.parser);
+	FD_CLR(client_fd, &read_fd_set[BASE]);
+	FD_CLR(server_fd, &read_fd_set[BASE]);
+	FD_CLR(server_fd, &write_fd_set[BASE]);
+	if (server_fd > 0) close(server_fd);
+	node->data.server_sock = -1;
+}
+
+void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set) {
+	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
+	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
+	if (node->data.server_sock >= 0) {
+		logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
+		free(node->data.client_to_server_buffer->data);
+		free(node->data.client_to_server_buffer);
+		free(node->data.parser->data.parsed_request->data);
+		free(node->data.parser->data.parsed_request);
+		free(node->data.parser);
+		FD_CLR(client_fd, &read_fd_set[BASE]);
+		FD_CLR(server_fd, &read_fd_set[BASE]);
+		FD_CLR(server_fd, &write_fd_set[BASE]);
+	}
+	free(node->data.server_to_client_buffer->data);
+	free(node->data.server_to_client_buffer);
 	fclose(node->data.log_file);
 
 	if (previous == NULL) {
@@ -157,12 +176,8 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 
 	free(node);
 
-	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(client_fd, &write_fd_set[BASE]);
-	FD_CLR(server_fd, &read_fd_set[BASE]);
-	FD_CLR(server_fd, &write_fd_set[BASE]);
 	close(client_fd);
-	if (server_fd > 0) close(server_fd);
 	write_proxy_statistics();
 	connections.clients--;
 }

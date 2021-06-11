@@ -9,7 +9,16 @@
 #include <sys/select.h>
 
 // Manejo de estados para getaddrinfo, la cual se corre en otro hilo
-typedef enum { DISCONNECTED, SENDING_DNS, FETCHING_DNS, CONNECTING, CONNECTED } connection_state;
+typedef enum {
+	DISCONNECTED,
+	SENDING_DNS,
+	FETCHING_DNS,
+	CONNECTING,
+	CONNECTED,
+	// A partir de este valor, se asume que el cliente dejo de escribir
+	CLIENT_READ_CLOSE,
+	SERVER_READ_CLOSE,
+} connection_state;
 
 typedef struct addr_info_node {
 	union {
@@ -54,6 +63,8 @@ connection_node *setup_connection_resources(int client_sock, int server_sock);
 
 void add_to_connections(connection_node *node);
 
-void close_connection(connection_node *node, connection_node *previous, fd_set *write_fd_set, fd_set *read_fd_set);
+void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
+
+void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set);
 
 #endif

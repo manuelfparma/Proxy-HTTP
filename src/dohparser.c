@@ -30,11 +30,10 @@ int read_doh_response(connection_node *node) {
 		return -1;
 	}
 
-	logger(INFO, "reading DoH response...");
 	ssize_t recv_bytes = recv(node->data.doh->sock, buff->write, buff->limit - buff->write, 0);
 	if (recv_bytes == 0) {
 		logger(INFO, "read_doh_response :: recv(): received EOF from socket %d", node->data.doh->sock);
-		return -1;
+		return 0;
 	}
 	if (recv_bytes < 0) {
 		logger(ERROR, "recv(): %s", strerror(errno));
@@ -43,9 +42,7 @@ int read_doh_response(connection_node *node) {
 
 	buffer_write_adv(buff, recv_bytes);
 
-	logger(INFO, "DoH response received");
-
-	return 0;
+	return 1;
 }
 
 int parse_doh_status_code(connection_node *node) {
@@ -65,7 +62,6 @@ int parse_doh_status_code(connection_node *node) {
 
 	buffer_read_adv(response,
 					http_200_len - 2); // No queremos saltear el \r\n, nos sirve para el matcheo de Content-Length mas tarde
-	logger(INFO, "found HTTP/1.1 200 OK line header");
 	return DOH_PARSE_COMPLETE;
 }
 
@@ -118,7 +114,6 @@ int parse_doh_content_length_value(connection_node *node) {
 
 	node->data.doh->response_content_length = parsed_length;
 
-	logger(INFO, "found Content-Length: %ld", parsed_length);
 	// Avanzamos el valor del header y el \r\n
 	buffer_read_adv(response, j + 2);
 
@@ -138,7 +133,6 @@ int find_http_body(connection_node *node) {
 
 	// Muevo offset al comienzo del cuerpo
 	buffer_read_adv(response, 4);
-	logger(INFO, "found HTTP request body");
 
 	return DOH_PARSE_COMPLETE;
 }
@@ -200,7 +194,11 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 	// Obtenemos el RCODE y validamos
 	header_info.rcode = (*message->read & 15);
 
-	if (header_info.rcode != (unsigned int)0) {
+	if (header_info.rcode == (unsigned int)3) {
+		logger(ERROR, "parse_dns_message(): DNS response - no such name (0 results)");
+		return -1;
+	}
+	else if (header_info.rcode != (unsigned int)0) {
 		// Hubo error al procesar la query en el servidor DNS
 		logger(ERROR, "parse_dns_message(): error in DNS query");
 		return -1;

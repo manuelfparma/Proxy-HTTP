@@ -47,13 +47,11 @@ int send_doh_request(connection_node *node, fd_set *write_fd_set) {
 			logger(ERROR, "send_doh_request :: send(): %s", strerror(errno));
 			return DOH_SEND_ERROR;
 		}
-		logger(INFO, "DoH request partially sent");
 		buffer_read_adv(request, sent_bytes);
 		FD_SET(doh_sock, &write_fd_set[BASE]);
 		return DOH_SEND_INCOMPLETE;
 	}
 
-	logger(INFO, "DoH request fully sent");
 	buffer_read_adv(request, sent_bytes);
 	return DOH_SEND_COMPLETE;
 }
