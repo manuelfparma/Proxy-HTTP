@@ -31,7 +31,8 @@ typedef struct addr_info_node {
 } addr_info_node;
 
 typedef struct {
-	char *ip_and_port;
+	char *ip;
+	char *port;
 	unsigned short status_code;
 } information;
 

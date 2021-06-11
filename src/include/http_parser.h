@@ -30,9 +30,10 @@ typedef enum {
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_SCHEMA_LENGTH = 24,
-	MAX_IP_LENGTH = 24,
-	MAX_RELATIVE_PATH_LENGTH = 64,
+	MAX_IP_LENGTH = 128,
+	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
+	BASIC_CREDENTIAL_LENGTH = 6, // soporta "Basic " para credenciales de autorizacion
 } http_request_constraints;
 
 typedef enum {

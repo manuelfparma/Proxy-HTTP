@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <buffer.h>
 #include <connection.h>
+#include <ctype.h>
 #include <dohclient.h>
 #include <dohutils.h>
 #include <errno.h>
@@ -15,14 +16,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #include <time.h>
+#include <unistd.h>
 
 extern connection_header connections;
 
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
-static int copy_address_info(struct sockaddr *address, char *buffer);
+static int copy_address_info(struct sockaddr *address, char *buffer_address, char *buffer_port);
+static void print_register(register_type register_wanted, connection_node *node);
+static int copy_host(char *buffer, http_target target);
 
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
@@ -84,14 +87,14 @@ int setup_passive_socket(const char *service) {
 	return passive_sock;
 }
 
-int accept_connection(int passive_sock, char * client_info) {
+int accept_connection(int passive_sock, char *buffer_address, char *buffer_port) {
 	struct sockaddr_storage clnt_addr; // Client address
 	// Set length of client address structure (in-out parameter)
 	socklen_t clnt_addrLen = sizeof(clnt_addr);
 	// Wait for a client to connect
 	int clnt_sock = accept(passive_sock, (struct sockaddr *)&clnt_addr, &clnt_addrLen);
 	if (clnt_sock < 0) {
-		logger(ERROR, "accept(): %s", strerror(errno));
+		// logger(ERROR, "accept(): %s", strerror(errno));
 		return ACCEPT_CONNECTION_ERROR;
 	}
 	// Non blocking
@@ -104,7 +107,7 @@ int accept_connection(int passive_sock, char * client_info) {
 	logger(DEBUG, "Created active socket for client with fd: %d", clnt_sock);
 
 	// guardar registro del cliente
-	if(copy_address_info((struct sockaddr *)&clnt_addr, client_info) < 0) {
+	if (copy_address_info((struct sockaddr *)&clnt_addr, buffer_address, buffer_port) < 0) {
 		logger(ERROR, "copy_address_info() failed");
 		return ACCEPT_CONNECTION_ERROR;
 	}
@@ -152,6 +155,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			} else {
 				result_bytes =
 					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
+				if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
 				if (result_bytes < 0) return result_bytes;
 
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
@@ -238,7 +242,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (result_bytes < 0) return result_bytes;
 
 			// si nunca hubo status code, lo seteamos
-			if(node->data.client_information.status_code == 0) {
+			if (node->data.client_information.status_code == 0) {
 				uint8_t *status_response = node->data.server_to_client_buffer->read;
 				// TODO: magic number -> cambiar o repensar
 				status_response[4 + 1 + 3 + 1 + 3] = '\0';
@@ -246,15 +250,13 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				char version_major = -1, version_minor = -1;
 				sscanf((const char *)status_response, "HTTP/%c.%c %hu", &version_major, &version_minor, &status_response_code);
 				// TODO: agregar chequeos o directamente mover la cantidad de bytes
-				node->data.client_information.status_code = (unsigned short) status_response_code;
+				node->data.client_information.status_code = (unsigned short)status_response_code;
 			}
-			time_t timer = time(NULL);
-			struct tm local_time = *localtime(&timer);
-    		printf("%d-%02d-%02dT%02d:%02d:%02dZ\tA\t%s\t%s\t%hu\n", local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday, local_time.tm_hour, local_time.tm_min, local_time.tm_sec, node->data.client_information.ip_and_port, node->data.parser->request.method, node->data.client_information.status_code);
+			// TODO: cada vez que se envie data con connect va a saltar el registro, lo dejamos?
+			print_register(ACCESS, node);
 
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
-
 			connections.total_proxy_to_clients_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
 			if (!buffer_can_read(node->data.server_to_client_buffer)) {
@@ -327,13 +329,13 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 
 // Leer o escribir a un socket
 ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *file) {
-	ssize_t resultBytes = 0;
-	ssize_t bytesToSend = 0;
+	ssize_t result_bytes = 0;
+	ssize_t bytes_to_send = 0;
 	switch (operation) {
 		case WRITE: // escribir a un socket
-			bytesToSend = buffer->write - buffer->read;
-			resultBytes = send(fd, buffer->read, bytesToSend, 0);
-			if (resultBytes < 0) {
+			bytes_to_send = buffer->write - buffer->read;
+			result_bytes = send(fd, buffer->read, bytes_to_send, 0);
+			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					logger_peer(peer, "send: %s", strerror(errno));
@@ -349,12 +351,12 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 				fprintf(file, "-------------------	PROXY %s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
 				fprintf(file, "%s\n", aux_buffer);
 				fprintf(file, "---------------------------------------------------------\n");
-				buffer_read_adv(buffer, resultBytes);
+				buffer_read_adv(buffer, result_bytes);
 			}
 			break;
 		case READ: // leer de un socket
-			resultBytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
-			if (resultBytes < 0) {
+			result_bytes = recv(fd, buffer->write, buffer->limit - buffer->write, 0);
+			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
 					logger_peer(peer, "handle_operation :: recv(): %s", strerror(errno));
@@ -362,7 +364,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 				}
 				// no lei nada, me desperte innecesariamente
 				return 0;
-			} else if (resultBytes == 0) {
+			} else if (result_bytes == 0) {
 				// como es no bloqueante, un 0 indica cierre prematuro de conexion
 
 				if (peer == SERVER) {
@@ -374,7 +376,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 
 			} else {
 				// logger(DEBUG, "Received info on fd: %d", fd);
-				buffer_write_adv(buffer, resultBytes);
+				buffer_write_adv(buffer, result_bytes);
 
 				// logeo, TODO: sacar para la entrega
 				uint8_t aux_buffer[BUFFER_SIZE] = {0};
@@ -386,10 +388,10 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			break;
 		default:
 			logger(ERROR, "Unknown operation on socket with fd: %d", fd);
-			resultBytes = CLOSE_CONNECTION_ERROR_CODE;
+			result_bytes = CLOSE_CONNECTION_ERROR_CODE;
 	}
 
-	return resultBytes;
+	return result_bytes;
 }
 
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
@@ -472,7 +474,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 	return 0;
 }
 
-static int copy_address_info(struct sockaddr *address, char *buffer) {
+static int copy_address_info(struct sockaddr *address, char *buffer_address, char *buffer_port) {
 
 	void *ip_address;
 	in_port_t port;
@@ -491,16 +493,79 @@ static int copy_address_info(struct sockaddr *address, char *buffer) {
 			return -1;
 	}
 
-	if (inet_ntop(address->sa_family, ip_address, buffer, INET6_ADDRSTRLEN) == NULL) {
+	if (inet_ntop(address->sa_family, ip_address, buffer_address, INET6_ADDRSTRLEN) == NULL) {
 		logger(ERROR, "inet_ntop(): %s", strerror(errno));
 		return -1;
 	} else {
-		if(port > 0) {
-			sprintf(buffer + strlen(buffer), ":%u", port);
+		if (port > 0) {
+			sprintf(buffer_port, "%u", port);
 		} else {
 			logger(DEBUG, "Invalid port number");
 			return -1;
 		}
+	}
+	return 0;
+}
+
+static void print_register(register_type register_wanted, connection_node *node) {
+	size_t actual_length = 0;
+	time_t timer = time(NULL);
+	struct tm local_time = *localtime(&timer);
+	char output[MAX_OUTPUT_REGISTER_LENGTH] = {0};
+	// only for PASSWORD register
+	char aux_buffer_schema[MAX_SCHEMA_LENGTH] = {0};
+	char *schema = node->data.parser->request.schema;
+	sprintf(output, "%d-%02d-%02dT%02d:%02d:%02dZ", local_time.tm_year + 1900, local_time.tm_mon + 1, local_time.tm_mday,
+			local_time.tm_hour, local_time.tm_min, local_time.tm_sec);
+	actual_length += strlen(output);
+	switch (register_wanted) {
+		case ACCESS:
+			sprintf(output + actual_length, "    A    [%s]:%s    %s", node->data.client_information.ip,
+					node->data.client_information.port, node->data.parser->request.method);
+			actual_length += strlen(output + actual_length);
+			if(copy_host(output + actual_length, node->data.parser->request.target) < 0) {
+				logger(ERROR, "copy_host(): failed");
+				return;
+			}
+			actual_length += strlen(output + actual_length);
+			// podria copiar el puerto en copy_host pero se podria cambiar el formato a futuro
+			sprintf(output + actual_length, ":%s    %hu\n", node->data.parser->request.target.port,
+					node->data.client_information.status_code);
+
+			break;
+		case PASSWORD:
+			for (int i = 0; schema[i] != '\0'; i++)
+				aux_buffer_schema[i] = toupper(schema[i]);
+			sprintf(output + actual_length, "    P    %s", aux_buffer_schema);
+			actual_length += strlen(output + actual_length);
+			if(copy_host(output + actual_length, node->data.parser->request.target) < 0) {
+				logger(ERROR, "copy_host(): failed");
+				return;
+			}
+			actual_length += strlen(output + actual_length);
+			// podria copiar el puerto en copy_host pero se podria cambiar el formato a futuro
+			sprintf(output + actual_length, ":%s    %s\n", node->data.parser->request.target.port,
+					node->data.parser->request.authorization.value);
+			break;
+		default:
+			break;
+	}
+	puts(output);
+}
+
+static int copy_host(char *buffer, http_target target) {
+	switch (target.host_type) {
+		case IPV4:
+		case IPV6:
+			sprintf(buffer, "    [%s]", target.request_target.ip_addr);
+			break;
+		case DOMAIN:
+			sprintf(buffer, "    %s", target.request_target.host_name);
+			break;
+		default:
+			// TODO: unkown host type
+			return -1;
+			break;
 	}
 	return 0;
 }

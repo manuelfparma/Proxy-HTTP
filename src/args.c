@@ -125,6 +125,6 @@ static void check_port(const char *service) {
 
 	if (end == service || *end != '\0' || ((service_number == LONG_MAX || service_number == LONG_MIN) && errno == ERANGE) ||
 		service_number < 0 || service_number > USHRT_MAX) {
-		logger(FATAL, "Port should be between 0 - 65535: %s", service);
+		logger(ERROR, "Port should be between 0 - 65535: %s", service);
 	}
 }

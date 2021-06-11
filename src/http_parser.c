@@ -4,6 +4,7 @@
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
+#include <base64.h>
 #define ANY -1
 #define EMPTY -2
 #define N(x) (sizeof(x) / sizeof((x)[0]))
@@ -356,7 +357,10 @@ static int parse_request_target() {
 			tr_parse_error(' ');
 		}
 		if (idx_port == -1) {
-			strcpy(current_parser->request.target.port, "80"); // ojo podria ser 443?
+			if (strncmp(current_parser->request.schema, "https", strlen("https")) == 0) {
+				strcpy(current_parser->request.target.port, "443");
+			} else
+				strcpy(current_parser->request.target.port, "80");
 		} else
 			// almaceno en la estructura el puerto
 			strcpy(current_parser->request.target.port, current_parser->request.header.value + (idx_port + 1));
@@ -390,39 +394,46 @@ static int parse_request_target() {
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
 	char *cr_lf = "\r\n";
-	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->request.header.type,
-	// current_parser->request.header.value);
-	int strcmp_host = strcmp_lower_case("Host", current_parser->request.header.type);
-	int strcmp_auth = strcmp_lower_case("Authorization", current_parser->request.header.type);
-	if (current_parser->request.target.path_type != ABSOLUTE && current_parser->data.target_status == NOT_FOUND &&
-		strcmp_host == 0) {
-		if (parse_request_target() == -1) {
-			logger(ERROR, "Request target in header Host invalid");
-			tr_parse_error(current_char);
+	int strcmp_header_type = strcmp_lower_case("Host", current_parser->request.header.type);
+	if (strcmp_header_type == 0) {
+		if (current_parser->data.target_status == NOT_FOUND && current_parser->request.target.path_type != ABSOLUTE) {
+			if (parse_request_target() == -1) {
+				logger(ERROR, "Request target in header Host invalid");
+				tr_parse_error(current_char);
+				return;
+			}
+			current_parser->data.target_status = FOUND;
+			goto COPY_HEADER;
 		}
-		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
-							   strlen(current_parser->request.header.type));
-		copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
-		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.value,
-							   strlen(current_parser->request.header.value));
-		current_parser->data.target_status = FOUND;
-		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
-	} else {
-		if (strcmp_auth == 0) {
-			// decode
-			size_t length = strlen(current_parser->request.header.value);
-			strncpy(current_parser->request.authorization.value, current_parser->request.header.value,
-							  length);
-			current_parser->request.authorization.value[length] = '\0';
-		}
-		// rellenar parse_state con header solo si no es Host(ya se copio por que soy absoluto o por que ya lo encontre)
-		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
-							   strlen(current_parser->request.header.type));
-		copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
-		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.value,
-							   strlen(current_parser->request.header.value));
-		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
+		logger(DEBUG, "Header type Host : found but already present");
+		return;
 	}
+	strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
+	if (strcmp_header_type == 0) {
+		if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {
+			size_t length = strlen(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH);
+			int base64_decoded_length = -1;
+			unsigned char *base64_decoded = unbase64(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH, length, &base64_decoded_length);
+			if(base64_decoded == NULL || base64_decoded_length == -1) {
+				logger(ERROR, "Base64 decoder failed");
+				goto COPY_HEADER;
+			}
+			memcpy(current_parser->request.authorization.value, base64_decoded, base64_decoded_length);
+			current_parser->request.authorization.value[base64_decoded_length] = '\0';
+			puts(current_parser->request.authorization.value);
+			free(base64_decoded);
+		} else {
+			logger(DEBUG, "Header type Authorization : unkown credentials");
+		}
+		goto COPY_HEADER;
+	}
+COPY_HEADER:
+	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.type,
+						   strlen(current_parser->request.header.type));
+	copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
+	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.value,
+						   strlen(current_parser->request.header.value));
+	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
 }
 
 //----------- FUNCIONES DE TRANSICION ENTRE LOS ESTADOS -----------//

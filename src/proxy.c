@@ -78,10 +78,10 @@ int main(const int argc, char **argv) {
 
 		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.clients <= MAX_CLIENTS) {
 			// almaceno el espacio para la info del cliente (ip y puerto)
-			char client_info[MAX_ADDR_BUFFER + MAX_PORT_LENGTH + 2] = {0};
-
+			char client_ip[MAX_IP_LENGTH + 1] = {0};
+			char client_port[MAX_PORT_LENGTH + 1] = {0};
 			// establezco conexión con cliente en socket activo
-			int client_sock = accept_connection(passive_sock, client_info);
+			int client_sock = accept_connection(passive_sock, client_ip, client_port);
 			if (client_sock > -1) {
 				// la consulta DNS para la conexión con el servidor se realiza asincronicamente,
 				// esto imposibilita la creación de un socket activo con el servidor hasta que dicha consulta
@@ -90,7 +90,8 @@ int main(const int argc, char **argv) {
 				connection_node *new_connection = setup_connection_resources(client_sock, -1);
 				if (new_connection != NULL) {
 					// cargo los datos del cliente
-					strcpy(new_connection->data.client_information.ip_and_port, client_info);
+					strcpy(new_connection->data.client_information.ip, client_ip);
+					strcpy(new_connection->data.client_information.port, client_port);
 
 					// acepto lecturas del socket
 					FD_SET(client_sock, &read_fd_set[BASE]);
