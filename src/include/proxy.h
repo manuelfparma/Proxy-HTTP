@@ -14,6 +14,8 @@ typedef enum {
 	BAD_REQUEST_ERROR = -20,
 	RECV_ERROR_CODE, // fallo el receive por algo no relacionado al que socket sea no bloqueante
 	SEND_ERROR_CODE, // fallo el send por algo no relacionado al que socket sea no bloqueante
+	DOH_SEND_ERROR_CODE,
+	DOH_TRY_ANOTHER_REQUEST,
 	ACCEPT_CONNECTION_ERROR,
 	SETUP_CONNECTION_ERROR_CODE,
 	CLOSE_CONNECTION_ERROR_CODE,

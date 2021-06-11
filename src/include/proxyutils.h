@@ -11,8 +11,8 @@
 #define FD_SET_ARRAY_SIZE 2
 
 #include <connection.h>
-#include <stddef.h>
 #include <proxy.h>
+#include <stddef.h>
 
 int setup_passive_socket(const char *service);
 
@@ -20,17 +20,17 @@ int accept_connection(int passive_sock);
 
 typedef enum { WRITE, READ } operation;
 
-int handle_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
-					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], peer peer);
+int handle_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set writeFdSet[FD_SET_ARRAY_SIZE],
+					  peer peer);
 
 ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *log_file);
 
 int setup_connection(connection_node *node, fd_set *writeFdSet);
 
-int handle_client_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
-int handle_server_connection(connection_node *node, connection_node *prev, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
 #endif
