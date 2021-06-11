@@ -30,10 +30,12 @@ typedef struct {
 	char *doh_host;
 	char *doh_port;
 	char *doh_path;
+	char *doh_query;
 	char *proxy_port;
 	char *management_port;
 	char *proxy_ip;
 	char *management_ip;
+	char password_dissector; 	// 0 es apagado, 1 es encendido
 } arguments;
 
 #endif

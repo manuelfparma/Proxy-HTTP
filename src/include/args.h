@@ -8,6 +8,7 @@ typedef enum {
     DOH_PORT,
     DOH_HOST,
     DOH_PATH,
+    DOH_QUERY,
 } long_opts_values;
 
 void parse_args(const int argc, char **argv, arguments *args);
