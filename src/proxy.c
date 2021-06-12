@@ -45,10 +45,21 @@ int main(const int argc, char **argv) {
 	connections.proxy_log = fopen(name, "w+");
 	if (connections.proxy_log == NULL) { logger(FATAL, "fopen: %s", strerror(errno)); }
 	logger(DEBUG, "Proxy file log with name %s created", name);
+	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to "
+								   "current_clients\tBytes through connect\n");
 
-	fprintf(
-		connections.proxy_log,
-		"Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to clients\tBytes through connect\n");
+	connections.stdout_buffer = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (connections.stdout_buffer == NULL) {
+		free(connections.proxy_log);
+		logger(FATAL, "malloc(): %s", strerror(errno));
+	}
+	connections.stdout_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (connections.stdout_buffer->data == NULL) {
+		free(connections.proxy_log);
+		free(connections.stdout_buffer);
+		logger(FATAL, "malloc(): %s", strerror(errno));
+	}
+	buffer_init(connections.stdout_buffer, BUFFER_SIZE, connections.stdout_buffer->data);
 
 	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
 	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
@@ -58,6 +69,8 @@ int main(const int argc, char **argv) {
 		FD_ZERO(&read_fd_set[i]);
 	}
 
+	// seteo de salida estandar (escritura) y socket pasivo (lectura)
+	FD_SET(STDOUT_FILENO, &write_fd_set[BASE]);
 	FD_SET(passive_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
@@ -76,8 +89,19 @@ int main(const int argc, char **argv) {
 		write_fd_set[TMP] = write_fd_set[BASE];
 
 		ready_fds = pselect(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL, &sig_mask);
-
-		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.clients <= MAX_CLIENTS) {
+		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
+			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read, connections.stdout_buffer->write - connections.stdout_buffer->read );
+			if (result_bytes < 0) {
+				if (errno != EWOULDBLOCK && errno != EAGAIN) {
+					// error inesperado, no intento escribirle mas
+					FD_CLR(STDOUT_FILENO, &write_fd_set[BASE]);
+				}
+			} else {
+				buffer_read_adv(connections.stdout_buffer, result_bytes);
+			}
+			ready_fds--;
+		}
+		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients <= MAX_CLIENTS) {
 			// almaceno el espacio para la info del cliente (ip y puerto)
 			char client_ip[MAX_IP_LENGTH + 1] = {0};
 			char client_port[MAX_PORT_LENGTH + 1] = {0};
@@ -108,7 +132,6 @@ int main(const int argc, char **argv) {
 
 		int handle;
 		// itero por todas las conexiones cliente-servidor
-		// TODO: Emprolijar
 		for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0; node = node->next) {
 			switch (node->data.connection_state) {
 				case SENDING_DNS:
@@ -145,7 +168,6 @@ int main(const int argc, char **argv) {
 					previous = node;
 			}
 		}
-		// write_proxy_statistics();
 	}
 }
 
@@ -153,15 +175,11 @@ int main(const int argc, char **argv) {
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer) {
 	switch (error_code) {
-		case SERVER_CLOSE_READ_ERROR_CODE:
-			node->data.connection_state = SERVER_READ_CLOSE;
-			close_server_connection(node, read_fd_set, write_fd_set);
-			return 0;
-		case CLIENT_CLOSE_READ_ERROR_CODE:
-			// dejo de leer del cliente
-			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
-			node->data.connection_state = CLIENT_READ_CLOSE;
-			return 0;
+		case BAD_REQUEST_ERROR:
+			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
+			break;
+			break;
 		case RECV_ERROR_CODE:
 			// dio error el receive, lo dejamos para intentar denuevo luego
 			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,
@@ -191,16 +209,20 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			logger(ERROR, "Setup connection failed for client_fd: %d", node->data.server_sock);
 			break;
 		case CLOSE_CONNECTION_ERROR_CODE:
-			
 			break;
 		case BROKEN_PIPE_ERROR_CODE:
 			logger(DEBUG, "Broken pipe for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
-		case INVALID_REQUEST_ERROR_CODE:
-			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
-			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
-			break;
+		case SERVER_CLOSE_READ_ERROR_CODE:
+			node->data.connection_state = SERVER_READ_CLOSE;
+			close_server_connection(node, read_fd_set, write_fd_set);
+			return 0;
+		case CLIENT_CLOSE_READ_ERROR_CODE:
+			// dejo de leer del cliente
+			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
+			node->data.connection_state = CLIENT_READ_CLOSE;
+			return 0;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");
 			break;
@@ -267,8 +289,8 @@ static void find_max_id() {
 void write_proxy_statistics() {
 	ssize_t proxy_to_origins = connections.statistics.total_proxy_to_origins_bytes;
 	ssize_t proxy_to_clients = connections.statistics.total_proxy_to_clients_bytes;
-	fprintf(connections.proxy_log, "%zd\t\t\t%d\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.statistics.total_connections,
-			connections.clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients,
+	fprintf(connections.proxy_log, "%zd\t\t\t%ld\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.statistics.total_connections,
+			connections.current_clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients,
 			connections.statistics.total_connect_method_bytes);
 }
 

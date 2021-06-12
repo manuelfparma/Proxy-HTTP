@@ -146,7 +146,7 @@ void add_to_connections(connection_node *node) {
 		connections.first = node;
 	}
 	connections.statistics.total_connections++;
-	connections.clients++;
+	connections.current_clients++;
 }
 
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
@@ -196,5 +196,5 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	FD_CLR(client_fd, &write_fd_set[BASE]);
 	close(client_fd);
 	write_proxy_statistics();
-	connections.clients--;
+	connections.current_clients--;
 }

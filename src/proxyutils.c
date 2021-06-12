@@ -510,7 +510,7 @@ static int copy_address_info(struct sockaddr *address, char *buffer_address, cha
 }
 
 static void print_register(register_type register_wanted, connection_node *node) {
-	size_t actual_length = 0;
+	ssize_t actual_length = 0;
 	time_t timer = time(NULL);
 	struct tm local_time = *localtime(&timer);
 	char output[MAX_OUTPUT_REGISTER_LENGTH] = {0};
@@ -552,7 +552,10 @@ static void print_register(register_type register_wanted, connection_node *node)
 		default:
 			break;
 	}
-	puts(output);
+	actual_length += strlen(output + actual_length);
+	sprintf((char *) connections.stdout_buffer->write, "%s", output);
+	buffer_write_adv(connections.stdout_buffer, actual_length);
+	connections.stdout_buffer->write[0] = '\0';
 }
 
 static int copy_host(char *buffer, http_target target) {
