@@ -14,7 +14,7 @@
 #include <proxy.h>
 #include <stddef.h>
 
-int setup_passive_socket(const char *service);
+int setup_passive_socket();
 
 int accept_connection(int passive_sock);
 

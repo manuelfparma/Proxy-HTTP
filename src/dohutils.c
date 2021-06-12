@@ -42,8 +42,8 @@ int add_ip_address(connection_node *node, int addr_family, void *addr) {
 	addr_info_node *new = malloc(sizeof(addr_info_node));
 	if (new == NULL) goto EXIT;
 
-	long parsed_port = strtol(node->data.parser->request.target.port, NULL, 10);
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
+	uint16_t parsed_port;
+	if(!parse_port(node->data.parser->request.target.port, &parsed_port)) {
 		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
 		goto FREE_NODE;
 	}

@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 // TODO: Comentar funciones
-int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh_addr, char *doh_port);
+int connect_to_doh_server(connection_node *node, fd_set *write_fd_set);
 
 bool is_connected_to_doh(connection_node *node);
 

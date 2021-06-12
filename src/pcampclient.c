@@ -18,13 +18,12 @@
 // DONE: 3- 	 pedis por STDIN si quiere configurar o consultar registros de acceso (multiple choice)
 // DONE: 4- 	 pedis por STDIN que cosa quiere consultar / configurar
 // DONE: 5- 	 pedis parametro de config
-// TODO: 6- 	 armas paquete en binario y lo envias
+// DONE: 6- 	 armas paquete en binario y lo envias
 // TODO: 7- 	 loader (print de '.' cada segundo)
 // TODO: 8.1-  si no recibis respuesta en 3 seg -> retransmitis
 // TODO: 8.2 - a los 10 seg timeout
 // TODO: 9 -	 recibis la respuesta, la parseas, y la mostras
 // TODO: 10 -  repetir 3
-
 
 static long get_option(long options_count, char **options_strings, const char *instruction);
 static bool is_option_valid(long options_count, char *input, ssize_t read_bytes, long *parsed_option);
@@ -49,25 +48,25 @@ static uint8_t io_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 int main(const int argc, char **argv) {
 	current_addr = parse_pcamp_args(argc, argv);
 
-	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n\n ");
+	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n\n");
 
 	memset(&current_request, 0, sizeof(current_request));
 	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
 	get_passphrase();
 
-	uint8_t method = get_option(METHOD_COUNT, method_strings, "Select a method:\n");
+	uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
 
 	uint8_t type;
 	ssize_t packet_size = 0;
 	char input[PCAMP_BUFFER_SIZE + 1];
 	switch (method) {
-		case QUERY:
-			type = get_option(QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
+		case PCAMP_QUERY:
+			type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
 			packet_size = prepare_query_request(type);
 			break;
-		case CONFIG:
-			type = get_option(CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
+		case PCAMP_CONFIG:
+			type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
 			get_config_value(type, input);
 			packet_size = prepare_config_request(type, input);
 			break;
@@ -101,10 +100,9 @@ static void get_passphrase() {
 
 	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
 
-	SHA256_CTX sha256;
-	SHA256_Init(&sha256);
-	SHA256_Update(&sha256, input, read_bytes);
-	SHA256_Final(current_request.authorization, &sha256);
+	read_bytes--; // Para ignorar el \n
+
+	sha256_digest(input, current_request.authorization, read_bytes);
 }
 
 static long get_option(long options_count, char **options_strings, const char *instruction) {
@@ -122,7 +120,7 @@ static long get_option(long options_count, char **options_strings, const char *i
 		print_prompt();
 
 		read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
-		input[read_bytes] = 0;
+		input[--read_bytes] = 0;
 
 		if (is_option_valid(options_count, input, read_bytes, &parsed_option)) is_input_valid = true;
 		else
@@ -150,7 +148,10 @@ static bool is_option_valid(long options_count, char *input, ssize_t read_bytes,
 	return *parsed_option < options_count && *parsed_option >= 0;
 }
 
-static void print_prompt() { printf("→ "); }
+static void print_prompt() {
+	printf("→ ");
+	fflush(stdout);
+}
 
 static void get_config_value(config_type type, char *value) {
 	bool is_input_valid = false;
@@ -226,6 +227,7 @@ static bool parse_sniffing(char *value) {
 	return true;
 }
 
+//	No llamamos a la funcion parse_ip_address de netutils.h porque nos armamos un formato especial
 static bool parse_doh_addr(char *value) {
 	struct in_addr ipv4;
 	struct in6_addr ipv6;
@@ -248,11 +250,11 @@ static bool parse_doh_addr(char *value) {
 }
 
 static bool parse_doh_port(char *value) {
-	long parsed_port = strtol(value, NULL, 0);
+	uint16_t aux;
 
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) return false;
+	if(!parse_port(value, &aux))
+		return false;
 
-	uint16_t aux = parsed_port;
 	copy_config_value(DOH_PORT_CONFIG, &aux);
 
 	return true;
@@ -295,8 +297,8 @@ static void copy_config_value(config_type type, void *value) {
 static ssize_t prepare_query_request(query_type type) {
 	ssize_t i = 0;
 
-	io_buffer[i++] = PCAMP_VERSION;
-	io_buffer[i++] = (((uint8_t)(QUERY)) << 1) + REQUEST;
+	io_buffer[i++] = CLIENT_PCAMP_VERSION;
+	io_buffer[i++] = (((uint8_t)(PCAMP_QUERY)) << 1) + PCAMP_REQUEST;
 	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
@@ -313,8 +315,8 @@ static ssize_t prepare_query_request(query_type type) {
 static ssize_t prepare_config_request(config_type type, char *value) {
 	ssize_t i = 0;
 
-	io_buffer[i++] = PCAMP_VERSION;
-	io_buffer[i++] = (((uint8_t)(CONFIG)) << 1) + REQUEST;
+	io_buffer[i++] = CLIENT_PCAMP_VERSION;
+	io_buffer[i++] = (((uint8_t)(PCAMP_CONFIG)) << 1) + PCAMP_REQUEST;
 	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;

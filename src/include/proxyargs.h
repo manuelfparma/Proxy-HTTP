@@ -1,7 +1,7 @@
-#ifndef __ARGS_H__
-#define __ARGS_H__
+#ifndef ARGS_H
+#define ARGS_H
 
-#include <proxy.h>
+#include <netutils.h>
 
 typedef enum {
     DOH_IP,
@@ -10,6 +10,20 @@ typedef enum {
     DOH_PATH,
 } long_opts_values;
 
-void parse_proxy_args(int argc, char **argv, proxy_arguments *args);
+typedef struct {
+	char *doh_ip;
+	char *doh_host;
+	char *doh_port;
+	char *doh_path;
+	char *proxy_port;
+	char *management_port;
+	char *proxy_ip;
+	char *management_ip;
+	addr_info doh_addr_info;
+	addr_info proxy_addr_info;
+	addr_info management_addr_info;
+} proxy_arguments;
+
+void parse_proxy_args(int argc, char **argv);
 
 #endif

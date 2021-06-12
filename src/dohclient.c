@@ -1,6 +1,6 @@
-#include <dohdata.h>
 #include <arpa/inet.h>
 #include <dohclient.h>
+#include <dohdata.h>
 #include <dohparser.h>
 #include <dohsender.h>
 #include <dohutils.h>
@@ -9,19 +9,19 @@
 #include <logger.h>
 #include <netinet/in.h>
 #include <netutils.h>
+#include <proxyargs.h>
 #include <proxyutils.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 
-#define HOST_NAME "foo.leak.com.ar" // TODO este valor viene por parametro al iniciar el server
-
 extern connection_header connections;
 
+extern proxy_arguments args;
+
+// path y host se definen en args
 http_dns_request doh_request_template = {.method = "POST",
-										 .path = "/dns-query",
 										 .http_version = "1.1",
-										 .host = "localhost",
 										 .accept = "application/dns-message",
 										 .content_type = "application/dns-message",
 										 .content_length = 0,
@@ -41,8 +41,14 @@ dns_header dns_header_template = {.id = 0,
 								  .nscount = 0,
 								  .arcount = 0};
 
-int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh_addr, char *doh_port) {
-	int doh_sock = socket(AF_INET, SOCK_STREAM, 0);
+int connect_to_doh_server(connection_node *node, fd_set *write_fd_set) {
+	//	Levanto estos valores de los argumentos del programa (o los defaults)
+	doh_request_template.path = args.doh_path;
+	doh_request_template.host = args.doh_host;
+
+	addr_info doh_addr = args.doh_addr_info;
+
+	int doh_sock = socket(doh_addr.addr.sa_family, SOCK_STREAM, 0);
 
 	if (doh_sock < 0) {
 		logger(ERROR, "connect_to_doh_server :: socket(): %s", strerror(errno));
@@ -54,23 +60,8 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 		goto ERROR;
 	}
 
-	long parsed_port = strtol(doh_port, NULL, 10);
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
-		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
-		goto ERROR;
-	}
-
-	struct sockaddr_in doh_addr_in;
-	doh_addr_in.sin_family = AF_INET;
-	doh_addr_in.sin_port = htons(parsed_port);
-
-	// TODO: esta llamada es para IPv4, para IPv6 se usa AF_INET6 y otra estructura
-	if (inet_pton(AF_INET, doh_addr, &doh_addr_in.sin_addr.s_addr) != 1) {
-		logger(ERROR, "connect_to_doh_server(): bad IP address: %s", strerror(errno));
-		goto ERROR;
-	}
-
-	if (connect(doh_sock, (struct sockaddr *)&doh_addr_in, sizeof(doh_addr_in)) == -1 && errno != EINPROGRESS) {
+	socklen_t len = (doh_addr.addr.sa_family == AF_INET6) ? sizeof(doh_addr.in6) : sizeof(doh_addr.in4);
+	if (connect(doh_sock, &doh_addr.addr, len) == -1 && errno != EINPROGRESS) {
 		logger(ERROR, "connect(): %s", strerror(errno));
 		goto ERROR;
 	}

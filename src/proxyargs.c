@@ -1,31 +1,24 @@
+#include <arpa/inet.h>
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h> /* LONG_MIN et al */
 #include <logger.h>
-#include <proxy.h>
+#include <netutils.h>
 #include <proxyargs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> /* memset */
 
-#define NUM_BASE 10
-
 static void version();
 static void usage(const char *program_name);
-static void check_port(const char *service);
+static uint16_t check_port(const char *service);
 
-void parse_proxy_args(const int argc, char **argv, proxy_arguments *args) {
+proxy_arguments args = {
+	// seteo defaults
+	.doh_ip = "127.0.0.1", .doh_host = "localhost",	  .doh_port = "8053",	 .doh_path = "/getnsrecord",
+	.proxy_port = "8080",  .management_port = "9090", .proxy_ip = "0.0.0.0", .management_ip = "127.0.0.1"};
 
-	// cargo todo en cero y seteo defaults
-	memset(args, 0, sizeof(*args));
-	args->doh_ip = "127.0.0.1";
-	args->doh_host = "localhost";
-	args->doh_port = "8053";
-	args->doh_path = "/getnsrecord";
-	args->proxy_port = "8080";
-	args->management_port = "9090";
-	args->proxy_ip = "0.0.0.0";
-	args->management_ip = "127.0.0.1";
+void parse_proxy_args(const int argc, char **argv) {
 
 	// variables para getopt_long()
 	int c, long_opts_idx;
@@ -50,32 +43,34 @@ void parse_proxy_args(const int argc, char **argv, proxy_arguments *args) {
 				version();
 				break;
 			case 'p':
-				check_port(optarg);
-				args->proxy_port = optarg;
+				// check_port(optarg);
+				args.proxy_port = optarg;
 				break;
 			case 'o':
-				check_port(optarg);
-				args->management_port = optarg;
+				// check_port(optarg);
+				args.management_port = optarg;
 				break;
 			case 'l':
-				args->proxy_ip = optarg;
+                // check_addr(optarg);
+				args.proxy_ip = optarg;
 				break;
 			case 'L':
-				args->management_ip = optarg;
+                // check_addr(optarg);
+				args.management_ip = optarg;
 				break;
 			case DOH_IP:
-				args->doh_ip = optarg;
+				// check_addr(optarg);
+				args.doh_ip = optarg;
 				break;
 			case DOH_HOST:
-				check_port(optarg);
-				args->doh_host = optarg;
+				args.doh_host = optarg;
 				break;
 			case DOH_PORT:
-				check_port(optarg);
-				args->doh_port = optarg;
+				// check_port(optarg);
+				args.doh_port = optarg;
 				break;
 			case DOH_PATH:
-				args->doh_path = optarg;
+				args.doh_path = optarg;
 			default:
 				break;
 		}
@@ -89,6 +84,31 @@ void parse_proxy_args(const int argc, char **argv, proxy_arguments *args) {
 		}
 		exit(EXIT_FAILURE);
 	}
+
+	// Validaciones + asisgnar a addr_info
+	// Puerto y direccion donde escucha el proxy
+	uint16_t proxy_port = check_port(args.proxy_port);
+	addr_info proxy_addr;
+	if(!(parse_ip_address(args.proxy_ip, proxy_port, &proxy_addr)))
+		logger(FATAL, "Bad IP address for proxy");
+	
+	args.proxy_addr_info = proxy_addr; 
+
+	// Puerto y direccion donde escucha el servidor para monitoreo
+	uint16_t management_port = check_port(args.management_port);
+	addr_info management_addr;
+	if(!(parse_ip_address(args.management_ip, management_port, &management_addr)))
+		logger(FATAL, "Bad IP address for management");
+
+	args.management_addr_info = management_addr;
+
+	// Puerto y direccion donde se encuentra el servidor DoH
+	uint16_t doh_port = check_port(args.doh_port);
+	addr_info doh_addr;
+	if(!(parse_ip_address(args.doh_ip, doh_port, &doh_addr)))
+		logger(FATAL, "Bad IP address for DoH server");
+
+	args.doh_addr_info = doh_addr;
 }
 
 static void version() {
@@ -119,12 +139,11 @@ static void usage(const char *program_name) {
 	exit(EXIT_SUCCESS);
 }
 
-static void check_port(const char *service) {
-	char *end = 0;
-	const long service_number = strtol(service, &end, NUM_BASE);
+static uint16_t check_port(const char *service) {
+	uint16_t port;
 
-	if (end == service || *end != '\0' || ((service_number == LONG_MAX || service_number == LONG_MIN) && errno == ERANGE) ||
-		service_number < 0 || service_number > USHRT_MAX) {
+	if(!parse_port(service, &port))
 		logger(FATAL, "Port should be between 0 - 65535: %s", service);
-	}
+
+	return port;
 }

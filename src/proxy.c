@@ -14,8 +14,6 @@
 #include <sys/select.h>
 #include <unistd.h>
 
-size_t breakpoint = 1;
-
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
@@ -31,13 +29,10 @@ connection_header connections = {0};
 
 int main(const int argc, char **argv) {
 
-	proxy_arguments args;
-	// TODO: utilizarlos
-	parse_proxy_args(argc, argv, &args);
+	// TODO: utilizar args
+	parse_proxy_args(argc, argv);
 
-	char *proxy_port = args.proxy_port;
-
-	int passive_sock = setup_passive_socket(proxy_port);
+	int passive_sock = setup_passive_socket();
 	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");
 
 	const char *name = "./logs/proxy_log";

@@ -81,25 +81,13 @@ static addr_info check_info(const char *proxy_ip, const char *proxy_port) {
 	struct sockaddr_in addr_in4;
 	struct sockaddr_in6 addr_in6;
 
-	long parsed_port = strtol(proxy_port, NULL, 10);
+	uint16_t port;
 
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
+	if(!parse_port(proxy_port, &port))
 		logger(FATAL, "Invalid port number. Must be an integer between 0 and 65535. Exiting...\n");
-	}
 
-	addr_in4.sin_port = addr_in6.sin6_port = htons(parsed_port);
-
-	if (inet_pton(AF_INET, proxy_ip, &addr_in4.sin_addr.s_addr) == 1) {
-		// es ipv4
-		addr_in4.sin_family = AF_INET;
-		args_addr.in4 = addr_in4;
-	} else if (inet_pton(AF_INET6, proxy_ip, &addr_in6.sin6_addr) == 1) {
-		// es ipv6
-		addr_in6.sin6_family = AF_INET6;
-		args_addr.in6 = addr_in6;
-	} else {
+	if(!parse_ip_address(proxy_ip, port, &args_addr))
 		logger(FATAL, "Invalid IP address. Exiting...\n");
-	}
 
 	return args_addr;
 }

@@ -3,9 +3,10 @@
 
 #include <openssl/sha.h>
 #include <stdint.h>
+#include <unistd.h>
 
-#define PCAMP_VERSION 1
 #define MAX_PCAMP_PACKET_LENGTH 1024
+#define PCAMP_HEADER_LENGTH 4
 #define MAX_PROXY_CLIENTS 510
 #define MIN_PROXY_CLIENTS 0
 #define MAX_PROXY_IO_BUFFER_SIZE 65535
@@ -15,8 +16,8 @@
 #define PCAMP_IPV4 0
 #define PCAMP_IPV6 1
 
-typedef enum { QUERY, CONFIG, METHOD_COUNT } pcamp_method;
-typedef enum { REQUEST, RESPONSE } pcamp_op;
+typedef enum { PCAMP_QUERY, PCAMP_CONFIG, PCAMP_METHOD_COUNT } pcamp_method;
+typedef enum { PCAMP_REQUEST, PCAMP_RESPONSE } pcamp_op;
 
 typedef enum {
 	BUFFER_SIZE_CONFIG,
@@ -25,7 +26,7 @@ typedef enum {
 	DOH_ADDR_CONFIG,
 	DOH_PORT_CONFIG,
 	DOH_HOSTNAME_CONFIG,
-	CONFIG_TYPE_COUNT
+	PCAMP_CONFIG_TYPE_COUNT
 } config_type;
 
 typedef enum {
@@ -35,10 +36,23 @@ typedef enum {
 	BYTES_TO_SERVER_QUERY,
 	BYTES_TO_CLIENT_QUERY,
 	BYTES_VIA_CONNECT_QUERY,
-	QUERY_TYPE_COUNT
+	PCAMP_QUERY_TYPE_COUNT
 } query_type;
 
-ssize_t config_value_size[CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
+typedef enum {
+	PCAMP_SUCCESS = 0,
+	PCAMP_AUTH_ERROR,
+	PCAMP_UNSUPPORTED_VERSION,
+	PCAMP_UNSUPPORTED_QUERY_TYPE,
+	PCAMP_UNSUPPORTED_CONFIG_TYPE,
+	PCAMP_INVALID_CONFIG_VALUE,
+	PCAMP_BAD_REQUEST,
+	PCAMP_INTERNAL_SERVER_ERROR
+} pcamp_status_code;
+
+#define MAX_CONFIG_VALUE_SIZE 256
+
+ssize_t config_value_size[PCAMP_CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
 
 typedef struct {
 	uint8_t version;
@@ -67,5 +81,7 @@ typedef struct {
 typedef struct {
 	uint8_t status_code;
 } pcamp_config_response;
+
+void sha256_digest(void *src, void *dest, size_t bytes);
 
 #endif

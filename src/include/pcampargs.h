@@ -4,7 +4,7 @@
 #include <netutils.h>
 
 #define PROXY_IP "127.0.0.1"
-#define PROXY_PORT "8080"
+#define PROXY_PORT "9090"
 
 addr_info parse_pcamp_args(int argc, char **argv);
 
