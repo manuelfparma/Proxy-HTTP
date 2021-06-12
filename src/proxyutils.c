@@ -150,14 +150,15 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (handle < 0) return handle;
 		}
 
-		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD &&
+			node->data.parser->data.request_status != PARSE_CONNECT_METHOD_POP3) {
 			if (!buffer_can_read(node->data.parser->data.parsed_request)) {
 				FD_CLR(fd_server, &write_fd_set[BASE]);
 			} else {
 				result_bytes =
 					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
 				if (result_bytes < 0) return result_bytes;
-				
+
 				if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
 
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
@@ -172,9 +173,22 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (!buffer_can_read(node->data.client_to_server_buffer)) {
 				FD_CLR(fd_server, &write_fd_set[BASE]);
 			} else {
+				// pasar a switch
+				// TODO: pensar alternativa
+				if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3 &&
+					node->data.parser->connect->state != POP3_PS_END) {
+					strncpy(node->data.parser->connect->pop3_read_buffer, (char *)node->data.client_to_server_buffer->read,
+							node->data.client_to_server_buffer->write - node->data.client_to_server_buffer->read);
+				}
 				result_bytes =
 					handle_operation(fd_server, node->data.client_to_server_buffer, WRITE, SERVER, node->data.log_file);
 				if (result_bytes < 0) return result_bytes;
+
+				if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3 &&
+					node->data.parser->connect->state != POP3_PS_END) {
+					node->data.parser->connect->pop3_read_buffer[result_bytes] = '\0';
+					// TODO LLAMAR AL PARSER POP3
+				}
 
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 				if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
@@ -207,30 +221,35 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		} else {
 			result_bytes = handle_operation(fd_client, node->data.client_to_server_buffer, READ, CLIENT, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+			switch (node->data.parser->data.request_status) {
+				case PARSE_CONNECT_METHOD_POP3:
+					// parsear
+				case PARSE_CONNECT_METHOD:
+					if (buffer_can_read(node->data.client_to_server_buffer) && fd_server != -1)
+						FD_SET(fd_server, &write_fd_set[BASE]);
+					break;
+				default:
+					parse_request(node->data.parser, node->data.client_to_server_buffer);
+					if (node->data.parser->data.parser_state == PS_ERROR) return BAD_REQUEST_ERROR;
 
-			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD) {
-				if (buffer_can_read(node->data.client_to_server_buffer) && fd_server != -1)
-					FD_SET(fd_server, &write_fd_set[BASE]);
-			} else {
-				parse_request(node->data.parser, node->data.client_to_server_buffer);
-				if (node->data.parser->data.parser_state == PS_ERROR) return BAD_REQUEST_ERROR;
-
-				if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
-					// seteo los argumentos necesarios para conectarse al server
-					if (node->data.parser->request.target.host_type == DOMAIN) {
-						// TODO: Obtener doh addr, hostname y port de args
-						if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
-							logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
-							return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
+					if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
+						// seteo los argumentos necesarios para conectarse al server
+						if (node->data.parser->request.target.host_type == DOMAIN) {
+							// TODO: Obtener doh addr, hostname y port de args
+							if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
+								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
+								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
+							}
+						} else {
+							int connect_ret = set_node_request_target(node, write_fd_set);
+							if (connect_ret < 0) return connect_ret;
 						}
-					} else {
-						int connect_ret = set_node_request_target(node, write_fd_set);
-						if (connect_ret < 0) return connect_ret;
 					}
-				}
-				// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-				if (buffer_can_read(node->data.parser->data.parsed_request) && fd_server != -1)
-					FD_SET(fd_server, &write_fd_set[BASE]);
+					// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
+					if (buffer_can_read(node->data.parser->data.parsed_request) && fd_server != -1)
+						FD_SET(fd_server, &write_fd_set[BASE]);
+
+					break;
 			}
 		}
 		return_value++;
@@ -254,7 +273,9 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// TODO: agregar chequeos o directamente mover la cantidad de bytes
 				node->data.client_information.status_code = (unsigned short)status_response_code;
 			}
-			if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) print_register(ACCESS, node);
+			if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD &&
+				node->data.parser->data.request_status != PARSE_CONNECT_METHOD_POP3)
+				print_register(ACCESS, node);
 
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
@@ -459,7 +480,8 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 		free_doh_resources(node);
 		// en caso que el server mande un primer mensaje, quiero leerlo
 		FD_SET(node->data.server_sock, &read_fd_set[BASE]);
-		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) {
+		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD &&
+			node->data.parser->data.request_status != PARSE_CONNECT_METHOD_POP3) {
 			// ya que estoy conectado, me fijo si quedo algo para parsear
 			parse_request(node->data.parser, node->data.client_to_server_buffer);
 			if (node->data.parser->data.parser_state == PS_ERROR) { return BAD_REQUEST_ERROR; }
@@ -471,6 +493,20 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			node->data.client_information.status_code = 200;
 			print_register(ACCESS, node);
 			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
+			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
+				node->data.parser->connect = malloc(sizeof(pop3_connect_parser));
+				if (node->data.parser->connect == NULL) {
+					node->data.parser->data.request_status =
+						PARSE_CONNECT_METHOD; // no se van a poder guardar las credenciales pero permite la comunicacion
+				} else {
+					node->data.parser->connect->pop3_read_buffer = malloc(BUFFER_SIZE);
+					if (node->data.parser->connect->pop3_read_buffer == NULL) {
+						free(node->data.parser->connect);
+						node->data.parser->data.request_status =
+							PARSE_CONNECT_METHOD; // no se van a poder guardar las credenciales pero permite la comunicacion
+					}
+				}
+			}
 		}
 	}
 	return 0;
@@ -553,7 +589,7 @@ static void print_register(register_type register_wanted, connection_node *node)
 			break;
 	}
 	actual_length += strlen(output + actual_length);
-	sprintf((char *) connections.stdout_buffer->write, "%s", output);
+	sprintf((char *)connections.stdout_buffer->write, "%s", output);
 	buffer_write_adv(connections.stdout_buffer, actual_length);
 	connections.stdout_buffer->write[0] = '\0';
 }

@@ -3,8 +3,8 @@
 
 #include <buffer.h>
 #include <netinet/in.h>
+#include <pop3_connect_parser.h>
 #include <stdint.h>
-
 typedef enum {
 	NOT_FOUND,
 	FOUND,
@@ -20,8 +20,8 @@ typedef enum {
 	PARSE_BODY_INCOMPLETE,
 	PARSE_END,
 	PARSE_CONNECT_METHOD,
+	PARSE_CONNECT_METHOD_POP3,
 } http_request_status_code;
-// deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
 
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
@@ -40,9 +40,10 @@ typedef enum {
 } http_request_constraints;
 
 typedef enum {
-	EMPTY_VERSION = -1,
-
-} constants;
+	ANY = -1,
+	EMPTY = -2,
+	EMPTY_VERSION = -3,
+} http_constants;
 
 typedef enum {
 	PS_METHOD,
@@ -125,8 +126,9 @@ typedef struct {
 } http_parser_data;
 
 typedef struct {
-	http_request_data request; // datos de la request parseada
-	http_parser_data data;	   // datos de la maquina
+	http_request_data request;	 // datos de la request parseada
+	http_parser_data data;		 // datos de la maquina
+	pop3_connect_parser *connect; // datos de la maquina en caso que haya un connect al protocolo POP
 } http_parser;
 
 int parse_request(http_parser *request, buffer *read_buffer);

@@ -173,6 +173,10 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 		free(node->data.client_to_server_buffer);
 		free(node->data.parser->data.parsed_request->data);
 		free(node->data.parser->data.parsed_request);
+		if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
+			free(node->data.parser->connect->pop3_read_buffer);
+			free(node->data.parser->connect);
+		}
 		free(node->data.parser);
 		FD_CLR(server_fd, &read_fd_set[BASE]);
 		FD_CLR(server_fd, &write_fd_set[BASE]);

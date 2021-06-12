@@ -4,6 +4,7 @@
 #include <connection.h>
 #include <proxy.h>
 #include <stddef.h>
+#include <stdio.h>
 
 // Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select
 typedef enum {

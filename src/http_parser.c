@@ -5,8 +5,7 @@
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
-#define ANY -1
-#define EMPTY -2
+
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 #define DISTANCE 'a' - 'A'
@@ -16,12 +15,13 @@ extern connection_header connections;
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
 static void parse_header_line(char current_char);
-static void copy_port();
+static void check_port();
 static int strcmp_lower_case(char *str1, char *str2);
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
 static void tr_solve_relative_request_target(char current_char);
+static void tr_solve_port_request_target(char current_char);
 static void tr_solve_request_target(char current_char);
 static void tr_line_ended(char current_char);
 static void tr_incomplete_header(char current_char);
@@ -142,7 +142,7 @@ static const http_parser_state_transition ST_PORT[4] = {
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_HTTP_VERSION,
-	 .transition = tr_solve_request_target},
+	 .transition = tr_solve_port_request_target},
 	{.when = '/',
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -287,8 +287,8 @@ static void copy_to_request_buffer_request_target() {
 	}
 }
 
-static void copy_port() {
-	if (strlen(current_parser->request.target.port) == 0) {
+static void check_port() {
+	if (current_parser->request.target.port[0] == '\0') {
 		char *port;
 		if (strcmp_lower_case("http", current_parser->request.schema) == 0) {
 			port = "80";
@@ -540,8 +540,16 @@ static void tr_solve_relative_request_target(char current_char) {
 	tr_solve_request_target(current_char);
 }
 
+static void tr_solve_port_request_target(char current_char) {
+	if(current_parser->data.request_status == PARSE_CONNECT_METHOD && strcmp(current_parser->request.target.port, "110") == 0){
+		// sabemos que estamos bajo el protocolo pop3
+		current_parser->data.request_status = PARSE_CONNECT_METHOD_POP3;
+	}
+	tr_solve_request_target(current_char);
+}
+
 static void tr_solve_request_target(char current_char) {
-	copy_port();
+	check_port();
 	tr_reset_copy_index(current_char);
 	current_parser->data.target_status = FOUND;
 }
