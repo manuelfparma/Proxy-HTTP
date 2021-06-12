@@ -34,6 +34,9 @@ typedef enum {
 	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
 	BASIC_CREDENTIAL_LENGTH = 6, // soporta "Basic " para credenciales de autorizacion
+	SPHTTP_1_0_LENGTH = 9,		 // longitud del string " HTTP/1.0" que se utiliza en todas las request enviadas desde el proxy
+	CR_LF_LENGTH = 2,			 // longitud del string "\r\n"
+	HEADER_TYPE_HOST_LENGTH = 6, // longitud del string "Host: "
 } http_request_constraints;
 
 typedef enum {
@@ -65,7 +68,7 @@ typedef enum {
 	PS_ERROR // cuando se recibe \cr\lf\cr\lf
 } http_parser_state;
 
-typedef enum { ABSOLUTE, RELATIVE, ASTERISK_FORM } http_path_type;
+typedef enum { ABSOLUTE, RELATIVE, ABSOLUTE_WITH_RELATIVE, ASTERISK_FORM } http_path_type;
 
 typedef enum { IPV4, IPV6, DOMAIN } http_host_type;
 

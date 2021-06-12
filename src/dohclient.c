@@ -139,13 +139,9 @@ bool is_connected_to_doh(connection_node *node) {
 }
 
 int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
-	if(node == NULL || node->data.doh == NULL){
-		logger(FATAL, "%p - %p", (void *)node, (void *)node->data.doh);
-	}
 	int doh_sock = node->data.doh->sock;
 	doh_parser_status_code result;
 
-	// FIXME: DA SEGMENTATION FAULT A VECES
 	if (FD_ISSET(doh_sock, &read_fd_set[TMP])) {
 
 		int read = read_doh_response(node);

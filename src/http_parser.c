@@ -21,6 +21,7 @@ static int strcmp_lower_case(char *str1, char *str2);
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
+static void tr_solve_relative_request_target(char current_char);
 static void tr_solve_request_target(char current_char);
 static void tr_line_ended(char current_char);
 static void tr_incomplete_header(char current_char);
@@ -92,7 +93,7 @@ static const http_parser_state_transition ST_IPv4[6] = {
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
-	 .transition = tr_solve_request_target},
+	 .transition = tr_solve_relative_request_target},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv4, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
@@ -117,7 +118,7 @@ static const http_parser_state_transition ST_IPv6_END[4] = {
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
-	 .transition = tr_solve_request_target},
+	 .transition = tr_solve_relative_request_target},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
 
@@ -132,7 +133,7 @@ static const http_parser_state_transition ST_DOMAIN[4] = {
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
-	 .transition = tr_solve_request_target},
+	 .transition = tr_solve_relative_request_target},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_DOMAIN, .transition = tr_copy_byte_to_buffer},
 };
 
@@ -146,7 +147,7 @@ static const http_parser_state_transition ST_PORT[4] = {
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
 	 .destination = PS_RELATIVE_PATH,
-	 .transition = tr_solve_request_target},
+	 .transition = tr_solve_relative_request_target},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_PORT, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
 };
@@ -304,27 +305,30 @@ static void parse_start_line(char current_char) {
 						   strlen(current_parser->request.method));
 	copy_char_to_request_buffer(current_parser->data.parsed_request, ' ');
 
-	if (current_parser->request.target.path_type != ASTERISK_FORM)
+	if (current_parser->request.target.path_type == ASTERISK_FORM ||
+		(current_parser->request.target.path_type == ABSOLUTE && strcmp("OPTIONS", current_parser->request.method) == 0)) {
+		copy_char_to_request_buffer(current_parser->data.parsed_request, '*');
+	} else {
 		copy_char_to_request_buffer(current_parser->data.parsed_request, '/');
-
-	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.relative_path,
-						   strlen(current_parser->request.target.relative_path));
+		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.relative_path,
+							   strlen(current_parser->request.target.relative_path));
+	}
 
 	// Hardcodeamos la version para, en el caso ideal, recibir el delimitador null terminated indicando que el servidor termino de
 	// enviar sus recursos
 	char *http = " HTTP/1.0";
-	copy_to_request_buffer(current_parser->data.parsed_request, http, strlen(http));
+	copy_to_request_buffer(current_parser->data.parsed_request, http, SPHTTP_1_0_LENGTH);
 	char *cr_lf = "\r\n";
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
+	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 
-	if (current_parser->request.target.path_type == ABSOLUTE) {
+	if (current_parser->request.target.path_type == ABSOLUTE || current_parser->request.target.path_type == ABSOLUTE_WITH_RELATIVE) {
 		char *header_host = "Host: ";
-		copy_to_request_buffer(current_parser->data.parsed_request, header_host, strlen(header_host));
+		copy_to_request_buffer(current_parser->data.parsed_request, header_host, HEADER_TYPE_HOST_LENGTH);
 		copy_to_request_buffer_request_target();
 		copy_char_to_request_buffer(current_parser->data.parsed_request, ':');
 		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.port,
 							   strlen(current_parser->request.target.port));
-		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
+		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 	}
 }
 
@@ -438,7 +442,7 @@ COPY_HEADER:
 	copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
 	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.value,
 						   strlen(current_parser->request.header.value));
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
+	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 }
 
 //----------- FUNCIONES DE TRANSICION ENTRE LOS ESTADOS -----------//
@@ -461,7 +465,7 @@ static void tr_check_method(char current_char) {
 
 static void tr_headers_ended(char current_char) {
 	char *cr_lf = "\r\n";
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, strlen(cr_lf));
+	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 	current_parser->data.request_status = PARSE_BODY_INCOMPLETE;
 }
 
@@ -529,6 +533,11 @@ static void tr_copy_byte_to_buffer(char current_char) {
 	} else {
 		tr_parse_error(current_char); // TODO: MEJORAR
 	}
+}
+
+static void tr_solve_relative_request_target(char current_char) {
+	current_parser->request.target.path_type = ABSOLUTE_WITH_RELATIVE;
+	tr_solve_request_target(current_char);
 }
 
 static void tr_solve_request_target(char current_char) {

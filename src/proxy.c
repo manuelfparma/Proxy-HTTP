@@ -173,37 +173,38 @@ static int handle_connection_error(connection_error_code error_code, connection_
 						node->data.server_sock);
 			return 0;
 		case DOH_SEND_ERROR_CODE:
+			FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
+			FD_CLR(node->data.doh->sock, &write_fd_set[BASE]);
 			close(node->data.doh->sock);
 			free_doh_resources(node);
-			logger(INFO, "Doh send for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(DEBUG, "Doh send for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			break;
 		case DOH_TRY_ANOTHER_REQUEST:
 			return -1;
 		case ACCEPT_CONNECTION_ERROR:
 			// FIXME: Error message
-			logger(INFO, "Accept connection for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(DEBUG, "Accept connection for server_fd: %d and client_fd: %d", node->data.server_sock,
+				   node->data.client_sock);
 			send_message("HTTP/1.1 501 Couldnt connect to origin server\r\n\r\n", node->data.client_sock, node);
 			break;
 		case SETUP_CONNECTION_ERROR_CODE:
 			logger(ERROR, "Setup connection failed for client_fd: %d", node->data.server_sock);
 			break;
 		case CLOSE_CONNECTION_ERROR_CODE:
-			logger(INFO, "Closing connection for server_fd: %d and client_fd: %d", node->data.server_sock,
-				   node->data.client_sock);
+			
 			break;
 		case BROKEN_PIPE_ERROR_CODE:
-			logger(INFO, "Broken pipe for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(DEBUG, "Broken pipe for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
 		case INVALID_REQUEST_ERROR_CODE:
-			logger(INFO, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
 			break;
 		default:
-			logger(INFO, "UNKNOWN ERROR CODE");
+			logger(ERROR, "UNKNOWN ERROR CODE");
 			break;
 	}
-	logger(DEBUG, "ERROR: %d", error_code);
 	int aux_server_sock = node->data.server_sock;
 	int aux_client_sock = node->data.client_sock;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir

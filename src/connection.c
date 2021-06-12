@@ -174,7 +174,6 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 		free(node->data.parser->data.parsed_request->data);
 		free(node->data.parser->data.parsed_request);
 		free(node->data.parser);
-		FD_CLR(client_fd, &read_fd_set[BASE]);
 		FD_CLR(server_fd, &read_fd_set[BASE]);
 		FD_CLR(server_fd, &write_fd_set[BASE]);
 	}
@@ -193,6 +192,7 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 
 	free(node);
 
+	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(client_fd, &write_fd_set[BASE]);
 	close(client_fd);
 	write_proxy_statistics();

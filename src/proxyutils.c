@@ -41,6 +41,7 @@ int setup_passive_socket(const char *service) {
 	add_criteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
 
 	struct addrinfo *serv_addr; // List of server addresses
+	// TODO: SACAR GETADDRINFO
 	int rtnVal = getaddrinfo(NULL, service, &add_criteria, &serv_addr);
 	if (rtnVal != 0) {
 		// no se pudo instanciar el socket pasivo
@@ -94,7 +95,7 @@ int accept_connection(int passive_sock, char *buffer_address, char *buffer_port)
 	// Wait for a client to connect
 	int clnt_sock = accept(passive_sock, (struct sockaddr *)&clnt_addr, &clnt_addrLen);
 	if (clnt_sock < 0) {
-		// logger(ERROR, "accept(): %s", strerror(errno));
+		logger(ERROR, "accept(): %s", strerror(errno));
 		return ACCEPT_CONNECTION_ERROR;
 	}
 	// Non blocking
@@ -155,8 +156,9 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			} else {
 				result_bytes =
 					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
-				if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
 				if (result_bytes < 0) return result_bytes;
+				
+				if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
 
 				// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 				if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
@@ -252,8 +254,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// TODO: agregar chequeos o directamente mover la cantidad de bytes
 				node->data.client_information.status_code = (unsigned short)status_response_code;
 			}
-			// TODO: cada vez que se envie data con connect va a saltar el registro, lo dejamos?
-			print_register(ACCESS, node);
+			if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD) print_register(ACCESS, node);
 
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
@@ -468,6 +469,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			logger(INFO, "Connection established");
 			send_message("HTTP/1.1 200 Connection Established\r\n\r\n", node->data.client_sock, node);
 			node->data.client_information.status_code = 200;
+			print_register(ACCESS, node);
 			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
 		}
 	}
@@ -523,7 +525,7 @@ static void print_register(register_type register_wanted, connection_node *node)
 			sprintf(output + actual_length, "    A    [%s]:%s    %s", node->data.client_information.ip,
 					node->data.client_information.port, node->data.parser->request.method);
 			actual_length += strlen(output + actual_length);
-			if(copy_host(output + actual_length, node->data.parser->request.target) < 0) {
+			if (copy_host(output + actual_length, node->data.parser->request.target) < 0) {
 				logger(ERROR, "copy_host(): failed");
 				return;
 			}
@@ -538,7 +540,7 @@ static void print_register(register_type register_wanted, connection_node *node)
 				aux_buffer_schema[i] = toupper(schema[i]);
 			sprintf(output + actual_length, "    P    %s", aux_buffer_schema);
 			actual_length += strlen(output + actual_length);
-			if(copy_host(output + actual_length, node->data.parser->request.target) < 0) {
+			if (copy_host(output + actual_length, node->data.parser->request.target) < 0) {
 				logger(ERROR, "copy_host(): failed");
 				return;
 			}
