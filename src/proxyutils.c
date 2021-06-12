@@ -131,6 +131,10 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
 
+			if(node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3){
+				//parsear response?
+			}
+
 			// lo prendo pues hay nueva informacion
 			FD_SET(fd_client, &write_fd_set[BASE]);
 		} else {
@@ -152,11 +156,11 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 
 		if (node->data.parser->data.request_status != PARSE_CONNECT_METHOD &&
 			node->data.parser->data.request_status != PARSE_CONNECT_METHOD_POP3) {
-			if (!buffer_can_read(node->data.parser->data.parsed_request)) {
+			if (!buffer_can_read(node->data.parser->parsed_answer)) {
 				FD_CLR(fd_server, &write_fd_set[BASE]);
 			} else {
 				result_bytes =
-					handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
+					handle_operation(fd_server, node->data.parser->parsed_answer, WRITE, SERVER, node->data.log_file);
 				if (result_bytes < 0) return result_bytes;
 
 				if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
@@ -166,7 +170,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 
 				connections.statistics.total_proxy_to_origins_bytes += result_bytes;
 				// si el buffer de salida se vacio, no nos interesa intentar escribir
-				if (!buffer_can_read(node->data.parser->data.parsed_request)) FD_CLR(fd_server, &write_fd_set[BASE]);
+				if (!buffer_can_read(node->data.parser->parsed_answer)) FD_CLR(fd_server, &write_fd_set[BASE]);
 			}
 		} else {
 			// es una conexion de tipo CONNECT
@@ -176,17 +180,17 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// pasar a switch
 				// TODO: pensar alternativa
 				if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3 &&
-					node->data.parser->connect->state != POP3_PS_END) {
-					strncpy(node->data.parser->connect->pop3_read_buffer, (char *)node->data.client_to_server_buffer->read,
-							node->data.client_to_server_buffer->write - node->data.client_to_server_buffer->read);
+					node->data.parser->connect->parser_state != POP3_PS_END) {
+					// strncpy(node->data.parser->connect->pop3_read_buffer, (char *)node->data.client_to_server_buffer->read,
+					// 		node->data.client_to_server_buffer->write - node->data.client_to_server_buffer->read);
 				}
 				result_bytes =
 					handle_operation(fd_server, node->data.client_to_server_buffer, WRITE, SERVER, node->data.log_file);
 				if (result_bytes < 0) return result_bytes;
 
 				if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3 &&
-					node->data.parser->connect->state != POP3_PS_END) {
-					node->data.parser->connect->pop3_read_buffer[result_bytes] = '\0';
+					node->data.parser->connect->parser_state != POP3_PS_END) {
+					// node->data.parser->connect->pop3_read_buffer[result_bytes] = '\0';
 					// TODO LLAMAR AL PARSER POP3
 				}
 
@@ -246,7 +250,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 						}
 					}
 					// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
-					if (buffer_can_read(node->data.parser->data.parsed_request) && fd_server != -1)
+					if (buffer_can_read(node->data.parser->parsed_answer) && fd_server != -1)
 						FD_SET(fd_server, &write_fd_set[BASE]);
 
 					break;
@@ -494,7 +498,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			print_register(ACCESS, node);
 			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
 			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
-				node->data.parser->connect = malloc(sizeof(pop3_connect_parser));
+				node->data.parser->connect = malloc(sizeof(pop3_command_parser));
 				if (node->data.parser->connect == NULL) {
 					node->data.parser->data.request_status =
 						PARSE_CONNECT_METHOD; // no se van a poder guardar las credenciales pero permite la comunicacion

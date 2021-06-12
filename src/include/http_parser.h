@@ -3,8 +3,9 @@
 
 #include <buffer.h>
 #include <netinet/in.h>
-#include <pop3_connect_parser.h>
+#include <pop3command_parser.h>
 #include <stdint.h>
+
 typedef enum {
 	NOT_FOUND,
 	FOUND,
@@ -30,7 +31,7 @@ typedef enum {
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_SCHEMA_LENGTH = 24,
-	MAX_IP_LENGTH = 128,
+	MAX_IP_LENGTH = 45,
 	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
 	BASIC_CREDENTIAL_LENGTH = 6, // soporta "Basic " para credenciales de autorizacion
@@ -118,7 +119,6 @@ typedef struct {
 } http_request_data;
 
 typedef struct {
-	buffer *parsed_request;			// request parseada lista para enviar
 	http_parser_state parser_state; // estado actual
 	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
 	http_request_status_code request_status;  // codigo que indica el estado de los recursos leidos
@@ -126,9 +126,10 @@ typedef struct {
 } http_parser_data;
 
 typedef struct {
-	http_request_data request;	 // datos de la request parseada
-	http_parser_data data;		 // datos de la maquina
-	pop3_connect_parser *connect; // datos de la maquina en caso que haya un connect al protocolo POP
+	buffer *parsed_answer;		  // request parseada lista para enviar
+	http_request_data request;	  // datos de la request parseada
+	http_parser_data data;		  // datos de la maquina
+	pop3_command_parser *connect; // datos de la maquina en caso que haya un connect al protocolo POP
 } http_parser;
 
 int parse_request(http_parser *request, buffer *read_buffer);
