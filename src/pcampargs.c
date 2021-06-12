@@ -83,7 +83,7 @@ static addr_info check_info(const char *proxy_ip, const char *proxy_port) {
 
 	long parsed_port = strtol(proxy_port, NULL, 10);
 
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
+	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
 		logger(FATAL, "Invalid port number. Must be an integer between 0 and 65535. Exiting...\n");
 	}
 

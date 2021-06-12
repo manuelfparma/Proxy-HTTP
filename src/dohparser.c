@@ -1,4 +1,5 @@
 #include "dohdata.h"
+#include "netutils.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dohparser.h>
@@ -173,7 +174,7 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 	read_big_endian_16(&header_info.id, message->read, 1);
 
 	if (header_info.id != dns_header_template.id) {
-		// No es nuestra request
+		// No es nuestra current_request
 		logger(ERROR, "parse_dns_message(): expected id %d, got %d", dns_header_template.id, header_info.id);
 		return -1;
 	}

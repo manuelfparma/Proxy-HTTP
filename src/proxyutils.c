@@ -441,7 +441,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			// enviamos al cliente que nos conectamos satisfactoriamente al servidor
 			logger(INFO, "Connection established");
 			send_message("HTTP/1.1 200 Connection Established\r\n\r\n", node->data.client_sock, node);
-			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
+			buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del current_request, las borro
 		}
 	}
 	return 0;

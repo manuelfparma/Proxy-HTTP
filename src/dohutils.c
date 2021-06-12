@@ -1,3 +1,4 @@
+#include <netutils.h>
 #include <dohdata.h>
 #include <dohutils.h>
 #include <errno.h>
@@ -42,7 +43,7 @@ int add_ip_address(connection_node *node, int addr_family, void *addr) {
 	if (new == NULL) goto EXIT;
 
 	long parsed_port = strtol(node->data.parser->request.target.port, NULL, 10);
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
+	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
 		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
 		goto FREE_NODE;
 	}
@@ -96,53 +97,5 @@ void free_doh_resources(connection_node *node) {
 		free(node->data.doh->doh_buffer);
 		free(node->data.doh);
 		node->data.doh = NULL;
-	}
-}
-
-void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n) {
-	for (size_t j = 0; j < n; j++) {
-		*dest = 0;
-		for (size_t i = 0; i < SIZE_16; i++) {
-			*dest = *dest << 8;
-			*dest += (uint16_t)*src;
-			src += 1;
-		}
-		dest += SIZE_16;
-	}
-}
-
-void read_big_endian_32(uint32_t *dest, uint8_t *src, size_t n) {
-	for (size_t j = 0; j < n; j++) {
-		*dest = 0;
-		for (size_t i = 0; i < SIZE_32; i++) {
-			*dest = *dest << 8;
-			*dest += (uint32_t)*src;
-			src += 1;
-		}
-		dest += SIZE_32;
-	}
-}
-
-void write_big_endian_16(uint8_t *dest, uint16_t *src, size_t n) {
-	for (size_t j = 0; j < n; j++) {
-		*dest = 0;
-		for (int i = SIZE_16 - 1; i >= 0; i--) {
-			dest[i] = (uint8_t)*src;
-			*src = *src >> 8;
-		}
-		dest += SIZE_16;
-		src += SIZE_16;
-	}
-}
-
-void write_big_endian_32(uint8_t *dest, uint32_t *src, size_t n) {
-	for (size_t j = 0; j < n; j++) {
-		*dest = 0;
-		for (int i = SIZE_32 - 1; i >= 0; i--) {
-			dest[i] = (uint8_t)*src;
-			*src = *src >> 8;
-		}
-		dest += SIZE_32;
-		src += SIZE_32;
 	}
 }

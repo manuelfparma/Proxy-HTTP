@@ -19,7 +19,7 @@ size_t breakpoint = 1;
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
-// Funcion que se encarga de manejar la conexion con el doh para resolver la request dns
+// Funcion que se encarga de manejar la conexion con el doh para resolver la current_request dns
 static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
@@ -188,7 +188,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
 		case INVALID_REQUEST_ERROR_CODE:
-			logger(INFO, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(INFO, "Invalid current_request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
 			break;
 		default:
@@ -274,10 +274,10 @@ void send_message(char *message, int fd_client, connection_node *node) {
 	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
 	if (result_bytes <= 0)
 		// TODO: enviar denuevo?
-		logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+		logger(ERROR, "Invalid current_request from client with fd: %d", fd_client);
 
 	free(buffer_response->data);
 	free(buffer_response);
 
-	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
+	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del current_request
 }

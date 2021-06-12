@@ -5,7 +5,15 @@
 #include <stdint.h>
 
 #define PCAMP_VERSION 1
-#define MAX_PCAMP_PACKET_LENGTH 512
+#define MAX_PCAMP_PACKET_LENGTH 1024
+#define MAX_PROXY_CLIENTS 510
+#define MIN_PROXY_CLIENTS 0
+#define MAX_PROXY_IO_BUFFER_SIZE 65535
+#define MIN_PROXY_IO_BUFFER_SIZE 1
+#define MAX_DOH_HOSTNAME_LENGTH 255
+#define MIN_DOH_HOSTNAME_LENGTH 1
+#define PCAMP_IPV4 0
+#define PCAMP_IPV6 1
 
 typedef enum { QUERY, CONFIG, METHOD_COUNT } pcamp_method;
 typedef enum { REQUEST, RESPONSE } pcamp_op;
@@ -30,11 +38,11 @@ typedef enum {
 	QUERY_TYPE_COUNT
 } query_type;
 
-size_t config_value_size[CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
+ssize_t config_value_size[CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
 
 typedef struct {
 	uint8_t version;
-	uint8_t flags; // contiene en el bit mas significativo la operacion (request (0)/response (1)) y en el siguiente el metodo
+	uint8_t flags; // contiene en el bit menos significativo la operacion (current_request (0)/response (1)) y en el siguiente el metodo
 				   // (query(0)/config(1))
 	uint16_t id;
 } pcamp_header;

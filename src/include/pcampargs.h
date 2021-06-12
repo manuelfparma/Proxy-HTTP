@@ -1,7 +1,7 @@
 #ifndef PCAMPARGS_H
 #define PCAMPARGS_H
 
-#include <pcampclient.h>
+#include <netutils.h>
 
 #define PROXY_IP "127.0.0.1"
 #define PROXY_PORT "8080"

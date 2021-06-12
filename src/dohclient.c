@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <logger.h>
 #include <netinet/in.h>
+#include <netutils.h>
 #include <proxyutils.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,7 +55,7 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set, char *doh
 	}
 
 	long parsed_port = strtol(doh_port, NULL, 10);
-	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > 65535) {
+	if ((parsed_port == 0 && errno == EINVAL) || parsed_port < 0 || parsed_port > MAX_PORT) {
 		logger(ERROR, "connect_to_doh_server(): invalid port. Use a number between 0 and 65535");
 		goto ERROR;
 	}

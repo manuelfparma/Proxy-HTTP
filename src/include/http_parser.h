@@ -101,14 +101,14 @@ typedef struct {
 
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
-	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del request
+	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del current_request
 	http_target target;
 	http_version version;
 	http_header header; // header actual(por si no se completo)
 } http_request_data;
 
 typedef struct {
-	buffer *parsed_request;			// request parseada lista para enviar
+	buffer *parsed_request;			// current_request parseada lista para enviar
 	http_parser_state parser_state; // estado actual
 	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
 	http_request_status_code request_status;  // codigo que indica el estado de los recursos leidos
@@ -116,7 +116,7 @@ typedef struct {
 } http_parser_data;
 
 typedef struct {
-	http_request_data request; // datos de la request parseada
+	http_request_data request; // datos de la current_request parseada
 	http_parser_data data;	   // datos de la maquina
 } http_parser;
 

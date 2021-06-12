@@ -390,8 +390,8 @@ static int parse_request_target() {
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
 	char *cr_lf = "\r\n";
-	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->request.header.type,
-	// current_parser->request.header.value);
+	// logger(DEBUG, "Finished parsing header [%s: %s]", current_parser->current_request.header.type,
+	// current_parser->current_request.header.value);
 	int strcmp_host = strcmp_lower_case("Host", current_parser->request.header.type);
 	if (current_parser->request.target.path_type != ABSOLUTE && current_parser->data.target_status == NOT_FOUND &&
 		strcmp_host == 0) {
