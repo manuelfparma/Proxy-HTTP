@@ -29,8 +29,6 @@ int main(const int argc, char **argv) {
 
 	parse_proxy_args(argc, argv);
 
-	char *proxy_port = args.proxy_port;
-
 	int passive_sock = setup_passive_socket();
 	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed: %s", strerror(errno));
 
