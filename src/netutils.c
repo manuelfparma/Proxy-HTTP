@@ -1,7 +1,6 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <netutils.h>
-#include <dohdata.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -60,6 +59,19 @@ void read_big_endian_32(uint32_t *dest, uint8_t *src, size_t n) {
 	}
 }
 
+void read_big_endian_64(uint64_t *dest, uint8_t *src, size_t n) {
+    for (size_t j = 0; j < n; j++) {
+        *dest = 0;
+        for (size_t i = 0; i < SIZE_64; i++) {
+            *dest = *dest << 8;
+            *dest += (uint64_t)*src;
+            src += 1;
+        }
+        dest += SIZE_64;
+    }
+}
+
+
 void write_big_endian_16(uint8_t *dest, uint16_t *src, size_t n) {
 	for (size_t j = 0; j < n; j++) {
 		*dest = 0;
@@ -82,4 +94,16 @@ void write_big_endian_32(uint8_t *dest, uint32_t *src, size_t n) {
 		dest += SIZE_32;
 		src += SIZE_32;
 	}
+}
+
+void write_big_endian_64(uint8_t *dest, uint64_t *src, size_t n) {
+    for (size_t j = 0; j < n; j++) {
+        *dest = 0;
+        for (int i = SIZE_64 - 1; i >= 0; i--) {
+            dest[i] = (uint8_t)*src;
+            *src = *src >> 8;
+        }
+        dest += SIZE_64;
+        src += SIZE_64;
+    }
 }

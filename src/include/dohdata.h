@@ -6,10 +6,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SIZE_8 1
-#define SIZE_16 2
-#define SIZE_32 4
-
 #define MAX_DOH_PACKET_SIZE 4096
 #define DNS_MESSAGE_LENGTH 512
 

@@ -1,16 +1,11 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <logger.h>
-#include <netinet/in.h>
 #include <netutils.h>
-#include <openssl/sha.h>
 #include <pcampargs.h>
 #include <pcampclient.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <pcamputils.h>
 #include <string.h>
-#include <unistd.h>
 
 // TODO: 0-	 printear menu de ayuda
 // DONE: 1- 	 recibo la IP del proxy por STDIN
@@ -44,6 +39,7 @@ static bool parse_sniffing(char *value);
 static void copy_config_value(config_type type, void *value);
 static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes);
 static bool parse_query_body(uint8_t *body, ssize_t recv_bytes);
+static void print_query_response();
 
 static addr_info current_addr = {0};
 static pcamp_request_info current_request = {0};
@@ -52,12 +48,12 @@ static uint8_t io_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 static pcamp_response_info current_response = {0};
 
 int main(const int argc, char **argv) {
+	setvbuf(stdout, NULL, _IONBF, 0);
+	memset(&current_request, 0, sizeof(current_request));
+	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 	current_addr = parse_pcamp_args(argc, argv);
 
 	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n\n");
-
-	memset(&current_request, 0, sizeof(current_request));
-	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
 	uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
 	current_request.method = method;
@@ -101,18 +97,20 @@ int main(const int argc, char **argv) {
 	struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
 	// Wait con prints de '.' y timeouts
 
+	printf("Waiting for response..");
 	int ready_fds = 0;
 	for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
 		sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
 		printf(".");
-		fflush(stdout);
 		FD_SET(server_sock, &read_fd_set);
 		timeout.tv_sec = PCAMP_CLIENT_TIMEOUT;
 		ready_fds = select(server_sock + 1, &read_fd_set, NULL, NULL, &timeout);
 	}
 
+	printf("\n");
+
 	if (ready_fds == 0) {
-		logger(INFO, " Timeout\n");
+		logger(INFO, "Timeout error: no responses were received\n");
 		return -1;
 	}
 
@@ -121,16 +119,23 @@ int main(const int argc, char **argv) {
 	socklen_t server_addr_len;
 	ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
 
-	printf(" read %ld bytes\n", recv_bytes);
+	printf("read %ld bytes\n", recv_bytes);
 
 	if (!parse_pcamp_response(response, recv_bytes)) {
 		// FIXME: Manejar error
 		printf("The response received from the server is not valid. Please try again\n");
-	} else {
+	} else if (current_response.status_code != PCAMP_SUCCESS) {
 		printf("%s\n", status_code_strings[current_response.status_code]);
 	}
 
-	// TODO imprimir en pantalla respuesta de la query (si era query) o "config exitosa"
+	switch (current_response.method) {
+		case PCAMP_CONFIG:
+			printf("Proxy HTTP configuration modified successfully\n");
+			break;
+		case PCAMP_QUERY:
+			print_query_response();
+			break;
+	}
 
 	return 0;
 }
@@ -191,10 +196,7 @@ static bool is_option_valid(long options_count, char *input, ssize_t read_bytes,
 	return *parsed_option < options_count && *parsed_option >= 0;
 }
 
-static void print_prompt() {
-	printf("→ ");
-	fflush(stdout);
-}
+static void print_prompt() { printf("→ "); }
 
 static void get_config_value(config_type type, char *value) {
 	bool is_input_valid = false;
@@ -405,7 +407,7 @@ static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes) {
 	response_idx += SIZE_16;
 	uint8_t status_code = response[response_idx];
 	current_response.status_code = status_code;
-	 
+
 	if (status_code == PCAMP_SUCCESS) {
 		response_idx += SIZE_8;
 
@@ -449,4 +451,21 @@ static bool parse_query_body(uint8_t *body, ssize_t recv_bytes) {
 	current_response.query.response = &body[response_idx];
 
 	return true;
+}
+
+static void print_query_response() {
+	uint64_t value;
+	switch (current_response.query.query_type) {
+		case TOTAL_CONNECTIONS_QUERY:
+		case CURRENT_CONNECTIONS_QUERY:
+		case TOTAL_BYTES_QUERY:
+		case BYTES_TO_SERVER_QUERY:
+		case BYTES_TO_CLIENT_QUERY:
+		case BYTES_VIA_CONNECT_QUERY:
+			read_big_endian_64(&value, current_response.query.response, 1);
+			printf("%s: %" PRId64 "\n", query_type_strings[current_response.query.query_type], value);
+		default:
+			// No debería pasar nunca
+			return;
+	}
 }

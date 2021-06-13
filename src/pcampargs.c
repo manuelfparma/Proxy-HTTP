@@ -1,8 +1,5 @@
 #include <logger.h>
-#include <netinet/in.h>
 #include <pcampargs.h>
-#include <stdio.h>
-#include <unistd.h>
 
 static void version();
 static void usage(const char *program_name);

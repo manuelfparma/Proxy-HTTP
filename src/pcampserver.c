@@ -3,7 +3,6 @@
 #include <fcntl.h>
 #include <logger.h>
 #include <netutils.h>
-#include <openssl/sha.h>
 #include <pcampserver.h>
 #include <pcamputils.h>
 #include <proxyargs.h>
@@ -14,7 +13,7 @@ extern ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT];
 
 static int parse_pcamp_request(uint8_t *request);
 static bool is_passphrase_correct(uint8_t *hashed_request_pass);
-static int resolve_pcamp_query(uint8_t *response_buffer);
+static int resolve_pcamp_query(uint8_t *query_answer);
 static ssize_t prepare_pcamp_query_response(int status_code, uint8_t *query_answer, uint8_t *buffer);
 static int resolve_pcamp_config();
 static void parse_pcamp_config(uint8_t *request_buffer);
@@ -106,7 +105,7 @@ static int parse_pcamp_request(uint8_t *request) {
 	i += SIZE_8;
 	if ((request[i] & 1) != PCAMP_REQUEST) return PCAMP_BAD_REQUEST;
 
-	current_request.method = ((request[i] & 2 ) >> 1);
+	current_request.method = ((request[i] & 2) >> 1);
 
 	i += SIZE_8;
 	read_big_endian_16(&current_request.id, request + i, 1);
@@ -124,6 +123,7 @@ static int resolve_pcamp_query(uint8_t *query_answer) {
 
 	switch (current_request.query.query_type) {
 		case TOTAL_CONNECTIONS_QUERY:
+
 			break;
 		case CURRENT_CONNECTIONS_QUERY:
 			break;
@@ -160,6 +160,11 @@ static ssize_t prepare_pcamp_query_response(int status_code, uint8_t *query_answ
 	buffer[len] = status_code;
 
 	len += SIZE_8;
+
+	if (status_code == PCAMP_SUCCESS) {
+		buffer[len] = current_request.query.query_type;
+		len += SIZE_8;
+	}
 
 	if (status_code == PCAMP_SUCCESS) {
 		ssize_t answer_len = query_answer_length[current_request.query.query_type];

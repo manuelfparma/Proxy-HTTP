@@ -3,7 +3,6 @@
 #include <dohutils.h>
 #include <errno.h>
 #include <logger.h>
-#include <stdlib.h>
 #include <string.h>
 
 int setup_doh_resources(connection_node *node, int doh_fd) {
