@@ -1,5 +1,6 @@
 #include <buffer.h>
-#include <pop3command_parser.h>
+#include <logger.h>
+#include <pop3commandparser.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -7,6 +8,8 @@
 
 pop3_command_parser *current_parser;
 buffer *current_read_buffer;
+buffer *current_write_buffer;
+size_t lines_to_password_response;
 
 // Transiciones entre nodos
 static void tr_check_prefix(char current_char);
@@ -23,7 +26,7 @@ static const pop3_command_parser_state_transition ST_PREFIX[2] = {
 };
 
 static const pop3_command_parser_state_transition ST_VALUE[3] = {
-	{.when = '\r', .destination = POP3_C_PS_CR, .transition = tr_copy_byte_to_buffer},
+	{.when = '\r', .destination = POP3_C_PS_CR, .transition = tr_reset_copy_index},
 	{.when = '\n', .destination = POP3_C_PS_PREFIX, .transition = tr_line_ended},
 	{.when = POP3_C_ANY, .destination = POP3_C_PS_VALUE, .transition = tr_copy_byte_to_buffer},
 };
@@ -46,7 +49,12 @@ static const size_t states_n[] = {
 //----------- FUNCIONES AUXILIARES PARA LAS TRANSICIONES -----------//
 
 static void tr_line_ended(char current_char) {
-	if (current_parser->prefix_type == POP3_C_PASS) { current_parser->credentials_state = POP3_C_FOUND; }
+	logger(DEBUG, "NEW LINE");
+	if (current_parser->prefix_type == POP3_C_PASS) {
+		logger(DEBUG, "FOUND CREDENTIALS");
+		current_parser->credentials_state = POP3_C_FOUND;
+	} else
+		lines_to_password_response++;
 	tr_reset_copy_index(current_char);
 }
 
@@ -58,7 +66,7 @@ static void tr_check_prefix(char current_char) {
 	} else {
 		strcmp_prefix = strcmp("PASS", current_parser->line.prefix);
 		if (strcmp_prefix == 0 && current_parser->credentials.username[0] != '\0') {
-			//solo copio password si ya copie un user
+			// solo copio password si ya copie un user
 			current_parser->prefix_type = POP3_C_PASS;
 		} else
 			current_parser->prefix_type = POP3_C_UNKNOWN;
@@ -87,6 +95,7 @@ static void tr_copy_byte_to_buffer(char current_char) {
 				default:
 					copy_buffer = current_parser->line.value;
 			}
+			break;
 		default:
 			// TODO manejo de error
 			limit = -1;
@@ -114,14 +123,17 @@ static void tr_parse_error(char current_char) {
 
 //----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
 
-int parse_pop3_command(pop3_command_parser *parser, char *read_buffer) {
-	current_parser = parser;
+int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
+	current_parser = pop3_parser;
+	current_read_buffer = read_buffer;
 	char current_char;
 	pop3_command_parser_state current_state;
-	int idx = 0;
+	lines_to_password_response = 0;
+	logger(DEBUG, "PARSING");
 
-	while (read_buffer[idx] != '\0') {
-		current_char = read_buffer[idx++];
+	while (buffer_can_read(current_read_buffer) && current_parser->parser_state != POP3_C_PS_ERROR) {
+		current_char = buffer_read(read_buffer);
+		buffer_write(current_parser->command_buffer, current_char); // todo lo que leo lo escribo en la salida
 		current_state = current_parser->parser_state;
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (current_char == states[current_state][i].when || states[current_state][i].when == (char)POP3_C_ANY) {
@@ -130,6 +142,8 @@ int parse_pop3_command(pop3_command_parser *parser, char *read_buffer) {
 				break;
 			}
 		}
+		// condicion de salida pues encontre un par USER - PASS
+		if (current_parser->parser_state == POP3_C_PS_PREFIX && current_parser->prefix_type == POP3_C_PASS) break;
 	}
-	return idx;
+	return lines_to_password_response;
 }

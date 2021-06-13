@@ -3,7 +3,7 @@
 
 #include <buffer.h>
 #include <dohdata.h>
-#include <http_parser.h>
+#include <httpparser.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <sys/select.h>
@@ -79,5 +79,7 @@ void add_to_connections(connection_node *node);
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
 void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set);
+
+int setup_pop3_parser(connection_node *node);
 
 #endif

@@ -2,9 +2,9 @@ CFLAGS= -g -std=c11 -pedantic -pedantic-errors -Wall -Wextra -Werror -Wno-unused
 FSANITIZE= -fsanitize=address
 
 SOURCES_PROXY= src/proxy.c 
-SOURCES_PARSER= src/http_parser.c
-SOURCES_PARSER_POP3= src/pop3command_parser.c
-SOURCES_PARSER_POP3_RESPONSE= src/pop3response_parser.c
+SOURCES_PARSER= src/httpparser.c
+SOURCES_PARSER_POP3= src/pop3commandparser.c
+SOURCES_PARSER_POP3_RESPONSE= src/pop3responseparser.c
 SOURCES_PROXY_UTILS= src/proxyutils.c
 SOURCES_LOGGER= src/logger.c
 SOURCES_CONNECTION= src/connection.c
@@ -14,7 +14,7 @@ SOURCES_DOH_UTILS = src/dohutils.c
 SOURCES_DOH_SENDER = src/dohsender.c
 SOURCES_DOH_PARSER = src/dohparser.c
 SOURCES_ARGS = src/args.c
-OBJECTS = src/proxy.o src/http_parser.o src/pop3command_parser.o src/pop3response_parser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/args.o
+OBJECTS = src/proxy.o src/httpparser.o src/pop3commandparser.o src/pop3responseparser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/args.o
 
 all: proxy
 

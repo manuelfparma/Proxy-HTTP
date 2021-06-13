@@ -2,6 +2,7 @@
 #define __POP3_RESPONSE_PARSER_H__
 
 #include <netinet/in.h>
+#include <buffer.h>
 
 typedef enum {
 	POP3_R_ANY = -1,
@@ -37,12 +38,11 @@ typedef struct {
 } pop3_response_data;
 
 typedef struct {
+	buffer *response_buffer;
 	pop3_response_parser_state parser_state;
 	pop3_response_data data;
-	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
-	char *pop3R_read_buffer;
 } pop3_response_parser;
 
-int parse_pop3_response(pop3_response_parser *pop3_parser, char *read_buffer);
+int parse_pop3_response(pop3_response_parser *parser, buffer *read_buffer);
 
 #endif

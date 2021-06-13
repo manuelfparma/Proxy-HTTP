@@ -1,6 +1,6 @@
 #include <connection.h>
 #include <errno.h>
-#include <http_parser.h>
+#include <httpparser.h>
 #include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
@@ -52,7 +52,7 @@ static void set_node_default_values(connection_node *node) {
 
 	buffer_init(node->data.client_to_server_buffer, BUFFER_SIZE, node->data.client_to_server_buffer->data);
 	buffer_init(node->data.server_to_client_buffer, BUFFER_SIZE, node->data.server_to_client_buffer->data);
-	buffer_init(node->data.parser->data.parsed_answer, BUFFER_SIZE, node->data.parser->data.parsed_answer->data);
+	buffer_init(node->data.parser->data.parsed_request, BUFFER_SIZE, node->data.parser->data.parsed_request->data);
 
 	node->data.addr_info_first = node->data.addr_info_current = NULL;
 }
@@ -89,11 +89,11 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	new->data.parser = malloc(sizeof(http_parser));
 	if (new->data.parser == NULL) goto FREE_BUFFER_2_DATA;
 
-	new->data.parser->parsed_answer = malloc(sizeof(buffer));
-	if (new->data.parser->parsed_answer == NULL) goto FREE_REQUEST;
+	new->data.parser->data.parsed_request = malloc(sizeof(buffer));
+	if (new->data.parser->data.parsed_request == NULL) goto FREE_REQUEST;
 
-	new->data.parser->parsed_answer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	if (new->data.parser->parsed_answer->data == NULL) goto FREE_REQUEST_BUFFER;
+	new->data.parser->data.parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (new->data.parser->data.parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
 	set_node_default_values(new);
 
@@ -112,7 +112,7 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	return new;
 
 FREE_REQUEST_BUFFER:
-	free(new->data.parser->parsed_answer);
+	free(new->data.parser->data.parsed_request);
 FREE_REQUEST:
 	free(new->data.parser);
 FREE_BUFFER_2_DATA:
@@ -154,8 +154,8 @@ void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set 
 	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
 	free(node->data.client_to_server_buffer->data);
 	free(node->data.client_to_server_buffer);
-	free(node->data.parser->parsed_answer->data);
-	free(node->data.parser->parsed_answer);
+	free(node->data.parser->data.parsed_request->data);
+	free(node->data.parser->data.parsed_request);
 	free(node->data.parser);
 	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &read_fd_set[BASE]);
@@ -171,8 +171,8 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 		logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
 		free(node->data.client_to_server_buffer->data);
 		free(node->data.client_to_server_buffer);
-		free(node->data.parser->parsed_answer->data);
-		free(node->data.parser->parsed_answer);
+		free(node->data.parser->data.parsed_request->data);
+		free(node->data.parser->data.parsed_request);
 		free(node->data.parser);
 		FD_CLR(server_fd, &read_fd_set[BASE]);
 		FD_CLR(server_fd, &write_fd_set[BASE]);
@@ -197,4 +197,60 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	close(client_fd);
 	write_proxy_statistics();
 	connections.current_clients--;
+}
+
+int setup_pop3_parser(connection_node *node) {
+	node->data.parser->pop3 = malloc(sizeof(http_pop3_parser));
+	if (node->data.parser->pop3 == NULL) { return -1; }
+
+	node->data.parser->pop3->command.command_buffer = malloc(sizeof(buffer));
+
+	if (node->data.parser->pop3->command.command_buffer == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3);
+		return -1;
+	}
+
+	node->data.parser->pop3->command.command_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+
+	if (node->data.parser->pop3->command.command_buffer->data == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3->command.command_buffer);
+		free(node->data.parser->pop3);
+		return -1;
+	}
+	node->data.parser->pop3->response.response_buffer = malloc(sizeof(buffer));
+	if (node->data.parser->pop3->response.response_buffer == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3->command.command_buffer->data);
+		free(node->data.parser->pop3->command.command_buffer);
+		free(node->data.parser->pop3);
+		return -1;
+	}
+
+	node->data.parser->pop3->response.response_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (node->data.parser->pop3->response.response_buffer->data == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3->command.command_buffer->data);
+		free(node->data.parser->pop3->command.command_buffer);
+		free(node->data.parser->pop3->response.response_buffer);
+		free(node->data.parser->pop3);
+		return -1;
+	}
+
+	buffer_init(node->data.parser->pop3->command.command_buffer, BUFFER_SIZE,
+				node->data.parser->pop3->command.command_buffer->data);
+	buffer_init(node->data.parser->pop3->response.response_buffer, BUFFER_SIZE,
+				node->data.parser->pop3->response.response_buffer->data);
+	node->data.parser->pop3->response.parser_state = POP3_R_PS_STATUS;
+	node->data.parser->pop3->command.parser_state = POP3_C_PS_PREFIX;
+	node->data.parser->pop3->command.copy_index = 0;
+	node->data.parser->pop3->command.credentials.username[0] = '\0';
+	node->data.parser->pop3->command.credentials.password[0] = '\0';
+	node->data.parser->pop3->command.credentials_state = POP3_C_NOT_FOUND;
+	node->data.parser->pop3->command.line.prefix[0] = '\0';
+	node->data.parser->pop3->command.line.value[0] = '\0';
+	node->data.parser->pop3->lines_to_password_response = 0;
+	buffer_reset(node->data.client_to_server_buffer);
+	return 0;
 }
