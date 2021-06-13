@@ -242,8 +242,14 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(client_fd, &write_fd_set[BASE]);
 	close(client_fd);
+
+	if(connections.current_clients != 0) {
+		connections.current_clients--;
+	} else {
+		logger(FATAL, "close_connection called when current_clients = 0");
+	}
+
 	write_proxy_statistics();
-	connections.current_clients--;
 }
 
 int setup_pop3_response_parser(connection_node *node) {

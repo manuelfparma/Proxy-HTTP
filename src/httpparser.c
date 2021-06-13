@@ -399,7 +399,7 @@ static void parse_header_line(char current_char) {
 		return;
 	}
 	if (settings.password_dissector) {
-		strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
+		strcmp_header_type = strcmp_case_insensitive("Authorization", current_parser->request.header.type);
 		if (strcmp_header_type == 0) {
 			if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {
 				size_t length = strlen(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH);

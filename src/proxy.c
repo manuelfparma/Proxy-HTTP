@@ -94,6 +94,7 @@ int main(const int argc, char **argv) {
 		write_fd_set[TMP] = write_fd_set[BASE];
 
 		ready_fds = pselect(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL, &sig_mask);
+
 		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
 			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read,
 										 connections.stdout_buffer->write - connections.stdout_buffer->read);
@@ -108,6 +109,7 @@ int main(const int argc, char **argv) {
 			}
 			ready_fds--;
 		}
+
 		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients <= settings.max_clients) {
 			// almaceno el espacio para la info del cliente (ip y puerto)
 			char client_ip[MAX_IP_LENGTH + 1] = {0};
