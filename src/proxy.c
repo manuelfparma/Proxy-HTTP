@@ -69,8 +69,7 @@ int main(const int argc, char **argv) {
 		FD_ZERO(&read_fd_set[i]);
 	}
 
-	// seteo de salida estandar (escritura) y socket pasivo (lectura)
-	FD_SET(STDOUT_FILENO, &write_fd_set[BASE]);
+	// seteo de socket pasivo (lectura)
 	FD_SET(passive_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
@@ -98,6 +97,7 @@ int main(const int argc, char **argv) {
 				}
 			} else {
 				buffer_read_adv(connections.stdout_buffer, result_bytes);
+				if(!buffer_can_read(connections.stdout_buffer)) FD_CLR(STDOUT_FILENO, &write_fd_set[BASE]);
 			}
 			ready_fds--;
 		}
@@ -309,6 +309,4 @@ void send_message(char *message, int fd_client, connection_node *node) {
 
 	free(buffer_response->data);
 	free(buffer_response);
-
-	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
 }

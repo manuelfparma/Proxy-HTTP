@@ -24,7 +24,7 @@ extern connection_header connections;
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int copy_address_info(struct sockaddr *address, char *buffer_address, char *buffer_port);
-static void print_register(register_type register_wanted, connection_node *node);
+static void print_register(register_type register_wanted, connection_node *node, fd_set *write_fd_set);
 static int copy_host(char *buffer, http_target target);
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
@@ -133,9 +133,37 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
 				logger_peer(SERVER, "connect pop3 read");
 
-				int lines_read = parse_pop3_response(&node->data.parser->pop3->response, node->data.server_to_client_buffer);
-				if (node->data.parser->pop3->lines_to_password_response > 0)
-					node->data.parser->pop3->lines_to_password_response -= lines_read;
+				node->data.parser->pop3->lines_to_password_response -=
+					parse_pop3_response(&node->data.parser->pop3->response, node->data.server_to_client_buffer);
+				if (node->data.parser->pop3->lines_to_password_response == 0) {
+					logger(DEBUG, "FOUND CREDENTIALS RESPONSE");
+					if (node->data.parser->pop3->response.data.status == POP3_R_POSITIVE_STATUS) {
+						// una vez que encontre la password y es correcta, cambio el estado a connect, asi no sniffeo mas
+						strcpy(node->data.parser->request.authorization.value,
+							   node->data.parser->pop3->command.credentials.username);
+						size_t length = strlen(node->data.parser->pop3->command.credentials.username);
+						strcpy(node->data.parser->request.authorization.value + length, "    ");
+						length += strlen("    ");
+						strcpy(node->data.parser->request.authorization.value + length,
+							   node->data.parser->pop3->command.credentials.password);
+						length += strlen(node->data.parser->pop3->command.credentials.password);
+						node->data.parser->request.authorization.value[length] = '\0';
+						print_register(PASSWORD, node, write_fd_set);
+						// copio las respuestas al buffer original
+						int bytes_available =
+							node->data.server_to_client_buffer->limit - node->data.server_to_client_buffer->write;
+						int bytes_to_copy = node->data.parser->pop3->response.response_buffer->write -
+											node->data.parser->pop3->response.response_buffer->read;
+						strncpy((char *)node->data.server_to_client_buffer->write,
+								(char *)node->data.parser->pop3->response.response_buffer->read,
+								(bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available);
+						close_pop3_parser(node);
+						node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+					} else {
+						// dio acceso no autorizado, reseteo la busqueda de credentials
+						node->data.parser->pop3->command.credentials_state = POP3_C_NOT_FOUND;
+					}
+				}
 			}
 			logger_peer(SERVER, "hereee");
 			// lo prendo pues hay nueva informacion
@@ -183,7 +211,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 						handle_operation(fd_server, node->data.parser->data.parsed_request, WRITE, SERVER, node->data.log_file);
 					if (result_bytes < 0) return result_bytes;
 					// UNICA LINEA CON COMPORTAMIENTO DISTINTO, VER SI SE PUEDE SACAR
-					if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node);
+					if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node, write_fd_set);
 				}
 				break;
 		}
@@ -227,6 +255,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 						break;
 					}
 					node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+					close_pop3_parser(node);
 				case PARSE_CONNECT_METHOD:
 					aux_buffer = node->data.client_to_server_buffer;
 					break;
@@ -234,7 +263,6 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 					aux_buffer = node->data.parser->data.parsed_request;
 					parse_request(node->data.parser, node->data.client_to_server_buffer);
 					if (node->data.parser->data.parser_state == PS_ERROR) return BAD_REQUEST_ERROR;
-					logger_peer(CLIENT, "connect");
 					if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
 						// seteo los argumentos necesarios para conectarse al server
 						if (node->data.parser->request.target.host_type == DOMAIN) {
@@ -264,22 +292,6 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		switch (node->data.parser->data.request_status) {
 			case PARSE_CONNECT_METHOD_POP3:
 				aux_buffer = node->data.parser->pop3->response.response_buffer;
-				// una vez que encontre la password y es correcta, cambio el estado a connect, asi no sniffeo mas
-				if (node->data.parser->pop3->lines_to_password_response == 0 &&
-					node->data.parser->pop3->response.data.status == POP3_R_POSITIVE_STATUS &&
-					node->data.parser->pop3->command.credentials_state == POP3_C_FOUND) {
-					node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
-					strcpy(node->data.parser->request.authorization.value,
-							node->data.parser->pop3->command.credentials.username);
-					size_t length = strlen(node->data.parser->pop3->command.credentials.username);
-					strcpy(node->data.parser->request.authorization.value + length, "    ");
-					length += strlen("    ");
-					strcpy(node->data.parser->request.authorization.value + length,
-							node->data.parser->pop3->command.credentials.password);
-					length += strlen(node->data.parser->pop3->command.credentials.password);
-					node->data.parser->request.authorization.value[length] = '\0';
-					print_register(PASSWORD, node);
-				}
 				break;
 			case PARSE_CONNECT_METHOD:
 				aux_buffer = node->data.server_to_client_buffer;
@@ -297,7 +309,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 					// TODO: agregar chequeos o directamente mover la cantidad de bytes
 					node->data.client_information.status_code = (unsigned short)status_response_code;
 				}
-				print_register(ACCESS, node);
+				print_register(ACCESS, node, write_fd_set);
 
 				break;
 		}
@@ -510,14 +522,15 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 		switch (node->data.parser->data.request_status) {
 			case PARSE_CONNECT_METHOD_POP3:
 				setup_pop3_parser(node);
-				break;
 			case PARSE_CONNECT_METHOD:
 				// enviamos al cliente que nos conectamos satisfactoriamente al servidor
 				logger(INFO, "Connection established");
 				send_message("HTTP/1.1 200 Connection Established\r\n\r\n", node->data.client_sock, node);
 				node->data.client_information.status_code = 200;
-				print_register(ACCESS, node);
+				print_register(ACCESS, node, write_fd_set);
 				buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
+				free(node->data.parser->data.parsed_request->data);
+				free(node->data.parser->data.parsed_request);
 				break;
 			default:
 				// ya que estoy conectado, me fijo si quedo algo para parsear
@@ -562,7 +575,7 @@ static int copy_address_info(struct sockaddr *address, char *buffer_address, cha
 	return 0;
 }
 
-static void print_register(register_type register_wanted, connection_node *node) {
+static void print_register(register_type register_wanted, connection_node *node, fd_set *write_fd_set) {
 	ssize_t actual_length = 0;
 	time_t timer = time(NULL);
 	struct tm local_time = *localtime(&timer);
@@ -609,6 +622,8 @@ static void print_register(register_type register_wanted, connection_node *node)
 	sprintf((char *)connections.stdout_buffer->write, "%s", output);
 	buffer_write_adv(connections.stdout_buffer, actual_length);
 	connections.stdout_buffer->write[0] = '\0';
+	// pongo el stdout en el select para que lea cuando pueda
+	FD_SET(STDOUT_FILENO, &write_fd_set[BASE]);
 }
 
 static int copy_host(char *buffer, http_target target) {
