@@ -53,8 +53,6 @@ int main(const int argc, char **argv) {
 	memset(&current_request, 0, sizeof(current_request));
 	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
-	get_passphrase();
-
 	uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
 
 	uint8_t type;
@@ -75,6 +73,8 @@ int main(const int argc, char **argv) {
 			break;
 	}
 
+	get_passphrase();
+
 	int server_sock = socket(current_addr.addr.sa_family, SOCK_DGRAM, 0);
 
 	if (server_sock < 0) logger(FATAL, "%s", strerror(errno));
@@ -90,12 +90,38 @@ int main(const int argc, char **argv) {
 	}
 
 	sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
+
+	fd_set read_fd_set;
+	FD_ZERO(&read_fd_set);
+	struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
+	// Wait con prints de '.' y timeouts
+
+	int ready_fds = 0;
+	for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
+		printf(".");
+		FD_SET(server_sock, &read_fd_set);
+		ready_fds = select(server_sock + 1, &read_fd_set, NULL, NULL, &timeout);
+	}
+
+	if (ready_fds == 0) {
+		logger(INFO, "Timeout");
+		return -1;
+	}
+
+	uint8_t response[MAX_PCAMP_PACKET_LENGTH] = {0};
+	struct sockaddr server_addr;
+	socklen_t server_addr_len;
+	ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
+
+	printf("read %ld bytes", recv_bytes);
+
+	return 0;
 }
 
 static void get_passphrase() {
 	char input[PCAMP_BUFFER_SIZE];
 
-	printf("Please, enter the passphrase:\n");
+	printf("Enter the passphrase:\n");
 	print_prompt();
 
 	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
@@ -231,7 +257,7 @@ static bool parse_sniffing(char *value) {
 static bool parse_doh_addr(char *value) {
 	struct in_addr ipv4;
 	struct in6_addr ipv6;
-	uint8_t parsed_ip[config_value_size[DOH_ADDR_CONFIG]];
+	uint8_t parsed_ip[config_value_length[DOH_ADDR_CONFIG]];
 
 	if (inet_pton(AF_INET, value, &ipv4) == 1) {
 		// es ipv4
@@ -252,8 +278,7 @@ static bool parse_doh_addr(char *value) {
 static bool parse_doh_port(char *value) {
 	uint16_t aux;
 
-	if(!parse_port(value, &aux))
-		return false;
+	if (!parse_port(value, &aux)) return false;
 
 	copy_config_value(DOH_PORT_CONFIG, &aux);
 
@@ -271,7 +296,7 @@ static bool parse_doh_hostname(char *value, ssize_t bytes) {
 }
 
 static void copy_config_value(config_type type, void *value) {
-	size_t value_size = config_value_size[type];
+	size_t value_size = config_value_length[type];
 	current_request.config_value = malloc(value_size);
 
 	switch (value_size) {
@@ -327,8 +352,8 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 
 	io_buffer[i++] = type;
 
-	memcpy(io_buffer + i, current_request.config_value, config_value_size[type]);
-	i += config_value_size[type];
+	memcpy(io_buffer + i, current_request.config_value, config_value_length[type]);
+	i += config_value_length[type];
 
 	return i;
 }

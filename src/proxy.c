@@ -3,16 +3,13 @@
 #include <dohutils.h>
 #include <errno.h>
 #include <logger.h>
+#include <pcampserver.h>
 #include <proxy.h>
 #include <proxyargs.h>
 #include <proxyutils.h>
 #include <signal.h>
 #include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
-#include <unistd.h>
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
@@ -33,7 +30,10 @@ int main(const int argc, char **argv) {
 	parse_proxy_args(argc, argv);
 
 	int passive_sock = setup_passive_socket();
-	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");
+	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed: %s", strerror(errno));
+
+	int management_sock = setup_pcamp_socket();
+	if (management_sock < 0) logger(FATAL, "setup_pcamp_socket() failed: %s", strerror(errno));
 
 	const char *name = "./logs/proxy_log";
 	connections.proxy_log = fopen(name, "w+");
@@ -53,6 +53,7 @@ int main(const int argc, char **argv) {
 	}
 
 	FD_SET(passive_sock, &read_fd_set[BASE]);
+	FD_SET(management_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
 	// TODO: REVISAR SEÑALES
@@ -62,7 +63,7 @@ int main(const int argc, char **argv) {
 	// ignoramos SIGPIPE, dado que tal error lo manejamos nosotros
 	signal(SIGPIPE, SIG_IGN);
 
-	connections.max_fd = passive_sock + 1;
+	connections.max_fd = management_sock + 1;
 
 	while (1) {
 		// resetear fd_set
@@ -90,6 +91,12 @@ int main(const int argc, char **argv) {
 					logger(ERROR, "setup_connection_resources() failed with NULL value");
 				}
 			}
+			ready_fds--;
+		}
+
+		if (FD_ISSET(management_sock, &read_fd_set[TMP])) {
+			handle_pcamp_request(management_sock);
+			// TODO valores de retorno
 			ready_fds--;
 		}
 
@@ -183,7 +190,8 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
 		case INVALID_REQUEST_ERROR_CODE:
-			logger(INFO, "Invalid current_request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
+			logger(INFO, "Invalid current_request for server_fd: %d and client_fd: %d", node->data.server_sock,
+				   node->data.client_sock);
 			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
 			break;
 		default:

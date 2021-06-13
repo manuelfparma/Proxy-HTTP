@@ -1,11 +1,11 @@
 #include <arpa/inet.h>
+#include <errno.h>
 #include <logger.h>
 #include <netinet/in.h>
 #include <pcampargs.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
 
 static void version();
 static void usage(const char *program_name);
@@ -20,7 +20,7 @@ addr_info parse_pcamp_args(const int argc, char **argv) {
 	int c;
 	char *flags = "hvp:l:";
 
-	while(1) {
+	while (1) {
 		c = getopt(argc, argv, flags);
 		if (c == -1) { break; }
 
@@ -75,19 +75,13 @@ static void usage(const char *program_name) {
 }
 
 static addr_info check_info(const char *proxy_ip, const char *proxy_port) {
-	// Informacion de retorno
 	addr_info args_addr;
-	// Variables auxiliares:
-	struct sockaddr_in addr_in4;
-	struct sockaddr_in6 addr_in6;
-
 	uint16_t port;
 
-	if(!parse_port(proxy_port, &port))
+	if (!parse_port(proxy_port, &port))
 		logger(FATAL, "Invalid port number. Must be an integer between 0 and 65535. Exiting...\n");
 
-	if(!parse_ip_address(proxy_ip, port, &args_addr))
-		logger(FATAL, "Invalid IP address. Exiting...\n");
+	if (!parse_ip_address(proxy_ip, port, &args_addr)) logger(FATAL, "Invalid IP address. Exiting...\n");
 
 	return args_addr;
 }

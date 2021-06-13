@@ -13,8 +13,11 @@
 #define MIN_PROXY_IO_BUFFER_SIZE 1
 #define MAX_DOH_HOSTNAME_LENGTH 255
 #define MIN_DOH_HOSTNAME_LENGTH 1
+#define MAX_CONFIG_VALUE_SIZE 256
 #define PCAMP_IPV4 0
 #define PCAMP_IPV6 1
+
+// TODO: Comentar estructuras, enums y funciones
 
 typedef enum { PCAMP_QUERY, PCAMP_CONFIG, PCAMP_METHOD_COUNT } pcamp_method;
 typedef enum { PCAMP_REQUEST, PCAMP_RESPONSE } pcamp_op;
@@ -50,14 +53,13 @@ typedef enum {
 	PCAMP_INTERNAL_SERVER_ERROR
 } pcamp_status_code;
 
-#define MAX_CONFIG_VALUE_SIZE 256
-
-ssize_t config_value_size[PCAMP_CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
+ssize_t config_value_length[PCAMP_CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
+ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT] = {8, 8, 8, 8, 8, 8};
 
 typedef struct {
 	uint8_t version;
-	uint8_t flags; // contiene en el bit menos significativo la operacion (current_request (0)/response (1)) y en el siguiente el metodo
-				   // (query(0)/config(1))
+	uint8_t flags; // contiene en el bit menos significativo la operacion (current_request (0)/response (1)) y en el siguiente el
+				   // metodo (query(0)/config(1))
 	uint16_t id;
 } pcamp_header;
 
@@ -82,6 +84,6 @@ typedef struct {
 	uint8_t status_code;
 } pcamp_config_response;
 
-void sha256_digest(void *src, void *dest, size_t bytes);
+void sha256_digest(const void *src, void *dest, size_t bytes);
 
 #endif

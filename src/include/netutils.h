@@ -19,11 +19,11 @@ typedef union {
 
 // Funcion que recibe un puerto y una direccion IP en human readable format y los almacena en formato
 // de red en la estructura addr_info. En caso de no ser una direccion valida devuelve false. En caso contrario true
-bool parse_ip_address(char *addr_str, uint16_t port, addr_info *addr);
+bool parse_ip_address(const char *addr_str, uint16_t port, addr_info *addr);
 
 //	Funcion que recibe un string null-terminated representando un numero de puerto y lo vuelca en port
 //	Si no se logró convertir, devuelve false
-bool parse_port(char *port_str, uint16_t *port);
+bool parse_port(const char *port_str, uint16_t *port);
 
 //	Funcion para copiar de un buffer src en Big-Endian una variable dest de tamaño 16 bits n veces
 void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n);

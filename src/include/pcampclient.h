@@ -5,6 +5,8 @@
 
 #define CLIENT_PCAMP_VERSION 1
 #define PCAMP_BUFFER_SIZE 512
+#define PCAMP_CLIENT_MAX_RECV_ATTEMPS 3
+#define PCAMP_CLIENT_TIMEOUT 3
 
 char *method_strings[PCAMP_METHOD_COUNT] = {
 	"Query (get tracked access data from HTTP proxy server)",

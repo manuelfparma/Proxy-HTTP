@@ -2,13 +2,14 @@
 #include <stdbool.h>
 #include <netutils.h>
 #include <dohdata.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <limits.h> /* LONG_MIN et al */
 
 #define NUM_BASE 10
 
-bool parse_ip_address(char *addr_str, uint16_t port, addr_info *addr) {
+bool parse_ip_address(const char *addr_str, uint16_t port, addr_info *addr) {
 	if (inet_pton(AF_INET, addr_str, &addr->in4.sin_addr) == 1) {
 		addr->addr.sa_family = AF_INET;
 		addr->in4.sin_port = htons(port);
@@ -21,7 +22,7 @@ bool parse_ip_address(char *addr_str, uint16_t port, addr_info *addr) {
 	return true;
 }
 
-bool parse_port(char *port_str, uint16_t *port) {
+bool parse_port(const char *port_str, uint16_t *port) {
 	char *end = 0;
 	const long service_number = strtol(port_str, &end, NUM_BASE);
 
