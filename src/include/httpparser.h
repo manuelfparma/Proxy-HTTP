@@ -129,7 +129,7 @@ typedef struct {
 typedef struct {
 	pop3_command_parser command;
 	pop3_response_parser response;
-	size_t lines_to_password_response;
+	size_t line_count;
 } http_pop3_parser;
 
 typedef struct {

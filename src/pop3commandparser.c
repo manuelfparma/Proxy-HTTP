@@ -9,7 +9,7 @@
 pop3_command_parser *current_parser;
 buffer *current_read_buffer;
 buffer *current_write_buffer;
-size_t lines_to_password_response;
+size_t line_count;
 
 // Transiciones entre nodos
 static void tr_check_prefix(char current_char);
@@ -53,8 +53,8 @@ static void tr_line_ended(char current_char) {
 	if (current_parser->prefix_type == POP3_C_PASS) {
 		logger(DEBUG, "FOUND CREDENTIALS");
 		current_parser->credentials_state = POP3_C_FOUND;
-	} else
-		lines_to_password_response++;
+	}
+	line_count++;
 	tr_reset_copy_index(current_char);
 }
 
@@ -118,7 +118,7 @@ static void tr_reset_copy_index(char current_char) {
 
 static void tr_parse_error(char current_char) {
 	current_parser->parser_state = POP3_C_PS_ERROR;
-	// TODO: MEJORAR
+	tr_reset_copy_index(current_char);
 }
 
 //----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
@@ -128,14 +128,13 @@ int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
 	current_read_buffer = read_buffer;
 	char current_char;
 	pop3_command_parser_state current_state;
-	lines_to_password_response = 0;
-	logger(DEBUG, "PARSING");
-
-	while (buffer_can_read(current_read_buffer) && current_parser->parser_state != POP3_C_PS_ERROR) {
+	line_count = 0;
+	if (current_parser->parser_state == POP3_C_PS_ERROR) current_parser->parser_state = POP3_C_PS_PREFIX;
+	while (buffer_can_read(current_read_buffer)) {
 		current_char = buffer_read(read_buffer);
 		buffer_write(current_parser->command_buffer, current_char); // todo lo que leo lo escribo en la salida
 		current_state = current_parser->parser_state;
-		for (size_t i = 0; i < states_n[current_state]; i++) {
+		for (size_t i = 0; current_parser->parser_state != POP3_C_PS_ERROR && i < states_n[current_state]; i++) {
 			if (current_char == states[current_state][i].when || states[current_state][i].when == (char)POP3_C_ANY) {
 				current_parser->parser_state = states[current_state][i].destination;
 				states[current_state][i].transition(current_char);
@@ -145,5 +144,5 @@ int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
 		// condicion de salida pues encontre un par USER - PASS
 		if (current_parser->parser_state == POP3_C_PS_PREFIX && current_parser->prefix_type == POP3_C_PASS) break;
 	}
-	return lines_to_password_response;
+	return line_count;
 }

@@ -131,11 +131,10 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (result_bytes < 0) return result_bytes;
 
 			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
-				logger_peer(SERVER, "connect pop3 read");
 
-				node->data.parser->pop3->lines_to_password_response -=
+				node->data.parser->pop3->line_count -=
 					parse_pop3_response(&node->data.parser->pop3->response, node->data.server_to_client_buffer);
-				if (node->data.parser->pop3->lines_to_password_response == 0) {
+				if (node->data.parser->pop3->line_count == 0 && node->data.parser->pop3->command.credentials_state == POP3_C_FOUND) {
 					logger(DEBUG, "FOUND CREDENTIALS RESPONSE");
 					if (node->data.parser->pop3->response.data.status == POP3_R_POSITIVE_STATUS) {
 						// una vez que encontre la password y es correcta, cambio el estado a connect, asi no sniffeo mas
@@ -154,18 +153,19 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 							node->data.server_to_client_buffer->limit - node->data.server_to_client_buffer->write;
 						int bytes_to_copy = node->data.parser->pop3->response.response_buffer->write -
 											node->data.parser->pop3->response.response_buffer->read;
+						int bytes_copied = (bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available;
 						strncpy((char *)node->data.server_to_client_buffer->write,
-								(char *)node->data.parser->pop3->response.response_buffer->read,
-								(bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available);
+								(char *)node->data.parser->pop3->response.response_buffer->read, bytes_copied);
+						buffer_write_adv(node->data.server_to_client_buffer, bytes_copied);
 						close_pop3_parser(node);
 						node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 					} else {
 						// dio acceso no autorizado, reseteo la busqueda de credentials
 						node->data.parser->pop3->command.credentials_state = POP3_C_NOT_FOUND;
+						node->data.parser->pop3->command.prefix_type = POP3_C_UNKNOWN;
 					}
 				}
 			}
-			logger_peer(SERVER, "hereee");
 			// lo prendo pues hay nueva informacion
 			FD_SET(fd_client, &write_fd_set[BASE]);
 		} else {
@@ -189,9 +189,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			case PARSE_CONNECT_METHOD:
 				aux_buffer = node->data.client_to_server_buffer;
 				goto READ_BUFFER;
-				break;
 			case PARSE_CONNECT_METHOD_POP3:
-				logger_peer(SERVER, "connect pop3 write");
 				aux_buffer = node->data.parser->pop3->command.command_buffer;
 			READ_BUFFER:
 				if (!buffer_can_read(aux_buffer)) {
@@ -248,9 +246,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			switch (node->data.parser->data.request_status) {
 				case PARSE_CONNECT_METHOD_POP3:
 					if (!connections.password_dissector) {
-						logger_peer(CLIENT, "connect_pop3");
 						aux_buffer = node->data.parser->pop3->command.command_buffer;
-						node->data.parser->pop3->lines_to_password_response +=
+						node->data.parser->pop3->line_count +=
 							parse_pop3_command(&node->data.parser->pop3->command, node->data.client_to_server_buffer);
 						break;
 					}
@@ -275,6 +272,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 							int connect_ret = set_node_request_target(node, write_fd_set);
 							if (connect_ret < 0) return connect_ret;
 						}
+						if(node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3)
+							setup_pop3_command_parser(node);
 
 						break;
 					}
@@ -378,7 +377,7 @@ int setup_connection(connection_node *node, fd_set *writeFdSet) {
 		return CLOSE_CONNECTION_ERROR_CODE;
 	}
 
-	logger(INFO, "Connecting to server from client with fd: %d", node->data.client_sock);
+	logger(DEBUG, "Connecting to server from client with fd: %d", node->data.client_sock);
 	node->data.connection_state = CONNECTING;
 	// TODO: lista de estadisticas
 	// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
@@ -521,7 +520,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 		FD_SET(node->data.server_sock, &read_fd_set[BASE]);
 		switch (node->data.parser->data.request_status) {
 			case PARSE_CONNECT_METHOD_POP3:
-				setup_pop3_parser(node);
+				setup_pop3_response_parser(node);
 			case PARSE_CONNECT_METHOD:
 				// enviamos al cliente que nos conectamos satisfactoriamente al servidor
 				logger(INFO, "Connection established");
@@ -529,6 +528,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				node->data.client_information.status_code = 200;
 				print_register(ACCESS, node, write_fd_set);
 				buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
+				FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
 				free(node->data.parser->data.parsed_request->data);
 				free(node->data.parser->data.parsed_request);
 				break;

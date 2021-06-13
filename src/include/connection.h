@@ -80,7 +80,9 @@ void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set 
 
 void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set);
 
-int setup_pop3_parser(connection_node *node);
+int setup_pop3_command_parser(connection_node *node);
+
+int setup_pop3_response_parser(connection_node *node);
 
 void close_pop3_parser(connection_node *node);
 

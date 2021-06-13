@@ -215,13 +215,9 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
 		case SERVER_CLOSE_READ_ERROR_CODE:
+		case CLIENT_CLOSE_READ_ERROR_CODE:
 			node->data.connection_state = SERVER_READ_CLOSE;
 			close_server_connection(node, read_fd_set, write_fd_set);
-			return 0;
-		case CLIENT_CLOSE_READ_ERROR_CODE:
-			// dejo de leer del cliente
-			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
-			node->data.connection_state = CLIENT_READ_CLOSE;
 			return 0;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");

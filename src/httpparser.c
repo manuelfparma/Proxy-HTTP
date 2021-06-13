@@ -546,6 +546,7 @@ static void tr_solve_port_request_target(char current_char) {
 	if(current_parser->data.request_status == PARSE_CONNECT_METHOD && strcmp(current_parser->request.target.port, "110") == 0){
 		// sabemos que estamos bajo el protocolo pop3
 		current_parser->data.request_status = PARSE_CONNECT_METHOD_POP3;
+		logger(DEBUG, "CONNECT_POP3 IDENTIFIED");
 	}
 	tr_solve_request_target(current_char);
 }
