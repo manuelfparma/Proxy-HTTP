@@ -1,6 +1,6 @@
 #include <connection.h>
 #include <errno.h>
-#include <http_parser.h>
+#include <httpparser.h>
 #include <logger.h>
 #include <proxy.h>
 #include <proxyutils.h>
@@ -49,6 +49,7 @@ static void set_node_default_values(connection_node *node) {
 	node->data.parser->request.header.type[0] = '\0';
 	node->data.parser->request.header.value[0] = '\0';
 	node->data.parser->request.authorization.value[0] = '\0';
+	node->data.parser->pop3 = NULL;
 
 	buffer_init(node->data.client_to_server_buffer, BUFFER_SIZE, node->data.client_to_server_buffer->data);
 	buffer_init(node->data.server_to_client_buffer, BUFFER_SIZE, node->data.server_to_client_buffer->data);
@@ -154,8 +155,18 @@ void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set 
 	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
 	free(node->data.client_to_server_buffer->data);
 	free(node->data.client_to_server_buffer);
-	free(node->data.parser->data.parsed_request->data);
-	free(node->data.parser->data.parsed_request);
+
+	switch (node->data.parser->data.request_status) {
+		case PARSE_CONNECT_METHOD:
+			break;
+		case PARSE_CONNECT_METHOD_POP3:
+			close_pop3_command_parser(node);
+			break;
+		default:
+			free(node->data.parser->data.parsed_request->data);
+			free(node->data.parser->data.parsed_request);
+	}
+
 	free(node->data.parser);
 	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &read_fd_set[BASE]);
@@ -164,15 +175,49 @@ void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set 
 	node->data.server_sock = -1;
 }
 
+void close_pop3_response_parser(connection_node *node) {
+	free(node->data.parser->pop3->response.response_buffer->data);
+	free(node->data.parser->pop3->response.response_buffer);
+	node->data.parser->pop3->response.response_buffer = NULL;
+}
+
+void close_pop3_command_parser(connection_node *node) {
+	if (node->data.parser->pop3->command.command_buffer != NULL) {
+		free(node->data.parser->pop3->command.command_buffer->data);
+		free(node->data.parser->pop3->command.command_buffer);
+		node->data.parser->pop3->command.command_buffer = NULL;
+	}
+}
+
+void close_pop3_parser(connection_node *node) {
+	if (node->data.parser->pop3 == NULL) {
+		// si la conexion no se completa, no se malloquean los recursos del parser
+		return;
+	}
+
+	close_pop3_command_parser(node);
+	close_pop3_response_parser(node);
+	free(node->data.parser->pop3);
+}
+
 void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
 	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
+	switch (node->data.parser->data.request_status) {
+		case PARSE_CONNECT_METHOD:
+			break;
+		case PARSE_CONNECT_METHOD_POP3:
+			close_pop3_parser(node);
+			break;
+		default:
+			break;
+	}
 	if (node->data.server_sock >= 0) {
 		logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
-		free(node->data.client_to_server_buffer->data);
-		free(node->data.client_to_server_buffer);
 		free(node->data.parser->data.parsed_request->data);
 		free(node->data.parser->data.parsed_request);
+		free(node->data.client_to_server_buffer->data);
+		free(node->data.client_to_server_buffer);
 		free(node->data.parser);
 		FD_CLR(server_fd, &read_fd_set[BASE]);
 		FD_CLR(server_fd, &write_fd_set[BASE]);
@@ -197,4 +242,64 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	close(client_fd);
 	write_proxy_statistics();
 	connections.current_clients--;
+}
+
+int setup_pop3_response_parser(connection_node *node) {
+	node->data.parser->pop3->response.response_buffer = malloc(sizeof(buffer));
+	if (node->data.parser->pop3->response.response_buffer == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		close_pop3_parser(node);
+		return -1;
+	}
+
+	node->data.parser->pop3->response.response_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	if (node->data.parser->pop3->response.response_buffer->data == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		close_pop3_parser(node);
+		return -1;
+	}
+
+	buffer_init(node->data.parser->pop3->response.response_buffer, BUFFER_SIZE,
+				node->data.parser->pop3->response.response_buffer->data);
+
+	return 0;
+}
+
+int setup_pop3_command_parser(connection_node *node) {
+	node->data.parser->pop3 = malloc(sizeof(http_pop3_parser));
+	if (node->data.parser->pop3 == NULL) { return -1; }
+
+	node->data.parser->pop3->command.command_buffer = malloc(sizeof(buffer));
+
+	if (node->data.parser->pop3->command.command_buffer == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3);
+		return -1;
+	}
+
+	node->data.parser->pop3->command.command_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+
+	if (node->data.parser->pop3->command.command_buffer->data == NULL) {
+		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
+		free(node->data.parser->pop3->command.command_buffer);
+		free(node->data.parser->pop3);
+		return -1;
+	}
+
+	buffer_init(node->data.parser->pop3->command.command_buffer, BUFFER_SIZE,
+				node->data.parser->pop3->command.command_buffer->data);
+
+	node->data.parser->pop3->response.parser_state = POP3_R_PS_STATUS;
+	node->data.parser->pop3->command.parser_state = POP3_C_PS_PREFIX;
+	node->data.parser->pop3->command.copy_index = 0;
+	node->data.parser->pop3->command.credentials.username[0] = '\0';
+	node->data.parser->pop3->command.credentials.password[0] = '\0';
+	node->data.parser->pop3->command.credentials_state = POP3_C_NOT_FOUND;
+	node->data.parser->pop3->command.line.prefix[0] = '\0';
+	node->data.parser->pop3->command.line.value[0] = '\0';
+	node->data.parser->pop3->line_count = 1;
+	// El servidor responde primero con un accepted connection, por lo que ya hay una linea para leer
+	buffer_reset(node->data.client_to_server_buffer);
+	logger(DEBUG, "POP3 PARSER MALLOQUEADO");
+	return 0;
 }

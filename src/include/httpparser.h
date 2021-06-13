@@ -1,8 +1,9 @@
-#ifndef __HTTP_PARSER_H__
-#define __HTTP_PARSER_H__
+#ifndef __HTTP_REQUEST_PARSER_H__
+#define __HTTP_REQUEST_PARSER_H__
 
 #include <buffer.h>
-#include <netinet/in.h>
+#include <pop3commandparser.h>
+#include <pop3responseparser.h>
 #include <stdint.h>
 
 typedef enum {
@@ -20,8 +21,8 @@ typedef enum {
 	PARSE_BODY_INCOMPLETE,
 	PARSE_END,
 	PARSE_CONNECT_METHOD,
+	PARSE_CONNECT_METHOD_POP3,
 } http_request_status_code;
-// deben ser numeros negativos porque las funciones de parseo retornan caracteres leidos en casos exitosos
 
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 0xFF, // 255
@@ -30,7 +31,7 @@ typedef enum {
 	MAX_BODY_LENGTH = 1023,
 	MAX_METHOD_LENGTH = 24,
 	MAX_SCHEMA_LENGTH = 24,
-	MAX_IP_LENGTH = 128,
+	MAX_IP_LENGTH = 45,
 	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
 	BASIC_CREDENTIAL_LENGTH = 6, // soporta "Basic " para credenciales de autorizacion
@@ -40,9 +41,10 @@ typedef enum {
 } http_request_constraints;
 
 typedef enum {
-	EMPTY_VERSION = -1,
-
-} constants;
+	ANY = -1,
+	EMPTY = -2,
+	EMPTY_VERSION = -3,
+} http_constants;
 
 typedef enum {
 	PS_METHOD,
@@ -109,7 +111,7 @@ typedef struct {
 
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
-	char schema[MAX_SCHEMA_LENGTH + 1]; // schemao del request
+	char schema[MAX_SCHEMA_LENGTH + 1]; // schema del request
 	http_target target;
 	http_version version;
 	http_header header; // header actual(por si no se completo)
@@ -117,18 +119,25 @@ typedef struct {
 } http_request_data;
 
 typedef struct {
-	buffer *parsed_request;			// request parseada lista para enviar
 	http_parser_state parser_state; // estado actual
 	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
 	http_request_status_code request_status;  // codigo que indica el estado de los recursos leidos
 	http_request_target_status target_status; // estado del hostname en el parseo
-} http_parser_data;
+	buffer *parsed_request;		   // request parseada lista para enviar
+} http_request_parser_data;
 
 typedef struct {
-	http_request_data request; // datos de la request parseada
-	http_parser_data data;	   // datos de la maquina
+	pop3_command_parser command;
+	pop3_response_parser response;
+	size_t line_count;
+} http_pop3_parser;
+
+typedef struct {
+	http_request_data request;	   // datos de la request parseada
+	http_request_parser_data data; // datos de la maquina
+	http_pop3_parser *pop3;		   // datos de la maquina en caso que haya un connect al protocolo POP
 } http_parser;
 
-int parse_request(http_parser *request, buffer *read_buffer);
+int parse_request(http_parser *parser, buffer *read_buffer);
 
 #endif

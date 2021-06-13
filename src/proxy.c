@@ -69,8 +69,7 @@ int main(const int argc, char **argv) {
 		FD_ZERO(&read_fd_set[i]);
 	}
 
-	// seteo de salida estandar (escritura) y socket pasivo (lectura)
-	FD_SET(STDOUT_FILENO, &write_fd_set[BASE]);
+	// seteo de socket pasivo (lectura)
 	FD_SET(passive_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
@@ -98,6 +97,7 @@ int main(const int argc, char **argv) {
 				}
 			} else {
 				buffer_read_adv(connections.stdout_buffer, result_bytes);
+				if(!buffer_can_read(connections.stdout_buffer)) FD_CLR(STDOUT_FILENO, &write_fd_set[BASE]);
 			}
 			ready_fds--;
 		}
@@ -215,13 +215,9 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
 			break;
 		case SERVER_CLOSE_READ_ERROR_CODE:
+		case CLIENT_CLOSE_READ_ERROR_CODE:
 			node->data.connection_state = SERVER_READ_CLOSE;
 			close_server_connection(node, read_fd_set, write_fd_set);
-			return 0;
-		case CLIENT_CLOSE_READ_ERROR_CODE:
-			// dejo de leer del cliente
-			FD_CLR(node->data.client_sock, &read_fd_set[BASE]);
-			node->data.connection_state = CLIENT_READ_CLOSE;
 			return 0;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");
@@ -309,6 +305,4 @@ void send_message(char *message, int fd_client, connection_node *node) {
 
 	free(buffer_response->data);
 	free(buffer_response);
-
-	buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request
 }
