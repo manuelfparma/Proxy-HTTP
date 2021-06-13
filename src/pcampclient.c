@@ -36,7 +36,6 @@ static bool parse_doh_port(char *value);
 static bool parse_doh_addr(char *value);
 static bool parse_max_clients(char *value);
 static bool parse_sniffing(char *value);
-static void copy_config_value(config_type type, void *value);
 static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes);
 static bool parse_query_body(uint8_t *body, ssize_t recv_bytes);
 static void print_query_response();
@@ -124,8 +123,10 @@ int main(const int argc, char **argv) {
 	if (!parse_pcamp_response(response, recv_bytes)) {
 		// FIXME: Manejar error
 		printf("The response received from the server is not valid. Please try again\n");
+		return -1;
 	} else if (current_response.status_code != PCAMP_SUCCESS) {
 		printf("%s\n", status_code_strings[current_response.status_code]);
+		return -1;
 	}
 
 	switch (current_response.method) {
@@ -206,7 +207,7 @@ static void get_config_value(config_type type, char *value) {
 		print_prompt();
 
 		ssize_t read_bytes = read(STDIN_FILENO, value, PCAMP_BUFFER_SIZE);
-		value[read_bytes] = 0;
+		value[read_bytes-1] = 0;
 
 		switch (type) {
 			case BUFFER_SIZE_CONFIG:
@@ -243,7 +244,9 @@ static bool parse_buffer_size(char *value) {
 		return false;
 
 	uint16_t aux = parsed_buffer_size;
-	copy_config_value(BUFFER_SIZE_CONFIG, &aux);
+
+	current_request.config.config_value = malloc(config_value_length[BUFFER_SIZE_CONFIG]);
+	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -256,7 +259,9 @@ static bool parse_max_clients(char *value) {
 		return false;
 
 	uint16_t aux = parsed_max_clients;
-	copy_config_value(MAX_CLIENTS_CONFIG, &aux);
+
+	current_request.config.config_value = malloc(config_value_length[MAX_CLIENTS_CONFIG]);
+	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -266,8 +271,8 @@ static bool parse_sniffing(char *value) {
 
 	if ((parsed_sniffing == 0 && errno == EINVAL) || (parsed_sniffing != 0 && parsed_sniffing != 1)) return false;
 
-	uint8_t aux = parsed_sniffing;
-	copy_config_value(SNIFFING_CONFIG, &aux);
+	current_request.config.config_value = malloc(config_value_length[SNIFFING_CONFIG]);
+	*current_request.config.config_value = parsed_sniffing;
 
 	return true;
 }
@@ -289,7 +294,8 @@ static bool parse_doh_addr(char *value) {
 	} else
 		return false;
 
-	copy_config_value(DOH_ADDR_CONFIG, parsed_ip);
+	current_request.config.config_value = calloc(config_value_length[DOH_ADDR_CONFIG], SIZE_8);
+	memcpy(current_request.config.config_value, parsed_ip, config_value_length[DOH_ADDR_CONFIG]);
 
 	return true;
 }
@@ -299,7 +305,8 @@ static bool parse_doh_port(char *value) {
 
 	if (!parse_port(value, &aux)) return false;
 
-	copy_config_value(DOH_PORT_CONFIG, &aux);
+	current_request.config.config_value = malloc(config_value_length[DOH_PORT_CONFIG]);
+	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -309,33 +316,10 @@ static bool parse_doh_hostname(char *value, ssize_t bytes) {
 
 	value[bytes] = 0;
 
-	copy_config_value(DOH_HOSTNAME_CONFIG, value);
+	current_request.config.config_value = calloc(config_value_length[DOH_HOSTNAME_CONFIG], SIZE_8);
+	memcpy(current_request.config.config_value, value, bytes);
 
 	return true;
-}
-
-static void copy_config_value(config_type type, void *value) {
-	size_t value_size = config_value_length[type];
-	current_request.config.config_value = malloc(value_size);
-
-	switch (value_size) {
-		case 1:
-			//	Casos uint8_t
-			*current_request.config.config_value = *(uint8_t *)value;
-			break;
-		case 2:
-			//	Casos uint16_t
-			write_big_endian_16(current_request.config.config_value, value, 1);
-			break;
-		case 4:
-			//	Casos uint32_t
-			write_big_endian_32(current_request.config.config_value, value, 1);
-			break;
-		default:
-			// Casos array de uint8_t
-			memcpy(current_request.config.config_value, value, value_size);
-			break;
-	}
 }
 
 static ssize_t prepare_query_request(query_type type) {
@@ -354,6 +338,7 @@ static ssize_t prepare_query_request(query_type type) {
 	i += SHA256_DIGEST_LENGTH;
 
 	io_buffer[i++] = type;
+	current_request.query.query_type = type;
 
 	return i;
 }
@@ -376,6 +361,8 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 	io_buffer[i++] = type;
 
 	memcpy(io_buffer + i, current_request.config.config_value, config_value_length[type]);
+	free(current_request.config.config_value);
+
 	i += config_value_length[type];
 
 	return i;

@@ -55,7 +55,7 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	// asignacion de recursos para la conexion
 	connection_node *new = malloc(sizeof(connection_node));
 
-	if (new->data.client_to_server_buffer == NULL) goto ERROR;
+	if (new == NULL) goto ERROR;
 
 	new->next = NULL;
 	new->data.client_sock = client_sock;
