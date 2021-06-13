@@ -12,6 +12,7 @@
 #define DISTANCE 'a' - 'A'
 
 extern proxy_arguments args;
+extern proxy_settings settings;
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
@@ -417,7 +418,7 @@ static void parse_header_line(char current_char) {
 		logger(DEBUG, "Header type Host : found but already present");
 		return;
 	}
-	if (!args.password_dissector) {
+	if (settings.password_dissector) {
 		strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
 		if (strcmp_header_type == 0) {
 			if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {
@@ -434,7 +435,7 @@ static void parse_header_line(char current_char) {
 				puts(current_parser->request.authorization.value);
 				free(base64_decoded);
 			} else {
-				logger(DEBUG, "Header type Authorization : unkown credentials");
+				logger(DEBUG, "Header type Authorization : unknown credentials");
 			}
 			goto COPY_HEADER;
 		}

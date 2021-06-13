@@ -2,6 +2,7 @@
 #include <dohclient.h>
 #include <dohutils.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <logger.h>
 #include <pcampserver.h>
 #include <proxy.h>
@@ -11,23 +12,33 @@
 #include <stddef.h>
 #include <string.h>
 
+extern proxy_arguments args;
+
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
 // Funcion que se encarga de manejar la conexion con el doh para resolver la current_request dns
 static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
+
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
 static void find_max_id();
+
 // Funcion para imprimir las estadisticas del server
 void write_proxy_statistics();
 
 connection_header connections = {0};
-extern proxy_arguments args;
+proxy_settings settings = {
+	.max_clients = MAX_CLIENTS,
+	.io_buffer_size = BUFFER_SIZE
+};
 
 int main(const int argc, char **argv) {
 
 	parse_proxy_args(argc, argv);
+	settings.password_dissector = args.password_dissector;
+	settings.doh_addr_info = args.doh_addr_info;
+	strcpy(settings.doh_host, args.doh_host);
 
 	int passive_sock = setup_passive_socket();
 	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed: %s", strerror(errno));
@@ -42,18 +53,18 @@ int main(const int argc, char **argv) {
 	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to "
 								   "current_clients\tBytes through connect\n");
 
-	connections.stdout_buffer = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	connections.stdout_buffer = malloc(sizeof(buffer));
 	if (connections.stdout_buffer == NULL) {
 		free(connections.proxy_log);
 		logger(FATAL, "malloc(): %s", strerror(errno));
 	}
-	connections.stdout_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	connections.stdout_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (connections.stdout_buffer->data == NULL) {
 		free(connections.proxy_log);
 		free(connections.stdout_buffer);
 		logger(FATAL, "malloc(): %s", strerror(errno));
 	}
-	buffer_init(connections.stdout_buffer, BUFFER_SIZE, connections.stdout_buffer->data);
+	buffer_init(connections.stdout_buffer, settings.io_buffer_size, connections.stdout_buffer->data);
 
 	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
 	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
@@ -84,7 +95,8 @@ int main(const int argc, char **argv) {
 
 		ready_fds = pselect(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL, &sig_mask);
 		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
-			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read, connections.stdout_buffer->write - connections.stdout_buffer->read );
+			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read,
+										 connections.stdout_buffer->write - connections.stdout_buffer->read);
 			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// error inesperado, no intento escribirle mas
@@ -92,11 +104,11 @@ int main(const int argc, char **argv) {
 				}
 			} else {
 				buffer_read_adv(connections.stdout_buffer, result_bytes);
-				if(!buffer_can_read(connections.stdout_buffer)) FD_CLR(STDOUT_FILENO, &write_fd_set[BASE]);
+				if (!buffer_can_read(connections.stdout_buffer)) FD_CLR(STDOUT_FILENO, &write_fd_set[BASE]);
 			}
 			ready_fds--;
 		}
-		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients <= MAX_CLIENTS) {
+		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients <= settings.max_clients) {
 			// almaceno el espacio para la info del cliente (ip y puerto)
 			char client_ip[MAX_IP_LENGTH + 1] = {0};
 			char client_port[MAX_PORT_LENGTH + 1] = {0};
@@ -284,11 +296,12 @@ static void find_max_id() {
 }
 
 void write_proxy_statistics() {
-	ssize_t proxy_to_origins = connections.statistics.total_proxy_to_origins_bytes;
-	ssize_t proxy_to_clients = connections.statistics.total_proxy_to_clients_bytes;
-	fprintf(connections.proxy_log, "%zd\t\t\t%ld\t\t\t%zd\t\t\t%zd\t\t\t%zd\t\t\t%zd\n", connections.statistics.total_connections,
-			connections.current_clients, proxy_to_clients + proxy_to_origins, proxy_to_origins, proxy_to_clients,
-			connections.statistics.total_connect_method_bytes);
+	uint64_t proxy_to_origins = connections.statistics.total_proxy_to_origins_bytes;
+	uint64_t proxy_to_clients = connections.statistics.total_proxy_to_clients_bytes;
+	fprintf(connections.proxy_log,
+			"%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\n",
+			connections.statistics.total_connections, connections.current_clients, proxy_to_clients + proxy_to_origins,
+			proxy_to_origins, proxy_to_clients, connections.statistics.total_connect_method_bytes);
 }
 
 void send_message(char *message, int fd_client, connection_node *node) {

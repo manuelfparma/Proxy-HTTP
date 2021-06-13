@@ -56,15 +56,15 @@ typedef struct connection_node {
 } connection_node;
 
 typedef struct {
-	ssize_t total_connections;
-	ssize_t total_proxy_to_origins_bytes;
-	ssize_t total_proxy_to_clients_bytes;
-	ssize_t total_connect_method_bytes;
+	uint64_t total_connections;
+	uint64_t total_proxy_to_origins_bytes;
+	uint64_t total_proxy_to_clients_bytes;
+	uint64_t total_connect_method_bytes;
 } proxy_statistics;
 
 typedef struct {
 	int max_fd;
-	ssize_t current_clients;
+	uint64_t current_clients;
 	proxy_statistics statistics;
 	connection_node *first;
 	buffer *stdout_buffer;

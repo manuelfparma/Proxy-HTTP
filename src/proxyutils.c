@@ -8,20 +8,16 @@
 #include <fcntl.h>
 #include <httpparser.h>
 #include <logger.h>
-#include <netdb.h>
 #include <proxy.h>
 #include <proxyargs.h>
 #include <proxyutils.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <time.h>
-#include <unistd.h>
 #include <netutils.h>
 
 extern connection_header connections;
 extern proxy_arguments args;
+extern proxy_settings settings;
 
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
@@ -229,7 +225,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			buffer *aux_buffer;
 			switch (node->data.parser->data.request_status) {
 				case PARSE_CONNECT_METHOD_POP3:
-					if (!args.password_dissector) {
+					if (settings.password_dissector) {
 						aux_buffer = node->data.parser->pop3->command.command_buffer;
 						node->data.parser->pop3->line_count +=
 							parse_pop3_command(&node->data.parser->pop3->command, node->data.client_to_server_buffer);

@@ -13,7 +13,7 @@ proxy_arguments args = {
 	// seteo defaults
 	.doh_ip = "127.0.0.1", .doh_host = "localhost",	  .doh_port = "8053",	 .doh_path = "/getnsrecord",
 	.proxy_port = "8080",  .management_port = "9090", .proxy_ip = "0.0.0.0", .management_ip = "127.0.0.1",
-	.doh_query = "?dns=", .password_dissector = 0};
+	.doh_query = "?dns=", .password_dissector = 1};
 
 void parse_proxy_args(const int argc, char **argv) {
 
@@ -41,7 +41,7 @@ void parse_proxy_args(const int argc, char **argv) {
 				version();
 				break;
 			case 'N':
-				args.password_dissector = 1;
+				args.password_dissector = 0;
 				break;
 			case 'p':
 				// check_port(optarg);
@@ -131,7 +131,7 @@ static void version() {
 static void usage(const char *program_name) {
 	fprintf(stderr,
 			"OPTIONS\n"
-			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
+			"\t-h\n\t\tImprime la ayuda y finaliza.\n\n"
 			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
 			"\t-N\n\t\tDeshabilita los passwords disectors.\n\n"
 			"\t-p puerto-local\n\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"

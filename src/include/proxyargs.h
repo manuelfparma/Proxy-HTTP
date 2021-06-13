@@ -24,7 +24,7 @@ typedef struct {
 	addr_info doh_addr_info;
 	addr_info proxy_addr_info;
 	addr_info management_addr_info;
-	char password_dissector; 	// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido	
+	uint8_t password_dissector; 	// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
 } proxy_arguments;
 
 void parse_proxy_args(int argc, char **argv);

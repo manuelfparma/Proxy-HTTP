@@ -8,6 +8,7 @@
 
 #define MAX_DOH_PACKET_SIZE 4096
 #define DNS_MESSAGE_LENGTH 512
+#define MAX_DNS_HOST_LENGTH 255
 
 #define IN_CLASS 1
 

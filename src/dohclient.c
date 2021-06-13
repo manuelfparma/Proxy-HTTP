@@ -7,16 +7,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <logger.h>
-#include <netinet/in.h>
 #include <netutils.h>
 #include <proxyargs.h>
 #include <proxyutils.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 
 extern connection_header connections;
-
+extern proxy_settings settings;
 extern proxy_arguments args;
 
 // path y host se definen en args
@@ -42,11 +39,11 @@ dns_header dns_header_template = {.id = 0,
 								  .arcount = 0};
 
 int connect_to_doh_server(connection_node *node, fd_set *write_fd_set) {
-	//	Levanto estos valores de los argumentos del programa (o los defaults)
+	//	Levanto estos valores de los argumentos o settings del programa (o los defaults)
 	doh_request_template.path = args.doh_path;
-	doh_request_template.host = args.doh_host;
+	doh_request_template.host = settings.doh_host;
 
-	addr_info doh_addr = args.doh_addr_info;
+	addr_info doh_addr = settings.doh_addr_info;
 
 	int doh_sock = socket(doh_addr.addr.sa_family, SOCK_STREAM, 0);
 

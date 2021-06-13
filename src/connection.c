@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 extern connection_header connections;
+extern proxy_settings settings;
 
 static size_t connection_number = 1;
 
@@ -51,9 +52,9 @@ static void set_node_default_values(connection_node *node) {
 	node->data.parser->request.authorization.value[0] = '\0';
 	node->data.parser->pop3 = NULL;
 
-	buffer_init(node->data.client_to_server_buffer, BUFFER_SIZE, node->data.client_to_server_buffer->data);
-	buffer_init(node->data.server_to_client_buffer, BUFFER_SIZE, node->data.server_to_client_buffer->data);
-	buffer_init(node->data.parser->data.parsed_request, BUFFER_SIZE, node->data.parser->data.parsed_request->data);
+	buffer_init(node->data.client_to_server_buffer, settings.io_buffer_size, node->data.client_to_server_buffer->data);
+	buffer_init(node->data.server_to_client_buffer, settings.io_buffer_size, node->data.server_to_client_buffer->data);
+	buffer_init(node->data.parser->data.parsed_request, settings.io_buffer_size, node->data.parser->data.parsed_request->data);
 
 	node->data.addr_info_first = node->data.addr_info_current = NULL;
 }
@@ -77,13 +78,13 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	new->data.client_to_server_buffer = malloc(sizeof(buffer));
 	if (new->data.client_to_server_buffer == NULL) goto FREE_CLIENT_PORT;
 
-	new->data.client_to_server_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	new->data.client_to_server_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (new->data.client_to_server_buffer->data == NULL) goto FREE_BUFFER_1;
 
 	new->data.server_to_client_buffer = malloc(sizeof(buffer));
 	if (new->data.server_to_client_buffer == NULL) goto FREE_BUFFER_1_DATA;
 
-	new->data.server_to_client_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	new->data.server_to_client_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (new->data.server_to_client_buffer->data == NULL) goto FREE_BUFFER_2;
 
 	new->data.connection_state = DISCONNECTED;
@@ -94,7 +95,7 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	new->data.parser->data.parsed_request = malloc(sizeof(buffer));
 	if (new->data.parser->data.parsed_request == NULL) goto FREE_REQUEST;
 
-	new->data.parser->data.parsed_request->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	new->data.parser->data.parsed_request->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (new->data.parser->data.parsed_request->data == NULL) goto FREE_REQUEST_BUFFER;
 
 	set_node_default_values(new);
@@ -253,14 +254,14 @@ int setup_pop3_response_parser(connection_node *node) {
 		return -1;
 	}
 
-	node->data.parser->pop3->response.response_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	node->data.parser->pop3->response.response_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (node->data.parser->pop3->response.response_buffer->data == NULL) {
 		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 		close_pop3_parser(node);
 		return -1;
 	}
 
-	buffer_init(node->data.parser->pop3->response.response_buffer, BUFFER_SIZE,
+	buffer_init(node->data.parser->pop3->response.response_buffer, settings.io_buffer_size,
 				node->data.parser->pop3->response.response_buffer->data);
 
 	return 0;
@@ -278,7 +279,7 @@ int setup_pop3_command_parser(connection_node *node) {
 		return -1;
 	}
 
-	node->data.parser->pop3->command.command_buffer->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
+	node->data.parser->pop3->command.command_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 
 	if (node->data.parser->pop3->command.command_buffer->data == NULL) {
 		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
@@ -287,7 +288,7 @@ int setup_pop3_command_parser(connection_node *node) {
 		return -1;
 	}
 
-	buffer_init(node->data.parser->pop3->command.command_buffer, BUFFER_SIZE,
+	buffer_init(node->data.parser->pop3->command.command_buffer, settings.io_buffer_size,
 				node->data.parser->pop3->command.command_buffer->data);
 
 	node->data.parser->pop3->response.parser_state = POP3_R_PS_STATUS;

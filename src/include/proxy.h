@@ -1,13 +1,24 @@
 #ifndef _PROXY_H_
 #define _PROXY_H_
 
+#include "netutils.h"
 #include <connection.h>
+
+// TODO: Comentar funciones, enums y estructuras
 
 typedef enum { CLIENT, SERVER } peer;
 
-void write_proxy_statistics();
-
-void send_message(char *message, int fd_client, connection_node *node);
+// Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select
+typedef enum {
+	BASE = 0,
+	TMP = 1,
+	FD_SET_ARRAY_SIZE = 2,
+	MAX_PENDING = 10,
+	MAX_CLIENTS = 510,
+	BUFFER_SIZE = 65000,			// TODO cambiar a variable para poder editarlo
+	MAX_ADDR_BUFFER = 128,
+	MAX_OUTPUT_REGISTER_LENGTH = 256,
+} proxy_utils_constants;
 
 typedef enum {
 	// estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
@@ -23,5 +34,17 @@ typedef enum {
 	CLIENT_CLOSE_READ_ERROR_CODE,
 	SERVER_CLOSE_READ_ERROR_CODE
 } connection_error_code;
+
+typedef struct {
+	uint16_t io_buffer_size;
+	uint16_t max_clients;
+	uint8_t password_dissector;				// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
+	char doh_host[MAX_DNS_HOST_LENGTH];
+	addr_info doh_addr_info;
+} proxy_settings;
+
+void write_proxy_statistics();
+
+void send_message(char *message, int fd_client, connection_node *node);\
 
 #endif
