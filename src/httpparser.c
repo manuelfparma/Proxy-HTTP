@@ -5,12 +5,13 @@
 #include <logger.h>
 #include <stdlib.h>
 #include <string.h>
+#include <proxyargs.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 #define DISTANCE 'a' - 'A'
 
-extern connection_header connections;
+extern proxy_arguments args;
 
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
@@ -416,7 +417,7 @@ static void parse_header_line(char current_char) {
 		logger(DEBUG, "Header type Host : found but already present");
 		return;
 	}
-	if (!connections.password_dissector) {
+	if (!args.password_dissector) {
 		strcmp_header_type = strcmp_lower_case("Authorization", current_parser->request.header.type);
 		if (strcmp_header_type == 0) {
 			if (strncmp("Basic ", current_parser->request.header.value, BASIC_CREDENTIAL_LENGTH) == 0) {

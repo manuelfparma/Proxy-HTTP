@@ -24,17 +24,4 @@ typedef enum {
 	SERVER_CLOSE_READ_ERROR_CODE
 } connection_error_code;
 
-typedef struct {
-	char *doh_ip;
-	char *doh_host;
-	char *doh_port;
-	char *doh_path;
-	char *doh_query;
-	char *proxy_port;
-	char *management_port;
-	char *proxy_ip;
-	char *management_ip;
-	char password_dissector; 	// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
-} arguments;
-
 #endif

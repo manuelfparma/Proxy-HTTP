@@ -61,6 +61,7 @@ static void set_node_default_values(connection_node *node) {
 connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	// asignacion de recursos para la conexion
 	connection_node *new = malloc(sizeof(connection_node));
+	
 	if (new == NULL) goto ERROR;
 
 	new->next = NULL;

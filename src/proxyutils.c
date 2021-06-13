@@ -1,4 +1,3 @@
-#define _POSIX_C_SOURCE 200112L
 #include <arpa/inet.h>
 #include <buffer.h>
 #include <connection.h>
@@ -11,6 +10,7 @@
 #include <logger.h>
 #include <netdb.h>
 #include <proxy.h>
+#include <proxyargs.h>
 #include <proxyutils.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,8 +18,10 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include <netutils.h>
 
 extern connection_header connections;
+extern proxy_arguments args;
 
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
@@ -30,60 +32,42 @@ static int copy_host(char *buffer, http_target target);
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
-int setup_passive_socket(const char *service) {
-	// Construct the server address structure
-	struct addrinfo add_criteria;					// Criteria for address match
-	memset(&add_criteria, 0, sizeof(add_criteria)); // Zero out structure
-	add_criteria.ai_family = AF_UNSPEC;				// Any address family
-	add_criteria.ai_flags = AI_PASSIVE;				// Accept on any address/port
-	add_criteria.ai_socktype = SOCK_STREAM;			// Only stream sockets
-	add_criteria.ai_protocol = IPPROTO_TCP;			// Only TCP protocol
-
-	struct addrinfo *serv_addr; // List of server addresses
-	// TODO: SACAR GETADDRINFO
-	int rtnVal = getaddrinfo(NULL, service, &add_criteria, &serv_addr);
-	if (rtnVal != 0) {
-		// no se pudo instanciar el socket pasivo
-		logger(FATAL, "getaddrinfo(): %s", strerror(errno));
-	}
-
+int setup_passive_socket() {
 	int passive_sock = -1;
-	// Intentamos ponernos a escuchar en alguno de los puertos asociados al servicio
-	// Iteramos por todas las Ips y hacemos el bind por alguna de ellas.
-	// Con esta implementación estaremos escuchando o bien en IPv4 o en IPv6, pero no en ambas
-	for (struct addrinfo *addr = serv_addr; addr != NULL && passive_sock == -1; addr = addr->ai_next) {
-		// Create a TCP socket
-		passive_sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-		if (passive_sock < 0) {
-			logger(INFO, "socket() failed, trying next address");
-			continue; // Socket creation failed; try next address
-		}
+	addr_info proxy_addr = args.proxy_addr_info;
 
-		if (setsockopt(passive_sock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-			logger(INFO, "setsockopt(): %s", strerror(errno));
-			continue;
-		}
-		// Non blocking socket
-		if (fcntl(passive_sock, F_SETFL, O_NONBLOCK) == -1) {
-			logger(INFO, "fcntl(): %s", strerror(errno));
-			continue;
-		}
-		// Bind to All the address and set socket to listen
-		if ((bind(passive_sock, addr->ai_addr, addr->ai_addrlen) == 0) && (listen(passive_sock, MAX_PENDING) == 0)) {
-			// Print local address of socket
-			struct sockaddr_storage local_addr;
-			socklen_t addr_size = sizeof(local_addr);
-			if (getsockname(passive_sock, (struct sockaddr *)&local_addr, &addr_size) >= 0) {
-				logger(INFO, "Binding and listening...");
-			}
-		} else {
-			logger(INFO, "bind() or listen() failed, trying next address");
-			close(passive_sock); // Close and try again
-			passive_sock = -1;
-		}
+	// Create a TCP socket
+	passive_sock = socket(proxy_addr.addr.sa_family, SOCK_STREAM, 0);
+	if (passive_sock < 0) {
+		logger(INFO, "socket() for passive socket failed");
+		return -1;
 	}
 
-	freeaddrinfo(serv_addr);
+	if (setsockopt(passive_sock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
+		logger(INFO, "setsockopt(): %s", strerror(errno));
+		return -1;
+	}
+	// Non blocking socket
+	if (fcntl(passive_sock, F_SETFL, O_NONBLOCK) == -1) {
+		logger(INFO, "fcntl(): %s", strerror(errno));
+		return -1;
+	}
+
+	socklen_t len = (proxy_addr.addr.sa_family == AF_INET6) ? sizeof(proxy_addr.in6) : sizeof(proxy_addr.in4);
+	// Bind to All the address and set socket to listen
+	if ((bind(passive_sock, &proxy_addr.addr, len) == 0) && (listen(passive_sock, MAX_PENDING) == 0)) {
+		// Print local address of socket
+		struct sockaddr_storage local_addr;
+		socklen_t addr_size = sizeof(local_addr);
+		if (getsockname(passive_sock, (struct sockaddr *)&local_addr, &addr_size) >= 0) {
+			logger(INFO, "Binding and listening...");
+		}
+	} else {
+		logger(INFO, "bind() or listen() failed for passive socket");
+		close(passive_sock);
+		return -1;
+	}
+
 	return passive_sock;
 }
 
@@ -245,7 +229,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			buffer *aux_buffer;
 			switch (node->data.parser->data.request_status) {
 				case PARSE_CONNECT_METHOD_POP3:
-					if (!connections.password_dissector) {
+					if (!args.password_dissector) {
 						aux_buffer = node->data.parser->pop3->command.command_buffer;
 						node->data.parser->pop3->line_count +=
 							parse_pop3_command(&node->data.parser->pop3->command, node->data.client_to_server_buffer);
@@ -264,7 +248,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 						// seteo los argumentos necesarios para conectarse al server
 						if (node->data.parser->request.target.host_type == DOMAIN) {
 							// TODO: Obtener doh addr, hostname y port de args
-							if (connect_to_doh_server(node, &write_fd_set[BASE], "127.0.0.1", "8053") == -1) {
+							if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
 								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
 								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
 							}

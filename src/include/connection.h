@@ -67,7 +67,6 @@ typedef struct {
 	ssize_t current_clients;
 	proxy_statistics statistics;
 	connection_node *first;
-	char password_dissector;
 	buffer *stdout_buffer;
 	FILE *proxy_log;
 } connection_header;

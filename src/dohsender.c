@@ -1,4 +1,5 @@
 #include "dohdata.h"
+#include "netutils.h"
 #include <dohsender.h>
 #include <dohutils.h>
 #include <errno.h>

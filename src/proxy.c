@@ -1,25 +1,20 @@
-#include <args.h>
 #include <connection.h>
 #include <dohclient.h>
 #include <dohutils.h>
 #include <errno.h>
 #include <logger.h>
+#include <pcampserver.h>
 #include <proxy.h>
+#include <proxyargs.h>
 #include <proxyutils.h>
 #include <signal.h>
 #include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
-#include <unistd.h>
-
-size_t breakpoint = 1;
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
-// Funcion que se encarga de manejar la conexion con el doh para resolver la request dns
+// Funcion que se encarga de manejar la conexion con el doh para resolver la current_request dns
 static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 // Funcion para buscar el id maximo entre los sets de escritura y lectura que utiliza el pselect. Utilizada por
 // handle_connection_error
@@ -28,18 +23,19 @@ static void find_max_id();
 void write_proxy_statistics();
 
 connection_header connections = {0};
+extern proxy_arguments args;
 
 int main(const int argc, char **argv) {
 
-	arguments args;
-	// TODO: utilizarlos
-	parse_args(argc, argv, &args);
+	parse_proxy_args(argc, argv);
 
 	char *proxy_port = args.proxy_port;
-	connections.password_dissector = args.password_dissector;
 
-	int passive_sock = setup_passive_socket(proxy_port);
-	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed");
+	int passive_sock = setup_passive_socket();
+	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed: %s", strerror(errno));
+
+	int management_sock = setup_pcamp_socket();
+	if (management_sock < 0) logger(FATAL, "setup_pcamp_socket() failed: %s", strerror(errno));
 
 	const char *name = "./logs/proxy_log";
 	connections.proxy_log = fopen(name, "w+");
@@ -71,6 +67,7 @@ int main(const int argc, char **argv) {
 
 	// seteo de socket pasivo (lectura)
 	FD_SET(passive_sock, &read_fd_set[BASE]);
+	FD_SET(management_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
 	// TODO: REVISAR SEÑALES
@@ -80,7 +77,7 @@ int main(const int argc, char **argv) {
 	// ignoramos SIGPIPE, dado que tal error lo manejamos nosotros
 	signal(SIGPIPE, SIG_IGN);
 
-	connections.max_fd = passive_sock + 1;
+	connections.max_fd = management_sock + 1;
 
 	while (1) {
 		// resetear fd_set
@@ -127,6 +124,12 @@ int main(const int argc, char **argv) {
 					logger(ERROR, "setup_connection_resources() failed with NULL value");
 				}
 			}
+			ready_fds--;
+		}
+
+		if (FD_ISSET(management_sock, &read_fd_set[TMP])) {
+			handle_pcamp_request(management_sock);
+			// TODO valores de retorno
 			ready_fds--;
 		}
 
@@ -301,7 +304,7 @@ void send_message(char *message, int fd_client, connection_node *node) {
 	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
 	if (result_bytes <= 0)
 		// TODO: enviar denuevo?
-		logger(ERROR, "Invalid request from client with fd: %d", fd_client);
+		logger(ERROR, "Invalid current_request from client with fd: %d", fd_client);
 
 	free(buffer_response->data);
 	free(buffer_response);

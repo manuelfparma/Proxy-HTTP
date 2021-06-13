@@ -22,3 +22,4 @@ src/*.o
 # Output files
 log_connection_*
 proxy_log
+pcampclient
