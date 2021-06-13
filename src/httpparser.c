@@ -6,10 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <proxyargs.h>
+#include <netutils.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
-#define DISTANCE 'a' - 'A'
 
 extern proxy_arguments args;
 extern proxy_settings settings;
@@ -18,7 +18,6 @@ static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 static void parse_start_line(char current_char);
 static void parse_header_line(char current_char);
 static void check_port();
-static int strcmp_lower_case(char *str1, char *str2);
 
 // Transiciones entre nodos
 static void tr_copy_byte_to_buffer(char current_char);
@@ -246,24 +245,6 @@ static void copy_char_to_request_buffer(buffer *target, char c) {
 	if (buffer_can_write(target)) buffer_write(target, (uint8_t)c);
 }
 
-// deben ser NULL TERMINATED
-static int strcmp_lower_case(char *str1, char *str2) {
-	int i = 0, diff;
-	for (; str1[i] != '\0' && str2[i] != '\0'; i++) {
-		diff = (('A' <= str1[i] && str1[i] <= 'Z') ? str1[i] + DISTANCE : str1[i]) -
-			   (('A' <= str2[i] && str2[i] <= 'Z') ? str2[i] + DISTANCE : str2[i]);
-		// hago la resta de sus mayusculas para ser case-insensitive
-		if (diff != 0) return diff;
-	}
-	if (str1[i] == '\0' && str2[i] == '\0') {
-		return 0;
-	} else if (str1[i] == '\0') {
-		return -1;
-	} else {
-		return 1;
-	}
-}
-
 static int find_idx(char *array, char c) {
 	int idx;
 	for (idx = 0; array[idx] != '\0' && array[idx] != c; idx++) {};
@@ -294,10 +275,10 @@ static void copy_to_request_buffer_request_target() {
 static void check_port() {
 	if (current_parser->request.target.port[0] == '\0') {
 		char *port;
-		if (strcmp_lower_case("http", current_parser->request.schema) == 0) {
+		if (strcmp_case_insensitive("http", current_parser->request.schema) == 0) {
 			port = "80";
 			strcpy(current_parser->request.target.port, port);
-		} else if (strcmp_lower_case("https", current_parser->request.schema) == 0) {
+		} else if (strcmp_case_insensitive("https", current_parser->request.schema) == 0) {
 			port = "433";
 			strcpy(current_parser->request.target.port, port);
 		}
@@ -404,7 +385,7 @@ static int parse_request_target() {
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
 	char *cr_lf = "\r\n";
-	int strcmp_header_type = strcmp_lower_case("Host", current_parser->request.header.type);
+	int strcmp_header_type = strcmp_case_insensitive("Host", current_parser->request.header.type);
 	if (strcmp_header_type == 0) {
 		if (current_parser->data.target_status == NOT_FOUND && current_parser->request.target.path_type != ABSOLUTE) {
 			if (parse_request_target() == -1) {
@@ -415,7 +396,6 @@ static void parse_header_line(char current_char) {
 			current_parser->data.target_status = FOUND;
 			goto COPY_HEADER;
 		}
-		logger(DEBUG, "Header type Host : found but already present");
 		return;
 	}
 	if (settings.password_dissector) {
@@ -460,7 +440,6 @@ static void tr_check_asterisk_form(char current_char) {
 static void tr_check_method(char current_char) {
 	tr_reset_copy_index(current_char);
 	if (strcmp("CONNECT", current_parser->request.method) == 0) {
-		logger(INFO, "Identified CONNECT method");
 		current_parser->data.parser_state = PS_PATH_SLASHES;
 		current_parser->request.target.path_type = ABSOLUTE;
 		current_parser->data.request_status = PARSE_CONNECT_METHOD;
@@ -548,7 +527,6 @@ static void tr_solve_port_request_target(char current_char) {
 	if(current_parser->data.request_status == PARSE_CONNECT_METHOD && strcmp(current_parser->request.target.port, "110") == 0){
 		// sabemos que estamos bajo el protocolo pop3
 		current_parser->data.request_status = PARSE_CONNECT_METHOD_POP3;
-		logger(DEBUG, "CONNECT_POP3 IDENTIFIED");
 	}
 	tr_solve_request_target(current_char);
 }
@@ -651,7 +629,6 @@ int parse_request(http_parser *parser, buffer *read_buffer) {
 					break;
 				}
 			} else {
-				logger(ERROR, "No hay transicion disponible para %c", current_char);
 				break;
 			}
 		}

@@ -48,4 +48,8 @@ void write_big_endian_32(uint8_t *dest, uint32_t *src, size_t n);
 //	Funcion para copiar a partir de src de 64 bits a un buffer dest en formato Big-Endian n veces
 void write_big_endian_64(uint8_t *dest, uint64_t *src, size_t n);
 
+// Funcion para comparar strings(null terminated) que no tiene en cuenta el case de las letras del alfabeto
+// Valor de retorno: str1 == str2 -> 0, str1 > str2 -> 1, str1 < str2 -> -1
+int strcmp_case_insensitive(char *str1, char *str2);
+
 #endif

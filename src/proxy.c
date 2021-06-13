@@ -171,7 +171,7 @@ int main(const int argc, char **argv) {
 
 					if (node->data.connection_state == SERVER_READ_CLOSE &&
 						!buffer_can_read(node->data.server_to_client_buffer)) {
-						// Por si el servidor se desconecto primero, y al cliente tardaron en llegarle las cosas
+						// Ya se cerro el servidor y no hay informacion pendiente para el cliente
 						if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set,
 													SERVER) < 0)
 							// para que no intente seguir atendiendo a un nodo borrado
@@ -190,7 +190,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 	switch (error_code) {
 		case BAD_REQUEST_ERROR:
 			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
-			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node->data.client_sock, node);
+			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node, write_fd_set);
 			break;
 			break;
 		case RECV_ERROR_CODE:
@@ -203,37 +203,38 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			logger_peer(peer, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", node->data.server_sock,
 						node->data.server_sock);
 			return 0;
-		case DOH_SEND_ERROR_CODE:
+		case DOH_ERROR_CODE:
 			FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 			FD_CLR(node->data.doh->sock, &write_fd_set[BASE]);
 			close(node->data.doh->sock);
 			free_doh_resources(node);
-			logger(DEBUG, "Doh send for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
-			break;
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
+			node->data.connection_state = SERVER_READ_CLOSE;
+			return 0;
 		case DOH_TRY_ANOTHER_REQUEST:
 			return -1;
 		case ACCEPT_CONNECTION_ERROR:
-			// FIXME: Error message
-			logger(DEBUG, "Accept connection for server_fd: %d and client_fd: %d", node->data.server_sock,
-				   node->data.client_sock);
-			send_message("HTTP/1.1 501 Couldnt connect to origin server\r\n\r\n", node->data.client_sock, node);
-			break;
+			node->data.connection_state = SERVER_READ_CLOSE;
+			return 0;
 		case SETUP_CONNECTION_ERROR_CODE:
-			logger(ERROR, "Setup connection failed for client_fd: %d", node->data.server_sock);
-			break;
+			send_message("HTTP/1.1 502 Service unavailable\r\n\r\n", node, write_fd_set);
+			node->data.connection_state = SERVER_READ_CLOSE;
+			return 0;
 		case CLOSE_CONNECTION_ERROR_CODE:
+			// Cierra toda la conexion
 			break;
 		case BROKEN_PIPE_ERROR_CODE:
-			logger(DEBUG, "Broken pipe for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
-			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node->data.client_sock, node);
-			break;
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
+			node->data.connection_state = SERVER_READ_CLOSE;
+			return 0;
 		case SERVER_CLOSE_READ_ERROR_CODE:
 		case CLIENT_CLOSE_READ_ERROR_CODE:
-			node->data.connection_state = SERVER_READ_CLOSE;
 			close_server_connection(node, read_fd_set, write_fd_set);
+			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
 			break;
 	}
 	int aux_server_sock = node->data.server_sock;
@@ -252,7 +253,7 @@ static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_se
 
 		switch (handle) {
 			case DOH_SEND_ERROR:
-				return DOH_SEND_ERROR_CODE;
+				return DOH_ERROR_CODE;
 			case DOH_SEND_COMPLETE:
 				node->data.connection_state = FETCHING_DNS;
 				FD_SET(node->data.doh->sock, &read_fd_set[BASE]);
@@ -267,7 +268,7 @@ static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_se
 
 		if (handle == -1) {
 			FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
-			return DOH_SEND_ERROR_CODE;
+			return DOH_ERROR_CODE;
 		} else {
 			if (handle == 1) {
 				FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
@@ -304,19 +305,12 @@ void write_proxy_statistics() {
 			proxy_to_origins, proxy_to_clients, connections.statistics.total_connect_method_bytes);
 }
 
-void send_message(char *message, int fd_client, connection_node *node) {
-	// TODO: CAMBIAR A SEND CUANDO SE BORREN LOS LOGS, SE USA BUFFERS SOLO PARA QUE LOGEE EL MENSAJE
-	buffer *buffer_response;
-	buffer_response = malloc(sizeof(buffer));
-	buffer_response->data = malloc(BUFFER_SIZE * sizeof(uint8_t));
-	buffer_init(buffer_response, BUFFER_SIZE, buffer_response->data);
-	strncpy((char *)buffer_response->write, message, strlen(message));
-	buffer_write_adv(buffer_response, strlen(message));
-	ssize_t result_bytes = handle_operation(fd_client, buffer_response, WRITE, CLIENT, node->data.log_file);
-	if (result_bytes <= 0)
-		// TODO: enviar denuevo?
-		logger(ERROR, "Invalid current_request from client with fd: %d", fd_client);
-
-	free(buffer_response->data);
-	free(buffer_response);
+void send_message(char *message, connection_node *node, fd_set *write_fd_set) {
+	int bytes_available = node->data.server_to_client_buffer->limit - node->data.server_to_client_buffer->write;
+	int bytes_to_copy = strlen(message);
+	int bytes_copied = (bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available;
+	logger(DEBUG, "bytes_copied: %d, string: %s", bytes_copied, message);
+	strncpy((char *)node->data.server_to_client_buffer->write, message, bytes_copied);
+	buffer_write_adv(node->data.server_to_client_buffer, bytes_copied);
+	FD_SET(node->data.client_sock, &write_fd_set[BASE]);
 }

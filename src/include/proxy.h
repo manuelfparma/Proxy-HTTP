@@ -20,12 +20,14 @@ typedef enum {
 	MAX_OUTPUT_REGISTER_LENGTH = 256,
 } proxy_utils_constants;
 
+void send_message(char *message, connection_node *node, fd_set *write_fd_set);
+
 typedef enum {
 	// estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
 	BAD_REQUEST_ERROR = -20,
 	RECV_ERROR_CODE, // fallo el receive por algo no relacionado al que socket sea no bloqueante
 	SEND_ERROR_CODE, // fallo el send por algo no relacionado al que socket sea no bloqueante
-	DOH_SEND_ERROR_CODE,
+	DOH_ERROR_CODE,
 	DOH_TRY_ANOTHER_REQUEST,
 	ACCEPT_CONNECTION_ERROR,
 	SETUP_CONNECTION_ERROR_CODE,
@@ -44,7 +46,5 @@ typedef struct {
 } proxy_settings;
 
 void write_proxy_statistics();
-
-void send_message(char *message, int fd_client, connection_node *node);\
 
 #endif

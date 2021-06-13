@@ -2,7 +2,7 @@
 #include <logger.h>
 #include <pop3commandparser.h>
 #include <stdio.h>
-#include <string.h>
+#include <netutils.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -49,7 +49,6 @@ static const size_t states_n[] = {
 //----------- FUNCIONES AUXILIARES PARA LAS TRANSICIONES -----------//
 
 static void tr_line_ended(char current_char) {
-	logger(DEBUG, "NEW LINE");
 	if (current_parser->prefix_type == POP3_C_PASS) {
 		logger(DEBUG, "FOUND CREDENTIALS");
 		current_parser->credentials_state = POP3_C_FOUND;
@@ -60,11 +59,11 @@ static void tr_line_ended(char current_char) {
 
 static void tr_check_prefix(char current_char) {
 	// TODO: case-insensitive segun RFC
-	int strcmp_prefix = strcmp("USER", current_parser->line.prefix);
+	int strcmp_prefix = strcmp_case_insensitive("USER", current_parser->line.prefix);
 	if (strcmp_prefix == 0) {
 		current_parser->prefix_type = POP3_C_USER;
 	} else {
-		strcmp_prefix = strcmp("PASS", current_parser->line.prefix);
+		strcmp_prefix = strcmp_case_insensitive("PASS", current_parser->line.prefix);
 		if (strcmp_prefix == 0 && current_parser->credentials.username[0] != '\0') {
 			// solo copio password si ya copie un user
 			current_parser->prefix_type = POP3_C_PASS;
