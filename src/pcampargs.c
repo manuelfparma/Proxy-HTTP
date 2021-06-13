@@ -1,10 +1,7 @@
-#include <arpa/inet.h>
-#include <errno.h>
 #include <logger.h>
 #include <netinet/in.h>
 #include <pcampargs.h>
 #include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 
 static void version();

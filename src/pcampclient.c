@@ -19,11 +19,14 @@
 // DONE: 4- 	 pedis por STDIN que cosa quiere consultar / configurar
 // DONE: 5- 	 pedis parametro de config
 // DONE: 6- 	 armas paquete en binario y lo envias
-// TODO: 7- 	 loader (print de '.' cada segundo)
+// DONE: 7- 	 loader (print de '.' cada segundo)
 // TODO: 8.1-  si no recibis respuesta en 3 seg -> retransmitis
 // TODO: 8.2 - a los 10 seg timeout
 // TODO: 9 -	 recibis la respuesta, la parseas, y la mostras
 // TODO: 10 -  repetir 3
+
+extern ssize_t config_value_length[PCAMP_CONFIG_TYPE_COUNT];
+extern ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT];
 
 static long get_option(long options_count, char **options_strings, const char *instruction);
 static bool is_option_valid(long options_count, char *input, ssize_t read_bytes, long *parsed_option);
@@ -39,11 +42,14 @@ static bool parse_doh_addr(char *value);
 static bool parse_max_clients(char *value);
 static bool parse_sniffing(char *value);
 static void copy_config_value(config_type type, void *value);
+static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes);
+static bool parse_query_body(uint8_t *body, ssize_t recv_bytes);
 
 static addr_info current_addr = {0};
-static pcamp_config_request current_request = {0};
+static pcamp_request_info current_request = {0};
 static uint16_t current_id = 0;
 static uint8_t io_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
+static pcamp_response_info current_response = {0};
 
 int main(const int argc, char **argv) {
 	current_addr = parse_pcamp_args(argc, argv);
@@ -54,6 +60,7 @@ int main(const int argc, char **argv) {
 	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
 	uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
+	current_request.method = method;
 
 	uint8_t type;
 	ssize_t packet_size = 0;
@@ -61,19 +68,19 @@ int main(const int argc, char **argv) {
 	switch (method) {
 		case PCAMP_QUERY:
 			type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
+			get_passphrase();
 			packet_size = prepare_query_request(type);
 			break;
 		case PCAMP_CONFIG:
 			type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
 			get_config_value(type, input);
+			get_passphrase();
 			packet_size = prepare_config_request(type, input);
 			break;
 		default:
 			// No deberia pasar nunca
 			break;
 	}
-
-	get_passphrase();
 
 	int server_sock = socket(current_addr.addr.sa_family, SOCK_DGRAM, 0);
 
@@ -89,8 +96,6 @@ int main(const int argc, char **argv) {
 			break;
 	}
 
-	sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
-
 	fd_set read_fd_set;
 	FD_ZERO(&read_fd_set);
 	struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
@@ -98,13 +103,16 @@ int main(const int argc, char **argv) {
 
 	int ready_fds = 0;
 	for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
+		sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
 		printf(".");
+		fflush(stdout);
 		FD_SET(server_sock, &read_fd_set);
+		timeout.tv_sec = PCAMP_CLIENT_TIMEOUT;
 		ready_fds = select(server_sock + 1, &read_fd_set, NULL, NULL, &timeout);
 	}
 
 	if (ready_fds == 0) {
-		logger(INFO, "Timeout");
+		logger(INFO, " Timeout\n");
 		return -1;
 	}
 
@@ -113,7 +121,16 @@ int main(const int argc, char **argv) {
 	socklen_t server_addr_len;
 	ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
 
-	printf("read %ld bytes", recv_bytes);
+	printf(" read %ld bytes\n", recv_bytes);
+
+	if (!parse_pcamp_response(response, recv_bytes)) {
+		// FIXME: Manejar error
+		printf("The response received from the server is not valid. Please try again\n");
+	} else {
+		printf("%s\n", status_code_strings[current_response.status_code]);
+	}
+
+	// TODO imprimir en pantalla respuesta de la query (si era query) o "config exitosa"
 
 	return 0;
 }
@@ -297,24 +314,24 @@ static bool parse_doh_hostname(char *value, ssize_t bytes) {
 
 static void copy_config_value(config_type type, void *value) {
 	size_t value_size = config_value_length[type];
-	current_request.config_value = malloc(value_size);
+	current_request.config.config_value = malloc(value_size);
 
 	switch (value_size) {
 		case 1:
 			//	Casos uint8_t
-			*current_request.config_value = *(uint8_t *)value;
+			*current_request.config.config_value = *(uint8_t *)value;
 			break;
 		case 2:
 			//	Casos uint16_t
-			write_big_endian_16(current_request.config_value, value, 1);
+			write_big_endian_16(current_request.config.config_value, value, 1);
 			break;
 		case 4:
 			//	Casos uint32_t
-			write_big_endian_32(current_request.config_value, value, 1);
+			write_big_endian_32(current_request.config.config_value, value, 1);
 			break;
 		default:
 			// Casos array de uint8_t
-			memcpy(current_request.config_value, value, value_size);
+			memcpy(current_request.config.config_value, value, value_size);
 			break;
 	}
 }
@@ -324,6 +341,8 @@ static ssize_t prepare_query_request(query_type type) {
 
 	io_buffer[i++] = CLIENT_PCAMP_VERSION;
 	io_buffer[i++] = (((uint8_t)(PCAMP_QUERY)) << 1) + PCAMP_REQUEST;
+
+	current_request.id = current_id;
 	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
@@ -342,6 +361,8 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 
 	io_buffer[i++] = CLIENT_PCAMP_VERSION;
 	io_buffer[i++] = (((uint8_t)(PCAMP_CONFIG)) << 1) + PCAMP_REQUEST;
+
+	current_request.id = current_id;
 	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
@@ -352,8 +373,80 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 
 	io_buffer[i++] = type;
 
-	memcpy(io_buffer + i, current_request.config_value, config_value_length[type]);
+	memcpy(io_buffer + i, current_request.config.config_value, config_value_length[type]);
 	i += config_value_length[type];
 
 	return i;
+}
+
+static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes) {
+	//	Primero veo que tenga suficientes bytes para leer el header + status code
+	if (recv_bytes < PCAMP_HEADER_LENGTH + SIZE_8) return false;
+	else
+		recv_bytes -= PCAMP_HEADER_LENGTH + SIZE_8;
+
+	size_t response_idx = 0;
+	uint8_t version = response[response_idx];
+	if (version != CLIENT_PCAMP_VERSION) return false;
+
+	response_idx += SIZE_8;
+	uint8_t flags = response[response_idx];
+	if ((flags & 1) != PCAMP_RESPONSE) return false;
+
+	uint8_t method = (flags >> 1) & 1;
+	if (method != current_request.method) return false;
+	current_response.method = method;
+
+	response_idx += SIZE_8;
+	uint16_t id;
+	read_big_endian_16(&id, response + response_idx, 1);
+	if (id != current_request.id) return false;
+
+	response_idx += SIZE_16;
+	uint8_t status_code = response[response_idx];
+	current_response.status_code = status_code;
+	 
+	if (status_code == PCAMP_SUCCESS) {
+		response_idx += SIZE_8;
+
+		switch (method) {
+			case PCAMP_QUERY:
+				if (!parse_query_body(response + response_idx, recv_bytes)) return -1;
+				current_response.query.status_code = status_code;
+				break;
+			case PCAMP_CONFIG:
+				//	Como el status_code fue Success, no tengo que hacer nada
+				current_response.config.status_code = status_code;
+				break;
+			default:
+				// No deberia pasar nunca
+				break;
+		}
+	}
+
+	return true;
+}
+
+static bool parse_query_body(uint8_t *body, ssize_t recv_bytes) {
+	//	Necesito como minimo el query_type
+	if (recv_bytes <= SIZE_8) return false;
+
+	size_t response_idx = 0;
+
+	uint8_t query_type = body[response_idx];
+
+	if (query_type != current_request.query.query_type) return false;
+
+	current_response.query.query_type = query_type;
+
+	response_idx += SIZE_8;
+	recv_bytes -= SIZE_8;
+
+	ssize_t query_answer_size = query_answer_length[query_type];
+
+	if (recv_bytes < query_answer_size) return false;
+
+	current_response.query.response = &body[response_idx];
+
+	return true;
 }

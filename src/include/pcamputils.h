@@ -50,11 +50,9 @@ typedef enum {
 	PCAMP_UNSUPPORTED_CONFIG_TYPE,
 	PCAMP_INVALID_CONFIG_VALUE,
 	PCAMP_BAD_REQUEST,
-	PCAMP_INTERNAL_SERVER_ERROR
+	PCAMP_INTERNAL_SERVER_ERROR,
+	PCAMP_STATUS_CODE_COUNT
 } pcamp_status_code;
-
-ssize_t config_value_length[PCAMP_CONFIG_TYPE_COUNT] = {2, 2, 1, 17, 2, 256};
-ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT] = {8, 8, 8, 8, 8, 8};
 
 typedef struct {
 	uint8_t version;
@@ -64,12 +62,10 @@ typedef struct {
 } pcamp_header;
 
 typedef struct {
-	unsigned char authorization[SHA256_DIGEST_LENGTH];
 	uint8_t query_type;
 } pcamp_query_request;
 
 typedef struct {
-	unsigned char authorization[SHA256_DIGEST_LENGTH];
 	uint8_t config_type;
 	uint8_t *config_value;
 } pcamp_config_request;
@@ -83,6 +79,16 @@ typedef struct {
 typedef struct {
 	uint8_t status_code;
 } pcamp_config_response;
+
+typedef struct {
+	uint8_t method;
+	uint16_t id;
+	unsigned char authorization[SHA256_DIGEST_LENGTH];
+	union {
+		pcamp_query_request query;
+		pcamp_config_request config;
+	};
+} pcamp_request_info;
 
 void sha256_digest(const void *src, void *dest, size_t bytes);
 

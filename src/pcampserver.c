@@ -10,6 +10,7 @@
 #include <string.h>
 
 extern proxy_arguments args;
+extern ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT];
 
 static int parse_pcamp_request(uint8_t *request);
 static bool is_passphrase_correct(uint8_t *hashed_request_pass);
@@ -18,14 +19,7 @@ static ssize_t prepare_pcamp_query_response(int status_code, uint8_t *query_answ
 static int resolve_pcamp_config();
 static void parse_pcamp_config(uint8_t *request_buffer);
 
-static struct {
-	uint8_t method;
-	uint16_t id;
-	union {
-		pcamp_query_request query;
-		pcamp_config_request config;
-	};
-} current_request = {0};
+static pcamp_request_info current_request = {0};
 
 static const char *passphrase = "12341234";
 
@@ -112,7 +106,7 @@ static int parse_pcamp_request(uint8_t *request) {
 	i += SIZE_8;
 	if ((request[i] & 1) != PCAMP_REQUEST) return PCAMP_BAD_REQUEST;
 
-	current_request.method = (request[i] & 2 >> 1);
+	current_request.method = ((request[i] & 2 ) >> 1);
 
 	i += SIZE_8;
 	read_big_endian_16(&current_request.id, request + i, 1);

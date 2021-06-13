@@ -26,7 +26,7 @@ pcampclient: $(PCAMP_CLIENT_OBJECTS)
 	$(CC) $(FSANITIZE) -o pcampclient $^ $(LCRYPTO)
 
 proxy: $(PROXY_OBJECTS)
-	$(CC) $(FSANITIZE) -o httpd $^
+	$(CC) $(FSANITIZE) -o httpd $^ $(LCRYPTO)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -I./src/include -c $< -o $@
