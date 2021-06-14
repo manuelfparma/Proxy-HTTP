@@ -1,3 +1,4 @@
+#include <buffer.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <limits.h> /* LONG_MIN et al */
@@ -74,4 +75,12 @@ uint64_t ntoh64(uint64_t network_64) {
 	}
 
 	return result;
+}
+
+void copy_from_buffer_to_buffer(buffer *dest, buffer *src) {
+	ssize_t bytes_available = dest->limit - dest->write;
+	ssize_t bytes_to_copy = src->write - src->read;
+	ssize_t bytes_copied = (bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available;
+	strncpy((char *)dest->write, (char *)src->read, bytes_copied);
+	buffer_write_adv(dest, bytes_copied);
 }

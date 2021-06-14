@@ -28,10 +28,7 @@ static void find_max_id();
 void write_proxy_statistics();
 
 connection_header connections = {0};
-proxy_settings settings = {
-	.max_clients = MAX_CLIENTS,
-	.io_buffer_size = BUFFER_SIZE
-};
+proxy_settings settings = {.max_clients = MAX_CLIENTS, .io_buffer_size = BUFFER_SIZE};
 
 int main(const int argc, char **argv) {
 
@@ -192,50 +189,48 @@ static int handle_connection_error(connection_error_code error_code, connection_
 	switch (error_code) {
 		case BAD_REQUEST_ERROR:
 			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
-			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node, write_fd_set);
-			break;
+			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node, write_fd_set, STATUS_400);
+			node->data.connection_state = SERVER_READ_CLOSE;
+			return 0;
 		case RECV_ERROR_CODE:
 			// dio error el receive, lo dejamos para intentar denuevo luego
 			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,
-						node->data.server_sock);
+						node->data.client_sock);
 			return 0;
 		case SEND_ERROR_CODE:
 			// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
 			logger_peer(peer, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", node->data.server_sock,
-						node->data.server_sock);
+						node->data.client_sock);
 			return 0;
 		case DOH_ERROR_CODE:
 			FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
 			FD_CLR(node->data.doh->sock, &write_fd_set[BASE]);
 			close(node->data.doh->sock);
 			free_doh_resources(node);
-			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set, STATUS_500);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case DOH_TRY_ANOTHER_REQUEST:
 			return -1;
-		case ACCEPT_CONNECTION_ERROR:
-			node->data.connection_state = SERVER_READ_CLOSE;
-			return 0;
 		case SETUP_CONNECTION_ERROR_CODE:
-			send_message("HTTP/1.1 502 Service Unavailable\r\n\r\n", node, write_fd_set);
+			send_message("HTTP/1.1 502 Service Unavailable\r\n\r\n", node, write_fd_set, STATUS_502);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case CLOSE_CONNECTION_ERROR_CODE:
 			// Cierra toda la conexion
 			break;
 		case BROKEN_PIPE_ERROR_CODE:
-			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set, STATUS_500);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case SERVER_CLOSE_READ_ERROR_CODE:
 		case CLIENT_CLOSE_READ_ERROR_CODE:
-			close_server_connection(node, read_fd_set, write_fd_set);
+			if (node->data.server_sock > 0) close_server_connection(node, read_fd_set, write_fd_set);
 			node->data.connection_state = SERVER_READ_CLOSE;
-			return 0;
+			return -1;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");
-			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set);
+			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set, STATUS_500);
 			break;
 	}
 	int aux_server_sock = node->data.server_sock;
@@ -306,12 +301,12 @@ void write_proxy_statistics() {
 			proxy_to_origins, proxy_to_clients, connections.statistics.total_connect_method_bytes);
 }
 
-void send_message(char *message, connection_node *node, fd_set *write_fd_set) {
+void send_message(char *message, connection_node *node, fd_set *write_fd_set, unsigned short status_code) {
 	int bytes_available = node->data.server_to_client_buffer->limit - node->data.server_to_client_buffer->write;
 	int bytes_to_copy = strlen(message);
 	int bytes_copied = (bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available;
-	logger(DEBUG, "bytes_copied: %d, string: %s", bytes_copied, message);
 	strncpy((char *)node->data.server_to_client_buffer->write, message, bytes_copied);
 	buffer_write_adv(node->data.server_to_client_buffer, bytes_copied);
 	FD_SET(node->data.client_sock, &write_fd_set[BASE]);
+	node->data.client_information.status_code = status_code;
 }

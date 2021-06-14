@@ -15,12 +15,21 @@ typedef enum {
 	FD_SET_ARRAY_SIZE = 2,
 	MAX_PENDING = 10,
 	MAX_CLIENTS = 510,
-	BUFFER_SIZE = 65000,			// TODO cambiar a variable para poder editarlo
+	BUFFER_SIZE = 65000, // TODO cambiar a variable para poder editarlo
 	MAX_ADDR_BUFFER = 128,
 	MAX_OUTPUT_REGISTER_LENGTH = 256,
 } proxy_utils_constants;
 
-void send_message(char *message, connection_node *node, fd_set *write_fd_set);
+typedef enum {
+	NO_STATUS = 0,
+	ALREADY_LOGGED_STATUS = 1,
+	STATUS_200 = 200,
+	STATUS_400 = 400,
+	STATUS_500 = 500,
+	STATUS_502 = 502,
+} http_status_codes;
+
+void send_message(char *message, connection_node *node, fd_set *write_fd_set, unsigned short status_code);
 
 typedef enum {
 	// estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
@@ -40,7 +49,7 @@ typedef enum {
 typedef struct {
 	uint16_t io_buffer_size;
 	uint16_t max_clients;
-	uint8_t password_dissector;				// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
+	uint8_t password_dissector; // 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
 	char doh_host[MAX_DNS_HOST_LENGTH];
 	addr_info doh_addr_info;
 } proxy_settings;

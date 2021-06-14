@@ -32,7 +32,7 @@ static void number_to_str(size_t n, char *buffer) {
 }
 
 static void set_node_default_values(connection_node *node) {
-	node->data.client_information.status_code = 0;
+	node->data.client_information.status_code = NO_STATUS;
 	node->data.client_information.ip[0] = '\0';
 	node->data.client_information.port[0] = '\0';
 
@@ -62,7 +62,7 @@ static void set_node_default_values(connection_node *node) {
 connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	// asignacion de recursos para la conexion
 	connection_node *new = malloc(sizeof(connection_node));
-	
+
 	if (new == NULL) goto ERROR;
 
 	new->next = NULL;
@@ -155,38 +155,35 @@ void add_to_connections(connection_node *node) {
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
 	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
-	free(node->data.client_to_server_buffer->data);
-	free(node->data.client_to_server_buffer);
+	close_buffer(node->data.client_to_server_buffer);
 
 	switch (node->data.parser->data.request_status) {
+		case PARSE_BODY_INCOMPLETE:
 		case PARSE_CONNECT_METHOD:
 			break;
 		case PARSE_CONNECT_METHOD_POP3:
 			close_pop3_command_parser(node);
 			break;
 		default:
-			free(node->data.parser->data.parsed_request->data);
-			free(node->data.parser->data.parsed_request);
+			close_buffer(node->data.parser->data.parsed_request);
 	}
 
 	free(node->data.parser);
 	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &write_fd_set[BASE]);
-	if (server_fd > 0) close(server_fd);
-	node->data.server_sock = -1;
+	close(server_fd);
+	node->data.server_sock = -2;
 }
 
 void close_pop3_response_parser(connection_node *node) {
-	free(node->data.parser->pop3->response.response_buffer->data);
-	free(node->data.parser->pop3->response.response_buffer);
+	close_buffer(node->data.parser->pop3->response.response_buffer);
 	node->data.parser->pop3->response.response_buffer = NULL;
 }
 
 void close_pop3_command_parser(connection_node *node) {
 	if (node->data.parser->pop3->command.command_buffer != NULL) {
-		free(node->data.parser->pop3->command.command_buffer->data);
-		free(node->data.parser->pop3->command.command_buffer);
+		close_buffer(node->data.parser->pop3->command.command_buffer);
 		node->data.parser->pop3->command.command_buffer = NULL;
 	}
 }
@@ -205,24 +202,11 @@ void close_pop3_parser(connection_node *node) {
 void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
 	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
-	switch (node->data.parser->data.request_status) {
-		case PARSE_CONNECT_METHOD:
-			break;
-		case PARSE_CONNECT_METHOD_POP3:
-			close_pop3_parser(node);
-			break;
-		default:
-			break;
-	}
-	if (node->data.server_sock >= 0) {
-		logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
-		free(node->data.parser->data.parsed_request->data);
-		free(node->data.parser->data.parsed_request);
-		free(node->data.client_to_server_buffer->data);
-		free(node->data.client_to_server_buffer);
+	if (server_fd >= 0) {
+		close_server_connection(node, read_fd_set, write_fd_set);
+	} else if (server_fd == -1){
 		free(node->data.parser);
-		FD_CLR(server_fd, &read_fd_set[BASE]);
-		FD_CLR(server_fd, &write_fd_set[BASE]);
+		close_buffer(node->data.client_to_server_buffer);
 	}
 	free(node->data.server_to_client_buffer->data);
 	free(node->data.server_to_client_buffer);
@@ -243,7 +227,7 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	FD_CLR(client_fd, &write_fd_set[BASE]);
 	close(client_fd);
 
-	if(connections.current_clients != 0) {
+	if (connections.current_clients != 0) {
 		connections.current_clients--;
 	} else {
 		logger(FATAL, "close_connection called when current_clients = 0");
@@ -310,4 +294,9 @@ int setup_pop3_command_parser(connection_node *node) {
 	buffer_reset(node->data.client_to_server_buffer);
 	logger(DEBUG, "POP3 PARSER MALLOQUEADO");
 	return 0;
+}
+
+void close_buffer(buffer *buff) {
+	free(buff->data);
+	free(buff);
 }
