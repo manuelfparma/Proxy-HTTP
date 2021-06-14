@@ -219,7 +219,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case SETUP_CONNECTION_ERROR_CODE:
-			send_message("HTTP/1.1 502 Service unavailable\r\n\r\n", node, write_fd_set);
+			send_message("HTTP/1.1 502 Service Unavailable\r\n\r\n", node, write_fd_set);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case CLOSE_CONNECTION_ERROR_CODE:
