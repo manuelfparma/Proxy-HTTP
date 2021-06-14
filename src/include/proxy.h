@@ -6,6 +6,10 @@
 
 // TODO: Comentar funciones, enums y estructuras
 
+#define SOCK_COUNT 2
+#define IPV4_SOCK 0
+#define IPV6_SOCK 1
+
 typedef enum { CLIENT, SERVER } peer;
 
 // Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select
@@ -14,7 +18,7 @@ typedef enum {
 	TMP = 1,
 	FD_SET_ARRAY_SIZE = 2,
 	MAX_PENDING = 10,
-	MAX_CLIENTS = 510,
+	MAX_CLIENTS = 509,
 	BUFFER_SIZE = 65000,			// TODO cambiar a variable para poder editarlo
 	MAX_ADDR_BUFFER = 128,
 	MAX_OUTPUT_REGISTER_LENGTH = 256,

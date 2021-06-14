@@ -22,8 +22,10 @@ typedef struct {
 	char *proxy_ip;
 	char *management_ip;
 	addr_info doh_addr_info;
-	addr_info proxy_addr_info;
-	addr_info management_addr_info;
+	struct sockaddr_in proxy_addr4;
+	struct sockaddr_in6 proxy_addr6;
+	struct sockaddr_in management_addr4;
+	struct sockaddr_in6 management_addr6;
 	uint8_t password_dissector; 	// 0 es apagado (no tiene en cuenta contraseñas), 1 es encendido
 } proxy_arguments;
 

@@ -30,7 +30,7 @@ char *query_type_strings[PCAMP_QUERY_TYPE_COUNT] = {"Number of historic connecti
 													"Total count of bytes transferred using the CONNECT HTTP method"};
 
 char *config_type_strings[PCAMP_CONFIG_TYPE_COUNT] = {"Proxy I/O buffer size (min. 1, max. 65535)",
-													  "Maximum number of simultaneous clients allowed (min. 0, max. 510)",
+													  "Maximum number of simultaneous clients allowed (min. 0, max. 509)",
 													  "Toggle on/off credentials logger (0 - off / 1 - on)",
 													  "DoH server address",
 													  "DoH server port (0 - 65535)",

@@ -15,7 +15,7 @@ typedef enum { WRITE, READ } operation;
 
 typedef enum { CHARS_BEFORE_STATUS_CODE = 9 , STATUS_CODE_LENGTH = 3} proxy_utils_constraints;
 
-int setup_passive_socket();
+int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]);
 
 int accept_connection(int passive_sock, char *buffer_address, char *buffer_port);
 

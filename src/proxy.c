@@ -14,6 +14,19 @@
 
 extern proxy_arguments args;
 
+// Funcion que se encarga de levantar argumentos, inicializar estructuras, sockets y FD sets.
+// Devuelve 0 en caso exitoso, -1 en caso de error.
+static int proxy_init(int argc, char **argv, int management_sockets[SOCK_COUNT], int proxy_sockets[SOCK_COUNT],
+					  fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que intenta aceptar un nuevo cliente del proxy y crear un socket activo con el mismo.
+// Devuelve true en caso de que haya podido aceptarlo, false en caso contrario
+static bool try_accept_proxy_client(int passive_sock, fd_set read_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que itera por lista de conexiones y trata a cada una de ellas
+static void handle_connection_list(int ready_fds, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
@@ -27,73 +40,28 @@ static void find_max_id();
 // Funcion para imprimir las estadisticas del server
 void write_proxy_statistics();
 
+
 connection_header connections = {0};
-proxy_settings settings = {
-	.max_clients = MAX_CLIENTS,
-	.io_buffer_size = BUFFER_SIZE
-};
+proxy_settings settings = {.max_clients = MAX_CLIENTS, .io_buffer_size = BUFFER_SIZE};
 
 int main(const int argc, char **argv) {
 
-	parse_proxy_args(argc, argv);
-	settings.password_dissector = args.password_dissector;
-	settings.doh_addr_info = args.doh_addr_info;
-	strcpy(settings.doh_host, args.doh_host);
-
-	int passive_sock = setup_passive_socket();
-	if (passive_sock < 0) logger(FATAL, "setup_passive_socket() failed: %s", strerror(errno));
-
-	int management_sock = setup_pcamp_socket();
-	if (management_sock < 0) logger(FATAL, "setup_pcamp_socket() failed: %s", strerror(errno));
-
-	const char *name = "./logs/proxy_log";
-	connections.proxy_log = fopen(name, "w+");
-	if (connections.proxy_log == NULL) { logger(FATAL, "fopen: %s", strerror(errno)); }
-	logger(DEBUG, "Proxy file log with name %s created", name);
-	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to "
-								   "current_clients\tBytes through connect\n");
-
-	connections.stdout_buffer = malloc(sizeof(buffer));
-	if (connections.stdout_buffer == NULL) {
-		free(connections.proxy_log);
-		logger(FATAL, "malloc(): %s", strerror(errno));
-	}
-	connections.stdout_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
-	if (connections.stdout_buffer->data == NULL) {
-		free(connections.proxy_log);
-		free(connections.stdout_buffer);
-		logger(FATAL, "malloc(): %s", strerror(errno));
-	}
-	buffer_init(connections.stdout_buffer, settings.io_buffer_size, connections.stdout_buffer->data);
-
-	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
+	int management_sockets[SOCK_COUNT];
+	int proxy_passive_sockets[SOCK_COUNT];
 	fd_set read_fd_set[FD_SET_ARRAY_SIZE];
+	fd_set write_fd_set[FD_SET_ARRAY_SIZE];
 
-	for (int i = 0; i < FD_SET_ARRAY_SIZE; i++) {
-		FD_ZERO(&write_fd_set[i]);
-		FD_ZERO(&read_fd_set[i]);
+	if (proxy_init(argc, argv, management_sockets, proxy_passive_sockets, read_fd_set, write_fd_set) < 0) {
+		logger(FATAL, "proxy_init(): error while initializing proxy resources");
 	}
-
-	// seteo de socket pasivo (lectura)
-	FD_SET(passive_sock, &read_fd_set[BASE]);
-	FD_SET(management_sock, &read_fd_set[BASE]);
 
 	int ready_fds;
-	// TODO: REVISAR SEÑALES
-	sigset_t sig_mask;
-	sigemptyset(&sig_mask);
-
-	// ignoramos SIGPIPE, dado que tal error lo manejamos nosotros
-	signal(SIGPIPE, SIG_IGN);
-
-	connections.max_fd = management_sock + 1;
-
 	while (1) {
 		// resetear fd_set
 		read_fd_set[TMP] = read_fd_set[BASE];
 		write_fd_set[TMP] = write_fd_set[BASE];
 
-		ready_fds = pselect(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL, &sig_mask);
+		ready_fds = select(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, NULL);
 
 		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
 			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read,
@@ -110,78 +78,169 @@ int main(const int argc, char **argv) {
 			ready_fds--;
 		}
 
-		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients < settings.max_clients) {
-			// almaceno el espacio para la info del cliente (ip y puerto)
-			char client_ip[MAX_IP_LENGTH + 1] = {0};
-			char client_port[MAX_PORT_LENGTH + 1] = {0};
-			// establezco conexión con cliente en socket activo
-			int client_sock = accept_connection(passive_sock, client_ip, client_port);
-			if (client_sock > -1) {
-				// la consulta DNS para la conexión con el servidor se realiza asincronicamente,
-				// esto imposibilita la creación de un socket activo con el servidor hasta que dicha consulta
-				// este resulta. Por lo tanto dicho FD arranca en -1 inicialmente.
-				// aloco recursos para el respectivo cliente
-				connection_node *new_connection = setup_connection_resources(client_sock, -1);
-				if (new_connection != NULL) {
-					// cargo los datos del cliente
-					strcpy(new_connection->data.client_information.ip, client_ip);
-					strcpy(new_connection->data.client_information.port, client_port);
+		for (int i = 0; i < SOCK_COUNT; i++)
+			if (proxy_passive_sockets[i] != -1 && try_accept_proxy_client(proxy_passive_sockets[i], read_fd_set)) ready_fds--;
 
-					// acepto lecturas del socket
-					FD_SET(client_sock, &read_fd_set[BASE]);
-					add_to_connections(new_connection);
-					if (client_sock >= connections.max_fd) connections.max_fd = client_sock + 1;
-				} else {
-					close(client_sock);
-					logger(ERROR, "setup_connection_resources() failed with NULL value");
-				}
+		for (int i = 0; i < SOCK_COUNT; i++) {
+			if (management_sockets[i] != -1 && FD_ISSET(management_sockets[i], &read_fd_set[TMP])) {
+				handle_pcamp_request(management_sockets[i]);
+				ready_fds--;
 			}
-			ready_fds--;
 		}
 
-		if (FD_ISSET(management_sock, &read_fd_set[TMP])) {
-			handle_pcamp_request(management_sock);
-			// TODO valores de retorno
-			ready_fds--;
+		handle_connection_list(ready_fds, read_fd_set, write_fd_set);
+	}
+}
+
+static int proxy_init(int argc, char **argv, int management_sockets[SOCK_COUNT], int proxy_sockets[SOCK_COUNT],
+					  fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
+	parse_proxy_args(argc, argv);
+	settings.password_dissector = args.password_dissector;
+	settings.doh_addr_info = args.doh_addr_info;
+	strcpy(settings.doh_host, args.doh_host);
+
+	// Liberamos STDIN ya que no lo usamos
+	close(STDIN_FILENO);
+
+	// TODO: descomentar para entrega??? TBD
+	//	close(STDERR_FILENO);
+
+	if (setup_proxy_passive_sockets(proxy_sockets) < 0) {
+		logger(ERROR, "setup_proxy_passive_sockets() failed: %s", strerror(errno));
+		goto INIT_ERROR;
+	}
+
+	if (setup_pcamp_sockets(management_sockets) < 0) {
+		logger(ERROR, "setup_pcamp_sockets() failed: %s", strerror(errno));
+		goto CLOSE_PROXY_SOCKETS;
+	}
+
+	const char *name = "./logs/proxy_log";
+	connections.proxy_log = fopen(name, "w+");
+	if (connections.proxy_log == NULL) {
+		logger(ERROR, "fopen: %s", strerror(errno));
+		goto CLOSE_MANAGEMENT_SOCKETS;
+	}
+
+	logger(DEBUG, "Proxy file log with name %s created", name);
+	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to "
+								   "current_clients\tBytes through connect\n");
+
+	connections.stdout_buffer = malloc(sizeof(buffer));
+	if (connections.stdout_buffer == NULL) {
+		logger(ERROR, "malloc(): %s", strerror(errno));
+		goto CLOSE_PROXY_LOG;
+	}
+	connections.stdout_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
+	if (connections.stdout_buffer->data == NULL) {
+		logger(ERROR, "malloc(): %s", strerror(errno));
+		goto FREE_STDOUT_BUFFER;
+	}
+	buffer_init(connections.stdout_buffer, settings.io_buffer_size, connections.stdout_buffer->data);
+
+	for (int i = 0; i < FD_SET_ARRAY_SIZE; i++) {
+		FD_ZERO(&write_fd_set[i]);
+		FD_ZERO(&read_fd_set[i]);
+	}
+
+	// seteo de sockets pasivos (lectura)
+	for (int i = 0; i < SOCK_COUNT; i++) {
+		if (proxy_sockets[i] != -1) {
+			FD_SET(proxy_sockets[i], &read_fd_set[BASE]);
+			if (connections.max_fd <= proxy_sockets[i]) connections.max_fd = proxy_sockets[i] + 1;
 		}
 
-		int handle;
-		// itero por todas las conexiones cliente-servidor
-		for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0; node = node->next) {
-			switch (node->data.connection_state) {
-				case SENDING_DNS:
-				case FETCHING_DNS:
-					handle = handle_doh_exchange(node, read_fd_set, write_fd_set);
-					if (handle >= 0) ready_fds -= handle;
-					else
-						handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
-					break;
-				default:
-					handle = handle_client_connection(node, read_fd_set, write_fd_set);
+		if (management_sockets[i] != -1) {
+			FD_SET(management_sockets[i], &read_fd_set[BASE]);
+			if (connections.max_fd <= management_sockets[i]) connections.max_fd = management_sockets[i] + 1;
+		}
+	}
 
-					if (handle >= 0) ready_fds -= handle;
-					else if (handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT) < 0)
-						// para que no intente seguir atendiendo a un nodo borrado
-						break; // para que no atienda al servidor
+	// ignoramos SIGPIPE, dado que tal error lo manejamos nosotros
+	signal(SIGPIPE, SIG_IGN);
 
+	return 0;
+
+FREE_STDOUT_BUFFER:
+	free(connections.stdout_buffer);
+CLOSE_PROXY_LOG:
+	fclose(connections.proxy_log);
+CLOSE_MANAGEMENT_SOCKETS:
+	for (int i = 0; i < SOCK_COUNT; i++)
+		if (management_sockets[i] != -1) close(management_sockets[i]);
+CLOSE_PROXY_SOCKETS:
+	for (int i = 0; i < SOCK_COUNT; i++)
+		if (proxy_sockets[i] != -1) close(proxy_sockets[i]);
+INIT_ERROR:
+	return -1;
+}
+
+static bool try_accept_proxy_client(int passive_sock, fd_set read_fd_set[FD_SET_ARRAY_SIZE]) {
+	if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients < settings.max_clients) {
+		char client_ip_str[MAX_IP_LENGTH + 1] = {0};
+		char client_port_str[MAX_PORT_LENGTH + 1] = {0};
+
+		int client_sock = accept_connection(passive_sock, client_ip_str, client_port_str);
+		if (client_sock >= 0) {
+			connection_node *new_connection = setup_connection_resources(client_sock, -1);
+			if (new_connection == NULL) {
+				close(client_sock);
+				logger(ERROR, "setup_connection_resources() failed with NULL value");
+				return false;
+			}
+
+			strcpy(new_connection->data.client_information.ip, client_ip_str);
+			strcpy(new_connection->data.client_information.port, client_port_str);
+
+			FD_SET(client_sock, &read_fd_set[BASE]);
+			add_to_connections(new_connection);
+			if (client_sock >= connections.max_fd) connections.max_fd = client_sock + 1;
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void handle_connection_list(int ready_fds, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
+	int handle;
+	// itero por todas las conexiones cliente-servidor
+	for (connection_node *node = connections.first, *previous = NULL; node != NULL && ready_fds > 0; node = node->next) {
+		switch (node->data.connection_state) {
+			case SENDING_DNS:
+			case FETCHING_DNS:
+				handle = handle_doh_exchange(node, read_fd_set, write_fd_set);
+				if (handle >= 0) ready_fds -= handle;
+				else
+					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
+				break;
+			default:
+				handle = handle_client_connection(node, read_fd_set, write_fd_set);
+
+				if (handle >= 0) ready_fds -= handle;
+				else if (handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT) < 0)
+					// para que no intente seguir atendiendo a un nodo borrado
+					break; // para que no atienda al servidor
+
+				if (node->data.server_sock >= 0) {
 					handle = handle_server_connection(node, read_fd_set, write_fd_set);
 
 					if (handle >= 0) ready_fds -= handle;
 					else if (handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, SERVER) < 0)
 						// para que no intente seguir atendiendo a un nodo borrado
 						break;
+				}
 
-					if (node->data.connection_state == SERVER_READ_CLOSE &&
-						!buffer_can_read(node->data.server_to_client_buffer)) {
-						// Ya se cerro el servidor y no hay informacion pendiente para el cliente
-						if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set,
-													SERVER) < 0)
-							// para que no intente seguir atendiendo a un nodo borrado
-							break;
-					}
-					// Si no se borro el nodo llego aca, y asigno previous
-					previous = node;
-			}
+				if (node->data.connection_state == SERVER_READ_CLOSE && !buffer_can_read(node->data.server_to_client_buffer)) {
+					// Ya se cerro el servidor y no hay informacion pendiente para el cliente
+					if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, SERVER) <
+						0)
+						// para que no intente seguir atendiendo a un nodo borrado
+						break;
+				}
+				// Si no se borro el nodo llego aca, y asigno previous
+				previous = node;
 		}
 	}
 }

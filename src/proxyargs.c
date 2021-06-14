@@ -3,17 +3,26 @@
 #include <logger.h>
 #include <netutils.h>
 #include <proxyargs.h>
-#include <string.h> /* memset */
+
+#define DEFAULT_PROXY_IPV4 "0.0.0.0"
+#define DEFAULT_PROXY_IPV6 "::"
+#define DEFAULT_MGMT_IPV4 "127.0.0.1"
+#define DEFAULT_MGMT_IPV6 "::1"
 
 static void version();
 static void usage(const char *program_name);
 static uint16_t check_port(const char *service);
+static void setup_proxy_addr();
+static void setup_management_addr();
 
 proxy_arguments args = {
 	// seteo defaults
 	.doh_ip = "127.0.0.1", .doh_host = "localhost",	  .doh_port = "8053",	 .doh_path = "/getnsrecord",
-	.proxy_port = "8080",  .management_port = "9090", .proxy_ip = "0.0.0.0", .management_ip = "127.0.0.1",
-	.doh_query = "?dns=", .password_dissector = 1};
+	// IP default es NULL para diferenciar de la ingresada por parametro
+	.proxy_port = "8080",  .management_port = "9090", .proxy_ip = NULL,	.management_ip = NULL,
+	.proxy_addr4 = {0}, .proxy_addr6 = {0}, .management_addr4 = {0}, .management_addr6 = {0},
+	.doh_query = "?dns=", .password_dissector = 1
+};
 
 void parse_proxy_args(const int argc, char **argv) {
 
@@ -94,22 +103,8 @@ void parse_proxy_args(const int argc, char **argv) {
 
 	if(has_invalid_arguments) exit(EXIT_FAILURE);
 
-	// Validaciones + asisgnar a addr_info
-	// Puerto y direccion donde escucha el proxy
-	uint16_t proxy_port = check_port(args.proxy_port);
-	addr_info proxy_addr;
-	if(!(parse_ip_address(args.proxy_ip, proxy_port, &proxy_addr)))
-		logger(FATAL, "Bad IP address for proxy");
-	
-	args.proxy_addr_info = proxy_addr; 
-
-	// Puerto y direccion donde escucha el servidor para monitoreo
-	uint16_t management_port = check_port(args.management_port);
-	addr_info management_addr;
-	if(!(parse_ip_address(args.management_ip, management_port, &management_addr)))
-		logger(FATAL, "Bad IP address for management");
-
-	args.management_addr_info = management_addr;
+	setup_proxy_addr();
+	setup_management_addr();
 
 	// Puerto y direccion donde se encuentra el servidor DoH
 	uint16_t doh_port = check_port(args.doh_port);
@@ -118,6 +113,70 @@ void parse_proxy_args(const int argc, char **argv) {
 		logger(FATAL, "Bad IP address for DoH server");
 
 	args.doh_addr_info = doh_addr;
+}
+
+static void setup_proxy_addr() {
+	// Validaciones + asisgnar a la estructura addr correspondiente
+	// Puerto y direccion donde escucha el proxy
+	uint16_t proxy_port = check_port(args.proxy_port);
+	addr_info proxy_addr_aux;
+	if(args.proxy_ip != NULL) {
+		//	Caso IP para el proxy pasada por argumento
+		if(!(parse_ip_address(args.proxy_ip, proxy_port, &proxy_addr_aux)))
+		logger(FATAL, "Bad argument for IP address for proxy");
+
+		switch (proxy_addr_aux.addr.sa_family) {
+			case AF_INET:
+				args.proxy_addr4 = proxy_addr_aux.in4;
+				break;
+			case AF_INET6:
+				args.proxy_addr6 = proxy_addr_aux.in6;
+				break;
+		}
+	} else {
+		//	Seteo los addr default para escuchar en todas las interfaces
+		if(!(parse_ip_address(DEFAULT_PROXY_IPV4, proxy_port, &proxy_addr_aux)))
+		logger(FATAL, "Error when setting up proxy default IPv4 address");
+
+		args.proxy_addr4 = proxy_addr_aux.in4;
+
+		if(!(parse_ip_address(DEFAULT_PROXY_IPV6, proxy_port, &proxy_addr_aux)))
+		logger(FATAL, "Error when setting up proxy default IPv6 address");
+
+		args.proxy_addr6 = proxy_addr_aux.in6;
+	}
+}
+
+static void setup_management_addr() {
+	// Puerto y direccion donde escucha el servidor para monitoreo
+	uint16_t management_port = check_port(args.management_port);
+	addr_info management_addr_aux;
+
+	if(args.management_ip != NULL) {
+		//	Caso IP para el proxy pasada por argumento
+		if(!(parse_ip_address(args.management_ip, management_port, &management_addr_aux)))
+			logger(FATAL, "Bad argument IP address for management");
+
+		switch (management_addr_aux.addr.sa_family) {
+			case AF_INET:
+				args.management_addr4 = management_addr_aux.in4;
+				break;
+			case AF_INET6:
+				args.management_addr6 = management_addr_aux.in6;
+				break;
+		}
+	} else {
+		//	Seteo los addr default para escuchar en todas las interfaces
+		if(!(parse_ip_address(DEFAULT_MGMT_IPV4, management_port, &management_addr_aux)))
+			logger(FATAL, "Error when setting up management default IPv4 address");
+
+		args.management_addr4 = management_addr_aux.in4;
+
+		if(!(parse_ip_address(DEFAULT_MGMT_IPV6, management_port, &management_addr_aux)))
+			logger(FATAL, "Error when setting up management default IPv6 address");
+
+		args.management_addr6 = management_addr_aux.in6;
+	}
 }
 
 static void version() {

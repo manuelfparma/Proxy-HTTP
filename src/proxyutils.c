@@ -3,6 +3,7 @@
 #include <connection.h>
 #include <ctype.h>
 #include <dohclient.h>
+#include <dohdata.h>
 #include <dohutils.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -10,6 +11,7 @@
 #include <logger.h>
 #include <netdb.h>
 #include <netutils.h>
+#include <pop3responseparser.h>
 #include <proxy.h>
 #include <proxyargs.h>
 #include <proxyutils.h>
@@ -30,43 +32,61 @@ static int copy_host(char *buffer, http_target target);
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
-int setup_passive_socket() {
-	int passive_sock = -1;
-	addr_info proxy_addr = args.proxy_addr_info;
+int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]) {
+	addr_info proxy_addr;
 
-	// Create a TCP socket
-	passive_sock = socket(proxy_addr.addr.sa_family, SOCK_STREAM, 0);
-	if (passive_sock < 0) {
-		logger(INFO, "socket() for passive socket failed");
-		return -1;
-	}
+	// Ciclo para crear sockets y escuchar tanto en IPv4 como en IPv6
+	for(int i = 0; i < SOCK_COUNT; i++) {
+		if (i == IPV4_SOCK)
+			proxy_addr.in4 = args.proxy_addr4;
+		else if (i == IPV6_SOCK)
+			proxy_addr.in6 = args.proxy_addr6;
 
-	if (setsockopt(passive_sock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-		logger(INFO, "setsockopt(): %s", strerror(errno));
-		return -1;
-	}
-	// Non blocking socket
-	if (fcntl(passive_sock, F_SETFL, O_NONBLOCK) == -1) {
-		logger(INFO, "fcntl(): %s", strerror(errno));
-		return -1;
-	}
-
-	socklen_t len = (proxy_addr.addr.sa_family == AF_INET6) ? sizeof(proxy_addr.in6) : sizeof(proxy_addr.in4);
-	// Bind to All the address and set socket to listen
-	if ((bind(passive_sock, &proxy_addr.addr, len) == 0) && (listen(passive_sock, MAX_PENDING) == 0)) {
-		// Print local address of socket
-		struct sockaddr_storage local_addr;
-		socklen_t addr_size = sizeof(local_addr);
-		if (getsockname(passive_sock, (struct sockaddr *)&local_addr, &addr_size) >= 0) {
-			logger(INFO, "Binding and listening...");
+		if (proxy_addr.addr.sa_family == 0){
+			proxy_sockets[i] = -1;
+			continue;
 		}
-	} else {
-		logger(INFO, "bind() or listen() failed for passive socket");
-		close(passive_sock);
-		return -1;
+
+		// Create a TCP socket
+		proxy_sockets[i] = socket(proxy_addr.addr.sa_family, SOCK_STREAM, 0);
+		if (proxy_sockets[i] < 0) {
+			logger(INFO, "socket() for passive socket failed");
+			return -1;
+		}
+
+		if (setsockopt(proxy_sockets[i], SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
+			logger(INFO, "setsockopt(): %s", strerror(errno));
+			return -1;
+		}
+
+		if (i == IPV6_SOCK && setsockopt(proxy_sockets[i], IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int)) < 0) {
+			logger(INFO, "setsockopt(): %s", strerror(errno));
+			return -1;
+		}
+
+		// Non blocking socket
+		if (fcntl(proxy_sockets[i], F_SETFL, O_NONBLOCK) == -1) {
+			logger(INFO, "fcntl(): %s", strerror(errno));
+			return -1;
+		}
+
+		socklen_t len = (proxy_addr.addr.sa_family == AF_INET6) ? sizeof(proxy_addr.in6) : sizeof(proxy_addr.in4);
+		// Bind to All the address and set socket to listen
+		if ((bind(proxy_sockets[i], &proxy_addr.addr, len) == 0) && (listen(proxy_sockets[i], MAX_PENDING) == 0)) {
+			// Print local address of socket
+			struct sockaddr_storage local_addr;
+			socklen_t addr_size = sizeof(local_addr);
+			if (getsockname(proxy_sockets[i], (struct sockaddr *)&local_addr, &addr_size) >= 0) {
+				logger(INFO, "Binding and listening...");
+			}
+		} else {
+			logger(INFO, "bind() or listen() failed for passive socket");
+			close(proxy_sockets[i]);
+			return -1;
+		}
 	}
 
-	return passive_sock;
+	return 0;
 }
 
 int accept_connection(int passive_sock, char *buffer_address, char *buffer_port) {
@@ -91,6 +111,7 @@ int accept_connection(int passive_sock, char *buffer_address, char *buffer_port)
 	// guardar registro del cliente
 	if (copy_address_info((struct sockaddr *)&clnt_addr, buffer_address, buffer_port) < 0) {
 		logger(ERROR, "copy_address_info() failed");
+		close(clnt_sock);
 		return ACCEPT_CONNECTION_ERROR;
 	}
 
@@ -102,7 +123,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 
 	int fd_server = node->data.server_sock;
 	int fd_client = node->data.client_sock;
-	int return_value = 0;
+	int fd_set_consume_count = 0;
 	ssize_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
@@ -121,7 +142,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd_server, &read_fd_set[BASE]);
 		}
-		return_value++;
+		fd_set_consume_count++;
 	}
 
 	// Si un socket se activa para escritura, leo de la otra punta y
@@ -168,16 +189,16 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		connections.statistics.total_proxy_to_origins_bytes += result_bytes;
 		// si el buffer de salida se vacio, no nos interesa intentar escribir
 		if (!buffer_can_read(aux_buffer)) FD_CLR(fd_server, &write_fd_set[BASE]);
-		return_value++;
+		fd_set_consume_count++;
 	}
-	return return_value;
+	return fd_set_consume_count;
 }
 
 int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
 	int fd_server = node->data.server_sock;
 	int fd_client = node->data.client_sock;
-	int return_value = 0;
+	int fd_set_consume_count = 0;
 	ssize_t result_bytes;
 
 	// Si hay algo para leer de un socket, lo volcamos en un buffer de entrada para mandarlo al otro peer
@@ -229,7 +250,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
 			if (buffer_can_read(aux_buffer) && fd_server != -1) FD_SET(fd_server, &write_fd_set[BASE]);
 		}
-		return_value++;
+		fd_set_consume_count++;
 	}
 
 	// Si un socket se activa para escritura, leo de la otra punta y
@@ -268,9 +289,9 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
 			if (!buffer_can_read(aux_buffer)) { FD_CLR(fd_client, &write_fd_set[BASE]); }
 		}
-		return_value++;
+		fd_set_consume_count++;
 	}
-	return return_value;
+	return fd_set_consume_count;
 }
 
 int setup_connection(connection_node *node, fd_set *write_fd_set) {

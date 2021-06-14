@@ -25,7 +25,7 @@ PCAMP_CLIENT_OBJECTS = src/pcamputils.o src/pcampclient.o src/pcampargs.o src/ne
 all: proxy pcampclient
 
 pcampclient: $(PCAMP_CLIENT_OBJECTS)
-	$(CC) $(FSANITIZE) -o pcampclient $^ $(LCRYPTO)
+	$(CC) $(FSANITIZE) -o httpdctl $^ $(LCRYPTO)
 
 proxy: $(PROXY_OBJECTS)
 	$(CC) $(FSANITIZE) -o httpd $^ $(LCRYPTO)
@@ -37,6 +37,6 @@ proxy: $(PROXY_OBJECTS)
 # 	$(CC) $(CFLAGS) $(FSANITIZE) -I./src -I./src/include -o httpd $^
 
 clean:
-	rm -rf httpd pcampclient src/*.o logs/log_connection_* logs/proxy_log
+	rm -rf httpd httpdctl src/*.o logs/log_connection_* logs/proxy_log
 
 .PHONY: all proxy clean

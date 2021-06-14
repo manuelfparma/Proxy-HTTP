@@ -6,8 +6,8 @@
 
 // TODO: Comentar funciones
 
-int setup_pcamp_socket();
+int setup_pcamp_sockets(int management_sockets[SOCK_COUNT]);
 
-int handle_pcamp_request(int fd);
+void handle_pcamp_request(int fd);
 
 #endif

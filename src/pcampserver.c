@@ -28,29 +28,53 @@ static pcamp_request_info current_request = {0};
 
 static const char *passphrase = "12341234";
 
-int setup_pcamp_socket() {
+int setup_pcamp_sockets(int management_sockets[SOCK_COUNT]) {
+	addr_info management_addr;
 
-	int pcamp_sock = socket(args.management_addr_info.addr.sa_family, SOCK_DGRAM, 0);
+	for (int i = 0; i < SOCK_COUNT; i++) {
+		if (i == IPV4_SOCK) management_addr.in4 = args.management_addr4;
+		else if (i == IPV6_SOCK)
+			management_addr.in6 = args.management_addr6;
 
-	if (pcamp_sock < 0) return -1;
+		if (management_addr.addr.sa_family == 0) {
+			management_sockets[i] = -1;
+			continue;
+		}
 
-	if (fcntl(pcamp_sock, F_SETFL, O_NONBLOCK) < 0) {
-		close(pcamp_sock);
-		return -1;
+		management_sockets[i] = socket(management_addr.addr.sa_family, SOCK_DGRAM, 0);
+
+		if (management_sockets[i] < 0) {
+			logger(ERROR, "socket() for UDP socket failed: %s", strerror(errno));
+			return -1;
+		}
+
+		if (setsockopt(management_sockets[i], SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
+			logger(INFO, "setsockopt(): %s", strerror(errno));
+			return -1;
+		}
+
+		if (i == IPV6_SOCK && setsockopt(management_sockets[i], IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int)) < 0) {
+			logger(INFO, "setsockopt(): %s", strerror(errno));
+			return -1;
+		}
+
+		if (fcntl(management_sockets[i], F_SETFL, O_NONBLOCK) < 0) {
+			close(management_sockets[i]);
+			return -1;
+		}
+
+		socklen_t len = (management_addr.addr.sa_family == AF_INET6) ? sizeof(management_addr.in6) : sizeof(management_addr.in4);
+
+		if (bind(management_sockets[i], &management_addr.addr, len) < 0) {
+			close(management_sockets[i]);
+			return -1;
+		}
 	}
 
-	addr_info management_addr = args.management_addr_info;
-	socklen_t len = (management_addr.addr.sa_family == AF_INET6) ? sizeof(management_addr.in6) : sizeof(management_addr.in4);
-
-	if (bind(pcamp_sock, &management_addr.addr, len) < 0) {
-		close(pcamp_sock);
-		return -1;
-	}
-
-	return pcamp_sock;
+	return 0;
 }
 
-int handle_pcamp_request(int fd) {
+void handle_pcamp_request(int fd) {
 
 	memset(&current_request, 0, sizeof(current_request));
 
@@ -61,15 +85,8 @@ int handle_pcamp_request(int fd) {
 
 	ssize_t recv_bytes = recvfrom(fd, request_buffer, MAX_PCAMP_PACKET_LENGTH, 0, &src_addr, &src_addr_len);
 
-	if (recv_bytes < 0) {
-		if (errno == EWOULDBLOCK || errno == EAGAIN)
-			// FIXME: codigo de retorno, manejo de este caso
-			return 0;
-
-		// FIXME: codigo de retorno, manejo de este caso
-		logger(ERROR, "handle_pcamp_request :: recvfrom(): %s", strerror(errno));
-		return -1;
-	}
+	// Elegimos politica de best effort para casos de errores
+	if (recv_bytes < 0) return;
 
 	uint8_t status_code = parse_pcamp_request(request_buffer);
 
@@ -94,18 +111,14 @@ int handle_pcamp_request(int fd) {
 				break;
 			default:
 				// No debería pasar nunca
-				// FIXME: codigo de retorno, manejo de este caso
-				return -1;
-				break;
+				return;
 		}
 	}
 
 	response_buffer[PCAMP_HEADER_LENGTH] = status_code;
 
+	// Elegimos politica de best effort para casos de send que bloquean / dan error
 	sendto(fd, response_buffer, response_len, 0, &src_addr, src_addr_len);
-
-	// FIXME: codigo de retorno
-	return 1;
 }
 
 static int parse_pcamp_request(uint8_t *request) {
@@ -120,7 +133,7 @@ static int parse_pcamp_request(uint8_t *request) {
 
 	i += SIZE_8;
 	current_request.id = ntohs(*(uint16_t *)(request + i));
-//	read_big_endian_16(&current_request.id, request + i, 1);
+	//	read_big_endian_16(&current_request.id, request + i, 1);
 
 	i += SIZE_16;
 	if (!is_passphrase_correct(request + i)) return PCAMP_AUTH_ERROR;
@@ -134,29 +147,29 @@ static int resolve_pcamp_query(uint8_t *query_answer) {
 	switch (current_request.query.query_type) {
 		case TOTAL_CONNECTIONS_QUERY:
 			*(uint64_t *)query_answer = hton64(connections.statistics.total_connections);
-//			write_big_endian_64(query_answer, &connections.statistics.total_connections, 1);
+			//			write_big_endian_64(query_answer, &connections.statistics.total_connections, 1);
 			break;
 		case CURRENT_CONNECTIONS_QUERY:
 			*(uint64_t *)query_answer = hton64(connections.current_clients);
-//			write_big_endian_64(query_answer, &connections.current_clients, 1);
+			//			write_big_endian_64(query_answer, &connections.current_clients, 1);
 			break;
 		case TOTAL_BYTES_QUERY:
 			total_bytes =
 				connections.statistics.total_proxy_to_clients_bytes + connections.statistics.total_proxy_to_origins_bytes;
 			*(uint64_t *)query_answer = hton64(total_bytes);
-//			write_big_endian_64(query_answer, &total_bytes, 1);
+			//			write_big_endian_64(query_answer, &total_bytes, 1);
 			break;
 		case BYTES_TO_SERVER_QUERY:
 			*(uint64_t *)query_answer = hton64(connections.statistics.total_proxy_to_origins_bytes);
-//			write_big_endian_64(query_answer, &connections.statistics.total_proxy_to_origins_bytes, 1);
+			//			write_big_endian_64(query_answer, &connections.statistics.total_proxy_to_origins_bytes, 1);
 			break;
 		case BYTES_TO_CLIENT_QUERY:
 			*(uint64_t *)query_answer = hton64(connections.statistics.total_proxy_to_clients_bytes);
-//			write_big_endian_64(query_answer, &connections.statistics.total_proxy_to_clients_bytes, 1);
+			//			write_big_endian_64(query_answer, &connections.statistics.total_proxy_to_clients_bytes, 1);
 			break;
 		case BYTES_VIA_CONNECT_QUERY:
 			*(uint64_t *)query_answer = hton64(connections.statistics.total_connect_method_bytes);
-//			write_big_endian_64(query_answer, &connections.statistics.total_connect_method_bytes, 1);
+			//			write_big_endian_64(query_answer, &connections.statistics.total_connect_method_bytes, 1);
 			break;
 		default:
 			return PCAMP_UNSUPPORTED_QUERY_TYPE;
@@ -197,20 +210,18 @@ static int resolve_pcamp_config() {
 	switch (config_type) {
 		case BUFFER_SIZE_CONFIG:
 			aux = ntohs(*(uint16_t *)current_request.config.config_value);
-//			read_big_endian_16(&aux, current_request.config.config_value, 1);
-			if (aux == 0)
-				return PCAMP_INVALID_CONFIG_VALUE;
+			//			read_big_endian_16(&aux, current_request.config.config_value, 1);
+			if (aux == 0) return PCAMP_INVALID_CONFIG_VALUE;
 
 			settings.io_buffer_size = aux;
 			break;
 		case MAX_CLIENTS_CONFIG:
 			aux = ntohs(*(uint16_t *)current_request.config.config_value);
-//			read_big_endian_16(&aux, current_request.config.config_value, 1);
-			if (aux > MAX_CLIENTS)
-				return PCAMP_INVALID_CONFIG_VALUE;
+			//			read_big_endian_16(&aux, current_request.config.config_value, 1);
+			if (aux > MAX_CLIENTS) return PCAMP_INVALID_CONFIG_VALUE;
 
 			settings.max_clients = ntohs(*(uint16_t *)current_request.config.config_value);
-//			read_big_endian_16(&settings.max_clients, current_request.config.config_value, 1);
+			//			read_big_endian_16(&settings.max_clients, current_request.config.config_value, 1);
 			break;
 		case SNIFFING_CONFIG:
 			if (*current_request.config.config_value != 0 && *current_request.config.config_value != 1)
@@ -219,7 +230,7 @@ static int resolve_pcamp_config() {
 			settings.password_dissector = *current_request.config.config_value;
 			break;
 		case DOH_ADDR_CONFIG:
-			if(!doh_addr_config()) return PCAMP_INVALID_CONFIG_VALUE;
+			if (!doh_addr_config()) return PCAMP_INVALID_CONFIG_VALUE;
 			break;
 		case DOH_PORT_CONFIG:
 			doh_port_config();
@@ -289,5 +300,5 @@ static void copy_response_header(uint8_t *response_buffer) {
 	response_buffer[SIZE_8] = flags;
 
 	*(uint16_t *)(response_buffer + 2 * SIZE_8) = htons(current_request.id);
-//	write_big_endian_16(response_buffer + 2 * SIZE_8, &current_request.id, 1);
+	//	write_big_endian_16(response_buffer + 2 * SIZE_8, &current_request.id, 1);
 }
