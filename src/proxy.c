@@ -252,7 +252,7 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 }
 
 static bool check_connection_timeout(connection_node *node) {
-	return node->data.timestamp != 0 && (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT) && node->data.connection_state == CONNECTING;
+	return node->data.connection_state == CONNECTING && node->data.timestamp != 0 && (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT);
 }
 
 // Cuando retorna un valor < 0, no se debe volver a atender al nodo en esta iteracion
