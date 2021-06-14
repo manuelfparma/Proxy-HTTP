@@ -13,7 +13,7 @@ typedef enum {
 
 typedef enum { WRITE, READ } operation;
 
-typedef enum { CHARS_BEFORE_STATUS_CODE = 9 } proxy_utils_constraints;
+typedef enum { CHARS_BEFORE_STATUS_CODE = 9 , STATUS_CODE_LENGTH = 3} proxy_utils_constraints;
 
 int setup_passive_socket();
 
