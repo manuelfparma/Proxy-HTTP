@@ -110,7 +110,7 @@ int main(const int argc, char **argv) {
 			ready_fds--;
 		}
 
-		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients <= settings.max_clients) {
+		if (FD_ISSET(passive_sock, &read_fd_set[TMP]) && connections.current_clients < settings.max_clients) {
 			// almaceno el espacio para la info del cliente (ip y puerto)
 			char client_ip[MAX_IP_LENGTH + 1] = {0};
 			char client_port[MAX_PORT_LENGTH + 1] = {0};

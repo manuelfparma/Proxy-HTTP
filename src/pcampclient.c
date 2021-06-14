@@ -6,6 +6,7 @@
 #include <pcampclient.h>
 #include <pcamputils.h>
 #include <string.h>
+#include <ctype.h>
 
 // TODO: 0-	 printear menu de ayuda
 // DONE: 1- 	 recibo la IP del proxy por STDIN
@@ -39,6 +40,7 @@ static bool parse_sniffing(char *value);
 static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes);
 static bool parse_query_body(uint8_t *body, ssize_t recv_bytes);
 static void print_query_response();
+static void flush_stdin(const char *buffer, ssize_t recv_bytes);
 
 static addr_info current_addr = {0};
 static pcamp_request_info current_request = {0};
@@ -47,98 +49,120 @@ static uint8_t io_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 static pcamp_response_info current_response = {0};
 
 int main(const int argc, char **argv) {
+	char exit_client;
 	setvbuf(stdout, NULL, _IONBF, 0);
-	memset(&current_request, 0, sizeof(current_request));
-	memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
+
 	current_addr = parse_pcamp_args(argc, argv);
 
 	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n\n");
 
-	uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
-	current_request.method = method;
+	while (1) {
+		memset(&current_request, 0, sizeof(current_request));
+		memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
-	uint8_t type;
-	ssize_t packet_size = 0;
-	char input[PCAMP_BUFFER_SIZE + 1];
-	switch (method) {
-		case PCAMP_QUERY:
-			type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
-			get_passphrase();
-			packet_size = prepare_query_request(type);
-			break;
-		case PCAMP_CONFIG:
-			type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
-			get_config_value(type, input);
-			get_passphrase();
-			packet_size = prepare_config_request(type, input);
-			break;
-		default:
-			// No deberia pasar nunca
-			break;
-	}
+		uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
+		current_request.method = method;
 
-	int server_sock = socket(current_addr.addr.sa_family, SOCK_DGRAM, 0);
+		uint8_t type;
+		ssize_t packet_size = 0;
+		char input[PCAMP_BUFFER_SIZE + 1];
+		switch (method) {
+			case PCAMP_QUERY:
+				type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
+				get_passphrase();
+				packet_size = prepare_query_request(type);
+				break;
+			case PCAMP_CONFIG:
+				type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
+				get_config_value(type, input);
+				get_passphrase();
+				packet_size = prepare_config_request(type, input);
+				break;
+			default:
+				// No deberia pasar nunca
+				break;
+		}
 
-	if (server_sock < 0) logger(FATAL, "%s", strerror(errno));
+		int server_sock = socket(current_addr.addr.sa_family, SOCK_DGRAM, 0);
 
-	socklen_t len;
-	switch (current_addr.addr.sa_family) {
-		case AF_INET:
-			len = sizeof(current_addr.in4);
-			break;
-		case AF_INET6:
-			len = sizeof(current_addr.in6);
-			break;
-	}
+		if (server_sock < 0) logger(FATAL, "%s", strerror(errno));
 
-	fd_set read_fd_set;
-	FD_ZERO(&read_fd_set);
-	struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
-	// Wait con prints de '.' y timeouts
+		socklen_t len;
+		switch (current_addr.addr.sa_family) {
+			case AF_INET:
+				len = sizeof(current_addr.in4);
+				break;
+			case AF_INET6:
+				len = sizeof(current_addr.in6);
+				break;
+		}
 
-	printf("Waiting for response..");
-	int ready_fds = 0;
-	for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
-		sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
-		printf(".");
-		FD_SET(server_sock, &read_fd_set);
-		timeout.tv_sec = PCAMP_CLIENT_TIMEOUT;
-		ready_fds = select(server_sock + 1, &read_fd_set, NULL, NULL, &timeout);
-	}
+		fd_set read_fd_set;
+		FD_ZERO(&read_fd_set);
+		struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
+		// Wait con prints de '.' y timeouts
 
-	printf("\n");
+		printf("Waiting for response..");
+		int ready_fds = 0;
+		for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
+			sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
+			printf(".");
+			FD_SET(server_sock, &read_fd_set);
+			timeout.tv_sec = PCAMP_CLIENT_TIMEOUT;
+			ready_fds = select(server_sock + 1, &read_fd_set, NULL, NULL, &timeout);
+		}
 
-	if (ready_fds == 0) {
-		logger(INFO, "Timeout error: no responses were received\n");
-		return -1;
-	}
+		printf("\n");
 
-	uint8_t response[MAX_PCAMP_PACKET_LENGTH] = {0};
-	struct sockaddr server_addr;
-	socklen_t server_addr_len;
-	ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
+		if (ready_fds == 0) {
+			printf("Timeout expired: no responses were received\n");
+			goto EXIT_LABEL;
+		}
 
-	printf("read %ld bytes\n", recv_bytes);
+		uint8_t response[MAX_PCAMP_PACKET_LENGTH] = {0};
+		struct sockaddr server_addr;
+		socklen_t server_addr_len;
+		ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
 
-	if (!parse_pcamp_response(response, recv_bytes)) {
-		// FIXME: Manejar error
-		printf("The response received from the server is not valid. Please try again\n");
-		return -1;
-	} else if (current_response.status_code != PCAMP_SUCCESS) {
-		printf("%s\n", status_code_strings[current_response.status_code]);
-		return -1;
-	}
+		printf("read %ld bytes\n", recv_bytes);
 
-	switch (current_response.method) {
-		case PCAMP_CONFIG:
-			printf("Proxy HTTP configuration modified successfully\n");
-			break;
-		case PCAMP_QUERY:
-			print_query_response();
-			break;
+		if (!parse_pcamp_response(response, recv_bytes)) {
+			printf("The response received from the server is not valid. Please try again\n");
+			goto EXIT_LABEL;
+		} else if (current_response.status_code != PCAMP_SUCCESS) {
+			printf("%s\n", status_code_strings[current_response.status_code]);
+			goto EXIT_LABEL;
+		}
+
+		switch (current_response.method) {
+			case PCAMP_CONFIG:
+				printf("Proxy HTTP configuration modified successfully\n");
+				break;
+			case PCAMP_QUERY:
+				print_query_response();
+				break;
+		}
+
+	EXIT_LABEL:
+		printf("Do you wish to exit? [y/n]\n");
+		recv_bytes = read(STDIN_FILENO, &exit_client, 1);
+		flush_stdin(&exit_client, recv_bytes);
+		switch (tolower(exit_client)) {
+			case 'y':
+				return 0;
+			case 'n':
+			default:
+				break;
+		}
 	}
 
 	return 0;
+}
+
+static void flush_stdin(const char *buffer, ssize_t recv_bytes) {
+	int c = (unsigned char) buffer[recv_bytes-1];
+	while (c != '\n' && c != EOF)
+		c = getchar();
 }
 
 static void get_passphrase() {
@@ -148,6 +172,7 @@ static void get_passphrase() {
 	print_prompt();
 
 	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
+	flush_stdin(input, read_bytes);
 
 	read_bytes--; // Para ignorar el \n
 
@@ -169,6 +194,7 @@ static long get_option(long options_count, char **options_strings, const char *i
 		print_prompt();
 
 		read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
+		flush_stdin(input, read_bytes);
 		input[--read_bytes] = 0;
 
 		if (is_option_valid(options_count, input, read_bytes, &parsed_option)) is_input_valid = true;
@@ -207,6 +233,7 @@ static void get_config_value(config_type type, char *value) {
 		print_prompt();
 
 		ssize_t read_bytes = read(STDIN_FILENO, value, PCAMP_BUFFER_SIZE);
+		flush_stdin(value, read_bytes);
 		value[read_bytes-1] = 0;
 
 		switch (type) {
@@ -446,7 +473,7 @@ static bool parse_query_body(uint8_t *body, ssize_t recv_bytes) {
 }
 
 static void print_query_response() {
-	uint64_t value;
+	uint64_t value = 0;
 	switch (current_response.query.query_type) {
 		case TOTAL_CONNECTIONS_QUERY:
 		case CURRENT_CONNECTIONS_QUERY:

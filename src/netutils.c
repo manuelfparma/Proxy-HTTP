@@ -56,7 +56,7 @@ uint64_t hton64(uint64_t host_64) {
 	uint64_t result = 0;
 	uint8_t *aux = (uint8_t *) &result;
 
-	for(int i = 0; i < SIZE_64; i++) {
+	for(int i = SIZE_64 - 1; i >= 0; i--) {
 		aux[i] = (uint8_t) host_64;
 		host_64 = host_64 >> 8;
 	}
@@ -64,15 +64,13 @@ uint64_t hton64(uint64_t host_64) {
 	return result;
 }
 
-//	network: A B C D
-
 uint64_t ntoh64(uint64_t network_64) {
 	uint64_t result = 0;
 	uint8_t *aux = (uint8_t *) &network_64;
 
 	for(int i = 0; i < SIZE_64; i++) {
-		result += aux[i];
 		result = result << 8;
+		result += aux[i];
 	}
 
 	return result;
