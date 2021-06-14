@@ -62,7 +62,7 @@ static void usage(const char *program_name) {
 			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
 			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
 			"\t-p puerto-proxy\n\t\tPuerto UDP donde el servidor PCAMP escucha. Por defecto toma el valor 9090.\n\n"
-			"\t-l dirección-proxy\n\t\tEstablece la dirección donde el servidor PCAMP escucha. Por defecto escucha en loopback.\n\n",
+			"\t-l dirección-proxy\n\t\tEstablece la dirección donde el servidor PCAMP escucha. Por defecto toma el valor 127.0.0.1.\n\n",
 			program_name);
 	exit(EXIT_SUCCESS);
 }

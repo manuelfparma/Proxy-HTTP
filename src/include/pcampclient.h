@@ -24,9 +24,9 @@ char *method_strings[PCAMP_METHOD_COUNT] = {
 
 char *query_type_strings[PCAMP_QUERY_TYPE_COUNT] = {"Number of historic connections established",
 													"Number of connections currently established",
-													"Total count of bytes transferred between clients and servers",
-													"Total count of bytes sent from clients to servers",
-													"Total count of bytes sent from servers to clients",
+													"Total count of bytes sent from proxy to clients and servers",
+													"Total count of bytes sent from proxy to servers",
+													"Total count of bytes sent from proxy to clients",
 													"Total count of bytes transferred using the CONNECT HTTP method"};
 
 char *config_type_strings[PCAMP_CONFIG_TYPE_COUNT] = {"Proxy I/O buffer size (min. 1, max. 65535)",
