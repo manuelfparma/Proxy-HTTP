@@ -289,6 +289,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 		case CLIENT_CLOSE_READ_ERROR_CODE:
 			if (node->data.server_sock > 0) close_server_connection(node, read_fd_set, write_fd_set);
 			node->data.connection_state = SERVER_READ_CLOSE;
+			FD_SET(node->data.client_sock, &write_fd_set[BASE]);
 			return -1;
 		default:
 			logger(ERROR, "UNKNOWN ERROR CODE");

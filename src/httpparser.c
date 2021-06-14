@@ -206,7 +206,7 @@ static const http_parser_state_transition ST_LF[2] = {
 
 static const http_parser_state_transition ST_CR_END[2] = {
 	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_headers_ended},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_VALUE, .transition = tr_copy_byte_to_buffer},
 };
 
 //----------- ESTRUCTURAS PARA SABER LAS TRANSICIONES DE CADA NODO -----------//
