@@ -248,12 +248,10 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				if (node->data.client_information.status_code == 0) {
 					uint8_t *status_response = aux_buffer->read;
 					// TODO: magic number -> cambiar o repensar
-					status_response[4 + 1 + 3 + 1 + 3] = '\0';
+					status_response += CHARS_BEFORE_STATUS_CODE;
 					unsigned short status_response_code = 0;
-					char version_major = -1, version_minor = -1;
-					sscanf((const char *)status_response, "HTTP/%c.%c %hu", &version_major, &version_minor,
-						   &status_response_code);
-					// TODO: agregar chequeos o directamente mover la cantidad de bytes
+					sscanf((const char *)status_response, "%hu ", &status_response_code);
+					// TODO: agregar chequeos
 					node->data.client_information.status_code = (unsigned short)status_response_code;
 				}
 				print_register(ACCESS, node, write_fd_set);

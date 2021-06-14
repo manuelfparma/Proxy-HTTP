@@ -3,10 +3,10 @@
 #include <connection.h>
 #include <httpparser.h>
 #include <logger.h>
+#include <netutils.h>
+#include <proxyargs.h>
 #include <stdlib.h>
 #include <string.h>
-#include <proxyargs.h>
-#include <netutils.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
@@ -101,7 +101,11 @@ static const http_parser_state_transition ST_IPv4[6] = {
 
 static const http_parser_state_transition ST_IPv6[7] = {
 	{.when = ':', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
-	{.when = '.', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer}, 	// por si es IPv4-mapped to IPv6
+	{.when = '.',
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_IPv6,
+	 .transition = tr_copy_byte_to_buffer}, // por si es IPv4-mapped to IPv6
 	{.when = ']', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_IPv6_END, .transition = tr_reset_copy_index},
 	{.when = EMPTY, .lower_bound = '0', .upper_bound = '9', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
 	{.when = EMPTY, .lower_bound = 'A', .upper_bound = 'F', .destination = PS_IPv6, .transition = tr_copy_byte_to_buffer},
@@ -180,7 +184,7 @@ static const http_parser_state_transition ST_HEADER_TYPE[3] = {
 };
 
 static const http_parser_state_transition ST_HEADER_VALUE[2] = {
-	//FIX: SE DEBERIA ESTAR COPIANDO AL BUFFER POR QUE PUEDE SER UN \r del medio, no indicador del final
+	// FIX: SE DEBERIA ESTAR COPIANDO AL BUFFER POR QUE PUEDE SER UN \r del medio, no indicador del final
 	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
 	{.when = ANY,
 	 .lower_bound = EMPTY,
@@ -275,11 +279,14 @@ static void copy_to_request_buffer_request_target() {
 static void check_port() {
 	if (current_parser->request.target.port[0] == '\0') {
 		char *port;
-		if (strcmp_case_insensitive("http", current_parser->request.schema) == 0) {
-			port = "80";
+		if (strcmp_case_insensitive("pop3", current_parser->request.schema) == 0) {
+			port = "110";
 			strcpy(current_parser->request.target.port, port);
 		} else if (strcmp_case_insensitive("https", current_parser->request.schema) == 0) {
 			port = "433";
+			strcpy(current_parser->request.target.port, port);
+		} else {
+			port = "80";
 			strcpy(current_parser->request.target.port, port);
 		}
 	}
@@ -306,7 +313,8 @@ static void parse_start_line(char current_char) {
 	char *cr_lf = "\r\n";
 	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 
-	if (current_parser->request.target.path_type == ABSOLUTE || current_parser->request.target.path_type == ABSOLUTE_WITH_RELATIVE) {
+	if (current_parser->request.target.path_type == ABSOLUTE ||
+		current_parser->request.target.path_type == ABSOLUTE_WITH_RELATIVE) {
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_parser->data.parsed_request, header_host, HEADER_TYPE_HOST_LENGTH);
 		copy_to_request_buffer_request_target();
@@ -330,7 +338,8 @@ static int parse_request_target() {
 			current_parser->request.target.request_target.ip_addr[ipv6_length] = '\0';
 			idx_port = find_idx(current_parser->request.header.value + ipv6_length + 1, ':'); // lo busco a partir del caracter ]
 			if (idx_port == -1) {
-				strcpy(current_parser->request.target.port, "80");
+				check_port();
+
 			} else if (idx_port > MAX_PORT_LENGTH) {
 				logger(ERROR, "Port excedeed length in header type Host");
 				tr_parse_error(' ');
@@ -348,11 +357,12 @@ static int parse_request_target() {
 			tr_parse_error(' ');
 		}
 		if (idx_port == -1) {
-			if (strncmp(current_parser->request.schema, "https", strlen("https")) == 0) {
-				strcpy(current_parser->request.target.port, "443");
-			} else
-				strcpy(current_parser->request.target.port, "80");
-		} else
+			check_port();
+		} else if (idx_port > MAX_PORT_LENGTH) {
+				logger(ERROR, "Port excedeed length in header type Host");
+				tr_parse_error(' ');
+		} 
+		else
 			// almaceno en la estructura el puerto
 			strcpy(current_parser->request.target.port, current_parser->request.header.value + (idx_port + 1));
 
@@ -524,7 +534,7 @@ static void tr_solve_relative_request_target(char current_char) {
 }
 
 static void tr_solve_port_request_target(char current_char) {
-	if(current_parser->data.request_status == PARSE_CONNECT_METHOD && strcmp(current_parser->request.target.port, "110") == 0){
+	if (current_parser->data.request_status == PARSE_CONNECT_METHOD && strcmp(current_parser->request.target.port, "110") == 0) {
 		// sabemos que estamos bajo el protocolo pop3
 		current_parser->data.request_status = PARSE_CONNECT_METHOD_POP3;
 	}
