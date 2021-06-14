@@ -48,6 +48,7 @@ typedef struct {
 	addr_info_node *addr_info_current; // ip para conectarse utilizada actualmente
 	information client_information;	   // ip y puerto del cliente, ya formateados
 	doh_data *doh;
+	time_t timestamp;				   // timestamp de creacion de la conexion
 } connection_data;
 
 typedef struct connection_node {

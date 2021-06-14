@@ -57,6 +57,7 @@ static void set_node_default_values(connection_node *node) {
 	buffer_init(node->data.parser->data.parsed_request, settings.io_buffer_size, node->data.parser->data.parsed_request->data);
 
 	node->data.addr_info_first = node->data.addr_info_current = NULL;
+	node->data.timestamp = 0;
 }
 
 connection_node *setup_connection_resources(int client_sock, int server_sock) {

@@ -29,5 +29,6 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
+int try_next_addr(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) ;
 
 #endif

@@ -332,6 +332,8 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 	// agrego como escritura el fd activo
 	FD_SET(node->data.server_sock, &write_fd_set[BASE]);
 
+	node->data.timestamp = time(NULL);
+
 	return 0;
 }
 
@@ -438,20 +440,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 
 		// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
 		if (error_code == ECONNREFUSED || error_code == ETIMEDOUT) {
-			node->data.addr_info_current = node->data.addr_info_current->next;
-			// intentara con la proxima direccion
-			logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
-
-			FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
-			close(node->data.server_sock);
-
-			int ans = setup_connection(node, write_fd_set);
-			if (ans == SETUP_CONNECTION_ERROR_CODE) {
-				// nos quedamos sin addresses en la lista
-				logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(error_code));
-				free_doh_resources(node);
-				return ans;
-			}
+			return try_next_addr(node, write_fd_set);
 		} else {
 			// error de getsockopt respecto al server, liberamos todos los recursos
 			logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(error_code));
@@ -486,6 +475,26 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				break;
 		}
 	}
+	return 0;
+}
+
+int try_next_addr(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
+	node->data.addr_info_current = node->data.addr_info_current->next;
+	// intentara con la proxima direccion
+	logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
+
+	FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
+	close(node->data.server_sock);
+
+	int ans = setup_connection(node, write_fd_set);
+
+	if (ans == SETUP_CONNECTION_ERROR_CODE) {
+		// nos quedamos sin addresses en la lista
+		logger(ERROR, "try_next_addr(): no more address to connect to server");
+		free_doh_resources(node);
+		return ans;
+	}
+
 	return 0;
 }
 
