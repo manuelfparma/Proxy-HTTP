@@ -171,7 +171,8 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 	buffer *message = node->data.doh->doh_buffer;
 
 	// Obtenemos el id y validamos
-	read_big_endian_16(&header_info.id, message->read, 1);
+	header_info.id = ntohs(*(uint16_t *)message->read);
+//	read_big_endian_16(&header_info.id, message->read, 1);
 
 	if (header_info.id != dns_header_template.id) {
 		// No es nuestra current_request
@@ -208,9 +209,11 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 	// Obtenemos la cantidad de preguntas y de respuestas en el mensaje
 	consume_buffer_bytes(node, SIZE_8);
 
-	read_big_endian_16(qdcount, message->read, 1);
+	*qdcount = ntohs(*(uint16_t *)message->read);
+//	read_big_endian_16(qdcount, message->read, 1);
 	consume_buffer_bytes(node, SIZE_16);
-	read_big_endian_16(ancount, message->read, 1);
+	*ancount = ntohs(*(uint16_t *)message->read);
+//	read_big_endian_16(ancount, message->read, 1);
 
 	return 0;
 }
@@ -245,19 +248,13 @@ static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 
 		// Aca ya pasamos el name
 		// Vemos si coincide el type con el solicitado en la query
-		uint16_t type;
-		read_big_endian_16(&type, message->read, 1);
-
-		//		if (type != test_dns_question.type) {
-		//			logger(ERROR, "parse_dns_message(): expected type %d record, got type = %d", test_dns_question.type, type);
-		//			return -1;
-		//			// Error
-		//		}
+		uint16_t type = ntohs(*(uint16_t *)message->read);
+//		read_big_endian_16(&type, message->read, 1);
 
 		// Vemos lo mismo con class
 		consume_buffer_bytes(node, SIZE_16);
-		uint16_t class;
-		read_big_endian_16(&class, message->read, 1);
+		uint16_t class = ntohs(*(uint16_t *)message->read);
+//		read_big_endian_16(&class, message->read, 1);
 
 		if (class != IN_CLASS) {
 			logger(ERROR, "parse_dns_message(): expected class %d record, got class = %d", IN_CLASS, class);
@@ -268,8 +265,8 @@ static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 		// Avanzamos CLASS y Salteamos TTL
 		consume_buffer_bytes(node, 3 * SIZE_16);
 
-		uint16_t rdlength;
-		read_big_endian_16(&rdlength, message->read, 1);
+		uint16_t rdlength = ntohs(*(uint16_t *)message->read);
+//		read_big_endian_16(&rdlength, message->read, 1);
 
 		consume_buffer_bytes(node, SIZE_16);
 

@@ -30,26 +30,12 @@ bool parse_ip_address(const char *addr_str, uint16_t port, addr_info *addr);
 //	Si no se logró convertir, devuelve false
 bool parse_port(const char *port_str, uint16_t *port);
 
-//	Funcion para copiar de un buffer src en Big-Endian una variable dest de tamaño 16 bits n veces
-void read_big_endian_16(uint16_t *dest, uint8_t *src, size_t n);
-
-//	Funcion para copiar de un buffer src en Big-Endian una variable dest de tamaño 32 bits n veces
-void read_big_endian_32(uint32_t *dest, uint8_t *src, size_t n);
-
-//	Funcion para copiar de un buffer src en Big-Endian una variable dest de tamaño 32 bits n veces
-void read_big_endian_64(uint64_t *dest, uint8_t *src, size_t n);
-
-//	Funcion para copiar a partir de src de 16 bits a un buffer dest en formato Big-Endian n veces
-void write_big_endian_16(uint8_t *dest, uint16_t *src, size_t n);
-
-//	Funcion para copiar a partir de src de 32 bits a un buffer dest en formato Big-Endian n veces
-void write_big_endian_32(uint8_t *dest, uint32_t *src, size_t n);
-
-//	Funcion para copiar a partir de src de 64 bits a un buffer dest en formato Big-Endian n veces
-void write_big_endian_64(uint8_t *dest, uint64_t *src, size_t n);
-
 // Funcion para comparar strings(null terminated) que no tiene en cuenta el case de las letras del alfabeto
 // Valor de retorno: str1 == str2 -> 0, str1 > str2 -> 1, str1 < str2 -> -1
 int strcmp_case_insensitive(char *str1, char *str2);
+
+uint64_t hton64(uint64_t host_64);
+
+uint64_t ntoh64(uint64_t network_64);
 
 #endif

@@ -101,9 +101,11 @@ static size_t prepare_dns_question(dns_question question_info, uint8_t *question
 	question[n++] = 0;
 
 	// Copiamos de little endian a big endian el QTYPE y QCLASS
-	write_big_endian_16(question + n, &question_info.type, 1);
+	*(uint16_t *)(question + n) = htons(question_info.type);
+//	write_big_endian_16(question + n, &question_info.type, 1);
 	n += SIZE_16;
-	write_big_endian_16(question + n, &question_info.class, 1);
+	*(uint16_t *)(question + n) = htons(question_info.class);
+//	write_big_endian_16(question + n, &question_info.class, 1);
 	n += SIZE_16;
 
 	return n;
@@ -112,7 +114,8 @@ static size_t prepare_dns_question(dns_question question_info, uint8_t *question
 static void copy_dns_header(uint8_t *dest, dns_header dns_header_info) {
 	size_t n = 0;
 
-	write_big_endian_16(dest, &dns_header_info.id, 1);
+	*(uint16_t *)dest = htons(dns_header_info.id);
+//	write_big_endian_16(dest, &dns_header_info.id, 1);
 	n += SIZE_16;
 
 	uint16_t flags = 0; // En esta variable voy a setear los flags
@@ -133,15 +136,20 @@ static void copy_dns_header(uint8_t *dest, dns_header dns_header_info) {
 	flags = flags << 4;
 	flags += dns_header_info.rcode;
 
-	write_big_endian_16(dest + n, &flags, 1);
+	*(uint16_t *)(dest + n) = htons(flags);
+//	write_big_endian_16(dest + n, &flags, 1);
 
 	n += SIZE_16;
 
-	write_big_endian_16(dest + n, &dns_header_info.qdcount, 1);
+	*(uint16_t *)(dest + n) = htons(dns_header_info.qdcount);
+//	write_big_endian_16(dest + n, &dns_header_info.qdcount, 1);
 	n += SIZE_16;
-	write_big_endian_16(dest + n, &dns_header_info.ancount, 1);
+	*(uint16_t *)(dest + n) = htons(dns_header_info.ancount);
+//	write_big_endian_16(dest + n, &dns_header_info.ancount, 1);
 	n += SIZE_16;
-	write_big_endian_16(dest + n, &dns_header_info.nscount, 1);
+	*(uint16_t *)(dest + n) = htons(dns_header_info.nscount);
+//	write_big_endian_16(dest + n, &dns_header_info.nscount, 1);
 	n += SIZE_16;
-	write_big_endian_16(dest + n, &dns_header_info.arcount, 1);
+	*(uint16_t *)(dest + n) = htons(dns_header_info.arcount);
+//	write_big_endian_16(dest + n, &dns_header_info.arcount, 1);
 }

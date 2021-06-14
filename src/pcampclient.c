@@ -246,7 +246,8 @@ static bool parse_buffer_size(char *value) {
 	uint16_t aux = parsed_buffer_size;
 
 	current_request.config.config_value = malloc(config_value_length[BUFFER_SIZE_CONFIG]);
-	write_big_endian_16(current_request.config.config_value, &aux, 1);
+	*(uint16_t *)(current_request.config.config_value) = htons(aux);
+//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -261,7 +262,8 @@ static bool parse_max_clients(char *value) {
 	uint16_t aux = parsed_max_clients;
 
 	current_request.config.config_value = malloc(config_value_length[MAX_CLIENTS_CONFIG]);
-	write_big_endian_16(current_request.config.config_value, &aux, 1);
+	*(uint16_t *)(current_request.config.config_value) = htons(aux);
+//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -306,7 +308,8 @@ static bool parse_doh_port(char *value) {
 	if (!parse_port(value, &aux)) return false;
 
 	current_request.config.config_value = malloc(config_value_length[DOH_PORT_CONFIG]);
-	write_big_endian_16(current_request.config.config_value, &aux, 1);
+	*(uint16_t *)current_request.config.config_value = htons(aux);
+//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -329,7 +332,8 @@ static ssize_t prepare_query_request(query_type type) {
 	io_buffer[i++] = (((uint8_t)(PCAMP_QUERY)) << 1) + PCAMP_REQUEST;
 
 	current_request.id = current_id;
-	write_big_endian_16(io_buffer + i, &current_id, 1);
+	*(uint16_t *)(io_buffer + i) = htons(current_id);
+//	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
 
@@ -350,7 +354,8 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 	io_buffer[i++] = (((uint8_t)(PCAMP_CONFIG)) << 1) + PCAMP_REQUEST;
 
 	current_request.id = current_id;
-	write_big_endian_16(io_buffer + i, &current_id, 1);
+	*(uint16_t *)(io_buffer + i) = htons(current_id);
+//	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
 
@@ -387,8 +392,8 @@ static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes) {
 	current_response.method = method;
 
 	response_idx += SIZE_8;
-	uint16_t id;
-	read_big_endian_16(&id, response + response_idx, 1);
+	uint16_t id = ntohs(*(uint16_t *)(response + response_idx));
+//	read_big_endian_16(&id, response + response_idx, 1);
 	if (id != current_request.id) return false;
 
 	response_idx += SIZE_16;
@@ -449,7 +454,8 @@ static void print_query_response() {
 		case BYTES_TO_SERVER_QUERY:
 		case BYTES_TO_CLIENT_QUERY:
 		case BYTES_VIA_CONNECT_QUERY:
-			read_big_endian_64(&value, current_response.query.response, 1);
+			value = ntoh64(*(uint64_t *)current_response.query.response);
+//			read_big_endian_64(&value, current_response.query.response, 1);
 			printf("%s: %" PRId64 "\n", query_type_strings[current_response.query.query_type], value);
 		default:
 			// No debería pasar nunca
