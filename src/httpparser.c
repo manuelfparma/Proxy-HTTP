@@ -339,7 +339,6 @@ static int parse_request_target() {
 			idx_port = find_idx(current_parser->request.header.value + ipv6_length + 1, ':'); // lo busco a partir del caracter ]
 			if (idx_port == -1) {
 				check_port();
-
 			} else if (idx_port > MAX_PORT_LENGTH) {
 				logger(ERROR, "Port excedeed length in header type Host");
 				tr_parse_error(' ');
@@ -352,17 +351,9 @@ static int parse_request_target() {
 	} else {
 		// Busco el indice del delimitador entre el path y el puerto, en caso de no existir retorna -1
 		idx_port = find_idx(current_parser->request.header.value, ':');
-		if (idx_port > MAX_PORT_LENGTH) {
-			logger(ERROR, "Port excedeed length in header type Host");
-			tr_parse_error(' ');
-		}
 		if (idx_port == -1) {
 			check_port();
-		} else if (idx_port > MAX_PORT_LENGTH) {
-				logger(ERROR, "Port excedeed length in header type Host");
-				tr_parse_error(' ');
-		} 
-		else
+		} else
 			// almaceno en la estructura el puerto
 			strcpy(current_parser->request.target.port, current_parser->request.header.value + (idx_port + 1));
 

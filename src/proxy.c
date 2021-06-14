@@ -194,7 +194,6 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node, write_fd_set);
 			break;
-			break;
 		case RECV_ERROR_CODE:
 			// dio error el receive, lo dejamos para intentar denuevo luego
 			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,

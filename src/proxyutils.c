@@ -15,7 +15,6 @@
 #include <proxyutils.h>
 #include <string.h>
 #include <time.h>
-#include <netutils.h>
 
 extern connection_header connections;
 extern proxy_arguments args;
@@ -209,6 +208,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 					aux_buffer = node->data.parser->data.parsed_request;
 					parse_request(node->data.parser, node->data.client_to_server_buffer);
 					if (node->data.parser->data.parser_state == PS_ERROR) return BAD_REQUEST_ERROR;
+					if (node->data.parser->data.parser_state == PS_END) { return CLIENT_CLOSE_READ_ERROR_CODE; }
 					if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
 						// seteo los argumentos necesarios para conectarse al server
 						if (node->data.parser->request.target.host_type == DOMAIN) {
@@ -245,9 +245,10 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				break;
 			default:
 				aux_buffer = node->data.server_to_client_buffer;
-				if (node->data.client_information.status_code == 0) {
+				if (node->data.client_information.status_code == 0 &&
+					(node->data.server_to_client_buffer->write - node->data.server_to_client_buffer->read) >=
+						(CHARS_BEFORE_STATUS_CODE + STATUS_CODE_LENGTH)) {
 					uint8_t *status_response = aux_buffer->read;
-					// TODO: magic number -> cambiar o repensar
 					status_response += CHARS_BEFORE_STATUS_CODE;
 					unsigned short status_response_code = 0;
 					sscanf((const char *)status_response, "%hu ", &status_response_code);
@@ -265,9 +266,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
 			connections.statistics.total_proxy_to_clients_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
-			if (!buffer_can_read(aux_buffer)) {
-				FD_CLR(fd_client, &write_fd_set[BASE]);
-			}
+			if (!buffer_can_read(aux_buffer)) { FD_CLR(fd_client, &write_fd_set[BASE]); }
 		}
 		return_value++;
 	}
@@ -476,6 +475,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				// ya que estoy conectado, me fijo si quedo algo para parsear
 				parse_request(node->data.parser, node->data.client_to_server_buffer);
 				if (node->data.parser->data.parser_state == PS_ERROR) { return BAD_REQUEST_ERROR; }
+				if (node->data.parser->data.parser_state == PS_END) { return CLIENT_CLOSE_READ_ERROR_CODE; }
 				break;
 		}
 	}
