@@ -215,7 +215,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 							// TODO: Obtener doh addr, hostname y port de args
 							if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
 								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
-								return DOH_ERROR_CODE; // cierro todas las conexiones
+								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
 							}
 						} else {
 							int connect_ret = set_node_request_target(node, write_fd_set);

@@ -121,7 +121,7 @@ void parse_proxy_args(const int argc, char **argv) {
 }
 
 static void version() {
-	fprintf(stderr, "proxy HTTP version 0.0\n"
+	fprintf(stderr, "Proxy HTTP version 1.0\n"
 					"ITBA\n"
 					"Protocolos de Comunicacion 2021/1 - Grupo 7\n"
 					"Licencia: ...\n");

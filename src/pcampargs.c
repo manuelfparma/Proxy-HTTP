@@ -49,7 +49,7 @@ addr_info parse_pcamp_args(const int argc, char **argv) {
 }
 
 static void version() {
-	fprintf(stderr, "Client PCAMP (Proxy Configuration And Monitoring Protocol) version 0.1\n"
+	fprintf(stderr, "PCAMP Client version 1.0\n"
 					"ITBA\n"
 					"Protocolos de Comunicacion 2021/1 - Grupo 7\n"
 					"Licencia: ...\n");
@@ -61,9 +61,8 @@ static void usage(const char *program_name) {
 			"OPTIONS\n"
 			"\t-h\n\t\tImprime el manual y finaliza.\n\n"
 			"\t-v\n\t\tImprime la versión del programa %s y finaliza.\n\n"
-			"\t-p puerto-proxy\n\t\tPuerto TCP donde el proxy HTTP escucha conexiones. Por defecto toma el valor 8080.\n\n"
-			"\t-l dirección-proxy\n\t\tEstablece la dirección donde el proxy HTTP brinda servicio. Por defecto escucha en todas "
-			"las interfaces.\n\n",
+			"\t-p puerto-proxy\n\t\tPuerto UDP donde el servidor PCAMP escucha. Por defecto toma el valor 9090.\n\n"
+			"\t-l dirección-proxy\n\t\tEstablece la dirección donde el servidor PCAMP escucha. Por defecto escucha en loopback.\n\n",
 			program_name);
 	exit(EXIT_SUCCESS);
 }

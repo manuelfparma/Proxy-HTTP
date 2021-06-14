@@ -54,13 +54,13 @@ int main(const int argc, char **argv) {
 
 	current_addr = parse_pcamp_args(argc, argv);
 
-	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n\n");
+	printf("======= Proxy Configuration and Monitoring Protocol - Version 1.0 =======\n");
 
 	while (1) {
 		memset(&current_request, 0, sizeof(current_request));
 		memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
 
-		uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "Select a method:\n");
+		uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "\nSelect a method:\n");
 		current_request.method = method;
 
 		uint8_t type;
@@ -68,12 +68,12 @@ int main(const int argc, char **argv) {
 		char input[PCAMP_BUFFER_SIZE + 1];
 		switch (method) {
 			case PCAMP_QUERY:
-				type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "Select query type:\n");
+				type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "\nSelect query type:\n");
 				get_passphrase();
 				packet_size = prepare_query_request(type);
 				break;
 			case PCAMP_CONFIG:
-				type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "Select the configuration you wish to modify:\n");
+				type = get_option(PCAMP_CONFIG_TYPE_COUNT, config_type_strings, "\nSelect the configuration you wish to modify:\n");
 				get_config_value(type, input);
 				get_passphrase();
 				packet_size = prepare_config_request(type, input);
@@ -102,7 +102,7 @@ int main(const int argc, char **argv) {
 		struct timeval timeout = {PCAMP_CLIENT_TIMEOUT, 0};
 		// Wait con prints de '.' y timeouts
 
-		printf("Waiting for response..");
+		printf("\nWaiting for response..");
 		int ready_fds = 0;
 		for (int i = 0; i < PCAMP_CLIENT_MAX_RECV_ATTEMPS && ready_fds == 0; i++) {
 			sendto(server_sock, io_buffer, packet_size, 0, &current_addr.addr, len);
@@ -124,7 +124,7 @@ int main(const int argc, char **argv) {
 		socklen_t server_addr_len;
 		ssize_t recv_bytes = recvfrom(server_sock, response, MAX_PCAMP_PACKET_LENGTH, 0, &server_addr, &server_addr_len);
 
-		printf("read %ld bytes\n", recv_bytes);
+		printf("\nResponse received!\n");
 
 		if (!parse_pcamp_response(response, recv_bytes)) {
 			printf("The response received from the server is not valid. Please try again\n");
@@ -144,7 +144,8 @@ int main(const int argc, char **argv) {
 		}
 
 	EXIT_LABEL:
-		printf("Do you wish to exit? [y/n]\n");
+		printf("\nDo you wish to exit? [y/n]");
+		print_prompt();
 		recv_bytes = read(STDIN_FILENO, &exit_client, 1);
 		flush_stdin(&exit_client, recv_bytes);
 		switch (tolower(exit_client)) {
@@ -168,7 +169,7 @@ static void flush_stdin(const char *buffer, ssize_t recv_bytes) {
 static void get_passphrase() {
 	char input[PCAMP_BUFFER_SIZE];
 
-	printf("Enter the passphrase:\n");
+	printf("\nEnter the passphrase:");
 	print_prompt();
 
 	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
@@ -223,7 +224,7 @@ static bool is_option_valid(long options_count, char *input, ssize_t read_bytes,
 	return *parsed_option < options_count && *parsed_option >= 0;
 }
 
-static void print_prompt() { printf("→ "); }
+static void print_prompt() { printf("\n→ "); }
 
 static void get_config_value(config_type type, char *value) {
 	bool is_input_valid = false;

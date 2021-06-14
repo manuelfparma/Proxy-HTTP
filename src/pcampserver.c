@@ -21,7 +21,7 @@ static ssize_t prepare_pcamp_query_response(uint8_t *query_answer, uint8_t *body
 static int resolve_pcamp_config();
 static void parse_pcamp_config(uint8_t *request_buffer);
 static void copy_response_header(uint8_t *response_buffer);
-static void doh_addr_config();
+static bool doh_addr_config();
 static void doh_port_config();
 
 static pcamp_request_info current_request = {0};
@@ -219,7 +219,7 @@ static int resolve_pcamp_config() {
 			settings.password_dissector = *current_request.config.config_value;
 			break;
 		case DOH_ADDR_CONFIG:
-			doh_addr_config();
+			if(!doh_addr_config()) return PCAMP_INVALID_CONFIG_VALUE;
 			break;
 		case DOH_PORT_CONFIG:
 			doh_port_config();
@@ -234,7 +234,7 @@ static int resolve_pcamp_config() {
 	return PCAMP_SUCCESS;
 }
 
-static void doh_addr_config() {
+static bool doh_addr_config() {
 	uint16_t port;
 
 	switch (settings.doh_addr_info.addr.sa_family) {
@@ -251,11 +251,17 @@ static void doh_addr_config() {
 			settings.doh_addr_info.addr.sa_family = AF_INET;
 			settings.doh_addr_info.in4.sin_addr = *(struct in_addr *)(current_request.config.config_value + 1);
 			settings.doh_addr_info.in4.sin_port = port;
+			break;
 		case PCAMP_IPV6:
 			settings.doh_addr_info.addr.sa_family = AF_INET6;
 			settings.doh_addr_info.in6.sin6_addr = *(struct in6_addr *)(current_request.config.config_value + 1);
 			settings.doh_addr_info.in6.sin6_port = port;
+			break;
+		default:
+			return false;
 	}
+
+	return true;
 }
 
 static void doh_port_config() {
