@@ -39,13 +39,12 @@ int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]) {
 	addr_info proxy_addr;
 
 	// Ciclo para crear sockets y escuchar tanto en IPv4 como en IPv6
-	for(int i = 0; i < SOCK_COUNT; i++) {
-		if (i == IPV4_SOCK)
-			proxy_addr.in4 = args.proxy_addr4;
+	for (int i = 0; i < SOCK_COUNT; i++) {
+		if (i == IPV4_SOCK) proxy_addr.in4 = args.proxy_addr4;
 		else if (i == IPV6_SOCK)
 			proxy_addr.in6 = args.proxy_addr6;
 
-		if (proxy_addr.addr.sa_family == 0){
+		if (proxy_addr.addr.sa_family == 0) {
 			proxy_sockets[i] = -1;
 			continue;
 		}
@@ -155,6 +154,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			// chequeamos si logro conectarse
 			int handle = try_connection(node, read_fd_set, write_fd_set);
 			if (handle < 0) return handle;
+			return fd_set_consume_count++;
 		}
 		buffer *aux_buffer;
 		switch (node->data.parser->data.request_status) {
@@ -199,7 +199,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_client, &read_fd_set[TMP])) {
 		if (!buffer_can_write(node->data.client_to_server_buffer)) {
-			if(node->data.parser->data.target_status == NOT_FOUND){
+			if (node->data.parser->data.target_status == NOT_FOUND) {
 				// se lleno el buffer, nunca voy a poder recibir la informacion con el target
 				return BAD_REQUEST_ERROR;
 			}
@@ -437,8 +437,10 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 	if (getsockopt(node->data.server_sock, SOL_SOCKET, SO_ERROR, &error_code, &error_code_size) < 0 || error_code > 0) {
 
 		// en caso de error, ver si la conexion fue rechazada, cerrar el socket y probar con la siguiente
-		if (error_code == ECONNREFUSED) {
+		if (error_code == ECONNREFUSED || error_code == ETIMEDOUT) {
 			node->data.addr_info_current = node->data.addr_info_current->next;
+			// intentara con la proxima direccion
+			logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
 
 			FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
 			close(node->data.server_sock);
@@ -449,9 +451,6 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				logger(ERROR, "handle_server_connection :: setup_connection(): %s", strerror(error_code));
 				free_doh_resources(node);
 				return ans;
-			} else {
-				// intentara con la proxima direccion
-				logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
 			}
 		} else {
 			// error de getsockopt respecto al server, liberamos todos los recursos
