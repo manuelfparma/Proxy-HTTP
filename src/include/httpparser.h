@@ -36,7 +36,7 @@ typedef enum {
 	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
 	BASIC_CREDENTIAL_LENGTH = 6, 	// longitud del string "Basic " para credenciales de autorizacion
-	SPHTTP_1_0_LENGTH = 9,		 	// longitud del string " HTTP/1.0" que se utiliza en todas las request enviadas desde el proxy
+	SPHTTP_1_0_LENGTH = 11,		 	// longitud del string " HTTP/1.0\r\n" que se utiliza en todas las request enviadas desde el proxy
 	CR_LF_LENGTH = 2,			 	// longitud del string "\r\n"
 	HEADER_TYPE_HOST_LENGTH = 6, 	// longitud del string "Host: "
 } http_request_constraints;
@@ -139,6 +139,6 @@ typedef struct {
 	http_pop3_parser *pop3;		   // datos de la maquina en caso que haya un connect al protocolo POP
 } http_parser;
 
-int parse_request(http_parser *parser, buffer *read_buffer);
+int parse_request(http_parser *parser, buffer **read_buffer);
 
 #endif

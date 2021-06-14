@@ -1,10 +1,9 @@
-#ifndef NETUTILS_H
-#define NETUTILS_H
+#ifndef __NETUTILS_H__
+#define __NETUTILS_H__
 
 #include <buffer.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <netinet/in.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -37,5 +36,8 @@ int strcmp_case_insensitive(char *str1, char *str2);
 uint64_t hton64(uint64_t host_64);
 
 uint64_t ntoh64(uint64_t network_64);
+
+// Funcion que copia el maximo de bytes posibles del buffer source al buffer destino
+void copy_from_buffer_to_buffer(buffer *dest, buffer *src);
 
 #endif

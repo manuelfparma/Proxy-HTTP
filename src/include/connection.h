@@ -87,4 +87,6 @@ void close_pop3_parser(connection_node *node);
 
 void close_pop3_command_parser(connection_node *node);
 
+void close_buffer(buffer *buff);
+
 #endif

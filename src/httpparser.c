@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// FIXME: DEBERIA ESTAR EN netutils.h
+#include <proxyutils.h>
+
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 
@@ -25,14 +28,13 @@ static void tr_solve_relative_request_target(char current_char);
 static void tr_solve_port_request_target(char current_char);
 static void tr_solve_request_target(char current_char);
 static void tr_line_ended(char current_char);
-static void tr_incomplete_header(char current_char);
+static void tr_new_header(char current_char);
 static void tr_set_http_path_type(char current_char);
 static void tr_set_host_type(char current_char);
 static void tr_http_version(char current_char);
 static void tr_reset_copy_index(char current_char);
 static void tr_parse_error(char current_char);
 static void tr_adv(char current_char);
-static void tr_request_ended(char current_char);
 static void tr_headers_ended(char current_char);
 static void tr_check_method(char current_char);
 static void tr_check_asterisk_form(char current_char);
@@ -169,7 +171,7 @@ static const http_parser_state_transition ST_RELATIVE_PATH[2] = {
 
 static const http_parser_state_transition ST_HTTP_VERSION[3] = {
 	{.when = ' ', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_adv},
-	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
+	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HTTP_VERSION, .transition = tr_http_version},
 };
 
@@ -184,8 +186,7 @@ static const http_parser_state_transition ST_HEADER_TYPE[3] = {
 };
 
 static const http_parser_state_transition ST_HEADER_VALUE[2] = {
-	// FIX: SE DEBERIA ESTAR COPIANDO AL BUFFER POR QUE PUEDE SER UN \r del medio, no indicador del final
-	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_reset_copy_index},
+	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR, .transition = tr_copy_byte_to_buffer},
 	{.when = ANY,
 	 .lower_bound = EMPTY,
 	 .upper_bound = EMPTY,
@@ -195,41 +196,31 @@ static const http_parser_state_transition ST_HEADER_VALUE[2] = {
 
 static const http_parser_state_transition ST_CR[2] = {
 	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF, .transition = tr_line_ended},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_copy_byte_to_buffer},
 };
 
 static const http_parser_state_transition ST_LF[2] = {
-	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR_END, .transition = tr_adv},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_TYPE, .transition = tr_incomplete_header},
+	{.when = '\r', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_CR_END, .transition = tr_copy_byte_to_buffer},
+	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_TYPE, .transition = tr_new_header},
 };
 
 static const http_parser_state_transition ST_CR_END[2] = {
-	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_LF_END, .transition = tr_headers_ended},
+	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_headers_ended},
 	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_ERROR, .transition = tr_parse_error},
-};
-
-static const http_parser_state_transition ST_LF_END[2] = {
-	{.when = '\0', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_END, .transition = tr_request_ended},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_copy_byte_to_buffer},
-};
-
-static const http_parser_state_transition ST_BODY[2] = {
-	{.when = '\0', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_END, .transition = tr_request_ended},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_copy_byte_to_buffer},
 };
 
 //----------- ESTRUCTURAS PARA SABER LAS TRANSICIONES DE CADA NODO -----------//
 
 static const http_parser_state_transition *states[] = {
-	ST_METHOD, ST_PATH,		ST_ASTERISK_FORM, ST_RELATIVE_PATH, ST_PATH_SCHEMA,	 ST_PATH_SLASHES, ST_IPv4,
-	ST_IPv6,   ST_IPv6_END, ST_DOMAIN,		  ST_PORT,			ST_HTTP_VERSION, ST_HEADER_TYPE,  ST_HEADER_VALUE,
-	ST_CR,	   ST_LF,		ST_CR_END,		  ST_LF_END,		ST_BODY};
+	ST_METHOD, ST_PATH, ST_ASTERISK_FORM, ST_RELATIVE_PATH, ST_PATH_SCHEMA,	 ST_PATH_SLASHES, ST_IPv4, ST_IPv6,	  ST_IPv6_END,
+	ST_DOMAIN, ST_PORT, ST_HTTP_VERSION,  ST_HEADER_TYPE,	ST_HEADER_VALUE, ST_CR,			  ST_LF,   ST_CR_END,
+};
 
 static const size_t states_n[] = {
 	N(ST_METHOD),		N(ST_PATH),			N(ST_ASTERISK_FORM), N(ST_RELATIVE_PATH), N(ST_PATH_SCHEMA),
 	N(ST_PATH_SLASHES), N(ST_IPv4),			N(ST_IPv6),			 N(ST_IPv6_END),	  N(ST_DOMAIN),
 	N(ST_PORT),			N(ST_HTTP_VERSION), N(ST_HEADER_TYPE),	 N(ST_HEADER_VALUE),  N(ST_CR),
-	N(ST_LF),			N(ST_CR_END),		N(ST_LF_END),		 N(ST_BODY),
+	N(ST_LF),			N(ST_CR_END),
 };
 
 //----------- FUNCIONES AUXILIARES PARA LAS TRANSICIONES -----------//
@@ -271,7 +262,7 @@ static void copy_to_request_buffer_request_target() {
 								   strlen(current_parser->request.target.request_target.host_name));
 			break;
 		default:
-			// TODO: error
+			tr_parse_error(' ');
 			break;
 	}
 }
@@ -308,19 +299,19 @@ static void parse_start_line(char current_char) {
 
 	// Hardcodeamos la version para, en el caso ideal, recibir el delimitador null terminated indicando que el servidor termino de
 	// enviar sus recursos
-	char *http = " HTTP/1.0";
+	char *http = " HTTP/1.0\r\n";
 	copy_to_request_buffer(current_parser->data.parsed_request, http, SPHTTP_1_0_LENGTH);
-	char *cr_lf = "\r\n";
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 
 	if (current_parser->request.target.path_type == ABSOLUTE ||
 		current_parser->request.target.path_type == ABSOLUTE_WITH_RELATIVE) {
+		// Hardcodeo el header 'Host:' de acuerdo al RFC de HTTP
 		char *header_host = "Host: ";
 		copy_to_request_buffer(current_parser->data.parsed_request, header_host, HEADER_TYPE_HOST_LENGTH);
 		copy_to_request_buffer_request_target();
 		copy_char_to_request_buffer(current_parser->data.parsed_request, ':');
 		copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.target.port,
 							   strlen(current_parser->request.target.port));
+		char *cr_lf = "\r\n";
 		copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 	}
 }
@@ -385,7 +376,6 @@ static int parse_request_target() {
 
 static void parse_header_line(char current_char) {
 	char *delimiter = ": ";
-	char *cr_lf = "\r\n";
 	int strcmp_header_type = strcmp_case_insensitive("Host", current_parser->request.header.type);
 	if (strcmp_header_type == 0) {
 		if (current_parser->data.target_status == NOT_FOUND && current_parser->request.target.path_type != ABSOLUTE) {
@@ -427,7 +417,6 @@ COPY_HEADER:
 	copy_to_request_buffer(current_parser->data.parsed_request, delimiter, strlen(delimiter));
 	copy_to_request_buffer(current_parser->data.parsed_request, current_parser->request.header.value,
 						   strlen(current_parser->request.header.value));
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
 }
 
 //----------- FUNCIONES DE TRANSICION ENTRE LOS ESTADOS -----------//
@@ -448,21 +437,18 @@ static void tr_check_method(char current_char) {
 }
 
 static void tr_headers_ended(char current_char) {
-	char *cr_lf = "\r\n";
-	copy_to_request_buffer(current_parser->data.parsed_request, cr_lf, CR_LF_LENGTH);
+	tr_copy_byte_to_buffer(current_char);
 	current_parser->data.request_status = PARSE_BODY_INCOMPLETE;
 }
 
-static void tr_request_ended(char current_char) { current_parser->data.request_status = PARSE_END; }
-
-static void tr_incomplete_header(char current_char) {
+static void tr_new_header(char current_char) {
 	current_parser->data.request_status = PARSE_HEADER_LINE_INCOMPLETE;
 	tr_copy_byte_to_buffer(current_char);
 }
 
 static void tr_copy_byte_to_buffer(char current_char) {
 	size_t *idx = &current_parser->data.copy_index;
-	size_t limit;
+	size_t limit = 0;
 	char *copy_buffer;
 	switch (current_parser->data.parser_state) {
 		case PS_METHOD:
@@ -499,11 +485,26 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			limit = MAX_HEADER_VALUE_LENGTH;
 			copy_buffer = current_parser->request.header.value;
 			break;
+		case PS_CR:
+		case PS_LF:
+			// las transiciones cambian el estado pero la informacion se debe llevar a donde corresponda
+			switch (current_parser->data.request_status) {
+				case PARSE_START_LINE_INCOMPLETE:
+					return; // es de la version
+				case PARSE_HEADER_LINE_INCOMPLETE:
+					// pertenece al header value;
+					limit = MAX_HEADER_VALUE_LENGTH;
+					copy_buffer = current_parser->request.header.value;
+					break;
+				default:
+					break;
+			}
+			break;
+		case PS_CR_END:
 		case PS_BODY:
 			copy_char_to_request_buffer(current_parser->data.parsed_request, current_char);
 			return;
 		default:
-			limit = -1; // da error
 			break;
 	}
 
@@ -539,6 +540,8 @@ static void tr_solve_request_target(char current_char) {
 }
 
 static void tr_line_ended(char current_char) {
+	tr_copy_byte_to_buffer(current_char);
+	tr_reset_copy_index(current_char);
 	switch (current_parser->data.request_status) {
 		case PARSE_START_LINE_INCOMPLETE:
 			// rellenar parse_state con start line
@@ -605,14 +608,14 @@ static void tr_adv(char current_char) {}
 
 //----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
 
-int parse_request(http_parser *parser, buffer *read_buffer) {
+int parse_request(http_parser *parser, buffer **read_buffer) {
 	current_parser = parser;
 	char current_char;
 	http_parser_state current_state;
 
-	while (buffer_can_read(read_buffer) && current_parser->data.parser_state != PS_ERROR &&
-		   current_parser->data.parser_state != PS_END) {
-		current_char = buffer_read(read_buffer);
+	while (buffer_can_read(*read_buffer) && current_parser->data.request_status != PARSE_ERROR &&
+		   current_parser->data.parser_state != PS_END && current_parser->data.request_status != PARSE_BODY_INCOMPLETE) {
+		current_char = buffer_read(*read_buffer);
 		current_state = current_parser->data.parser_state;
 		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
 		for (size_t i = 0; i < states_n[current_state]; i++) {
@@ -637,6 +640,15 @@ int parse_request(http_parser *parser, buffer *read_buffer) {
 			// se encontro el destino a conectar, corto la maquina para que se empieze a realizar la conexion
 			current_parser->data.target_status = SOLVED;
 			return 0;
+		}
+	}
+
+	if (current_parser->data.request_status == PARSE_BODY_INCOMPLETE) {
+		if (current_parser->data.target_status == NOT_FOUND) tr_parse_error(' ');
+		else {
+			copy_from_buffer_to_buffer(parser->data.parsed_request, *read_buffer);
+			close_buffer(*read_buffer);
+			*read_buffer = parser->data.parsed_request;
 		}
 	}
 

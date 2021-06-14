@@ -20,7 +20,7 @@ SOURCES_DOH_SENDER = src/dohsender.c
 SOURCES_DOH_PARSER = src/dohparser.c
 SOURCES_ARGS = src/proxyargs.c
 PROXY_OBJECTS = src/proxy.o src/pcamputils.o src/pcampserver.o src/httpparser.o src/pop3commandparser.o src/pop3responseparser.o src/proxyutils.o src/logger.o src/connection.o src/buffer.o src/dohclient.o src/dohparser.o src/dohsender.o src/dohutils.o src/proxyargs.o src/netutils.o
-PCAMP_CLIENT_OBJECTS = src/pcamputils.o src/pcampclient.o src/pcampargs.o src/netutils.o src/logger.o
+PCAMP_CLIENT_OBJECTS = src/pcamputils.o src/pcampclient.o src/pcampargs.o src/netutils.o src/logger.o src/buffer.o
 
 all: proxy pcampclient
 
