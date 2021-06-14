@@ -19,7 +19,7 @@ void parse_proxy_args(const int argc, char **argv) {
 
 	// variables para getopt_long()
 	int c, long_opts_idx;
-	char *flags = "hvp:o:l:L:", has_invalid_arguments = 0;
+	char *flags = "hvNp:o:l:L:", has_invalid_arguments = 0;
 
 	// flags con formato long (precedidos por --)
 	static const struct option long_opts[] = {{.name = "doh-ip", .has_arg = required_argument, .flag = NULL, .val = DOH_IP},
