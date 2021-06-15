@@ -618,9 +618,7 @@ int handle_parse_request(connection_node *node, buffer *aux_buffer, fd_set write
 	if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
 		// seteo los argumentos necesarios para conectarse al server
 		if (node->data.parser->request.target.host_type == DOMAIN) {
-			// TODO: Obtener doh addr, hostname y port de args
 			if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
-				logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
 				return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
 			}
 		} else {
