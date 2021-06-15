@@ -3,8 +3,7 @@
 ### Trabajo Práctico Especial
 #### Instituto Tecnológico de Buenos Aires
 
-<br/>
-
+------------------------------------------------------------
 ## Autores
 
 * **Serpe, Octavio Javer** - Legajo 60076
