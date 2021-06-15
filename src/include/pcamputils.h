@@ -17,8 +17,6 @@
 #define PCAMP_IPV4 0
 #define PCAMP_IPV6 1
 
-// TODO: Comentar estructuras, enums y funciones
-
 typedef enum { PCAMP_QUERY, PCAMP_CONFIG, PCAMP_METHOD_COUNT } pcamp_method;
 typedef enum { PCAMP_REQUEST, PCAMP_RESPONSE } pcamp_op;
 
