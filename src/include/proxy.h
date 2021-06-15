@@ -40,16 +40,16 @@ void send_message(char *message, connection_node *node, fd_set *write_fd_set, un
 typedef enum {
 	// estos codigos usan valores negativos para distinguirlos de los que si devuelven las funciones involucradas
 	BAD_REQUEST_ERROR = -20,
-	RECV_ERROR_CODE, // fallo el receive por algo no relacionado al que socket sea no bloqueante
-	SEND_ERROR_CODE, // fallo el send por algo no relacionado al que socket sea no bloqueante
-	DOH_ERROR_CODE,
-	DOH_TRY_ANOTHER_REQUEST,
-	ACCEPT_CONNECTION_ERROR,
-	SETUP_CONNECTION_ERROR_CODE,
+	RECV_ERROR_CODE,			 // fallo el receive por algo no relacionado al que socket sea no bloqueante
+	SEND_ERROR_CODE,			 // fallo el send por algo no relacionado al que socket sea no bloqueante
+	DOH_ERROR_CODE,				 // fallo el DNS OVER HTTP
+	DOH_TRY_ANOTHER_REQUEST,	 // fallo la request hacia el DOH
+	ACCEPT_CONNECTION_ERROR,	 // fallo la creacion del socket para el cliente
+	SETUP_CONNECTION_ERROR_CODE, // fallo la conexion contra el servidor objetivo
 	CLOSE_CONNECTION_ERROR_CODE,
 	BROKEN_PIPE_ERROR_CODE,
-	CLIENT_CLOSE_READ_ERROR_CODE,
-	SERVER_CLOSE_READ_ERROR_CODE
+	CLIENT_CLOSE_READ_ERROR_CODE, // el cliente mando EOF
+	SERVER_CLOSE_READ_ERROR_CODE  // el servidor mando EOF
 } connection_error_code;
 
 typedef struct {

@@ -35,10 +35,10 @@ typedef enum {
 	MAX_IP_LENGTH = 45,
 	MAX_RELATIVE_PATH_LENGTH = 1024,
 	MAX_PORT_LENGTH = 5,
-	BASIC_CREDENTIAL_LENGTH = 6, 	// longitud del string "Basic " para credenciales de autorizacion
-	SPHTTP_1_0_LENGTH = 11,		 	// longitud del string " HTTP/1.0\r\n" que se utiliza en todas las request enviadas desde el proxy
-	CR_LF_LENGTH = 2,			 	// longitud del string "\r\n"
-	HEADER_TYPE_HOST_LENGTH = 6, 	// longitud del string "Host: "
+	BASIC_CREDENTIAL_LENGTH = 6, // longitud del string "Basic " para credenciales de autorizacion
+	SPHTTP_1_0_LENGTH = 11, // longitud del string " HTTP/1.0\r\n" que se utiliza en todas las request enviadas desde el proxy
+	CR_LF_LENGTH = 2,		// longitud del string "\r\n"
+	HEADER_TYPE_HOST_LENGTH = 6, // longitud del string "Host: "
 } http_request_constraints;
 
 typedef enum {
@@ -47,6 +47,7 @@ typedef enum {
 	EMPTY_VERSION = -3,
 } http_constants;
 
+// Estados de la maquina
 typedef enum {
 	PS_METHOD,
 	PS_PATH,
@@ -75,6 +76,8 @@ typedef enum { ABSOLUTE, RELATIVE, ABSOLUTE_WITH_RELATIVE, ASTERISK_FORM } http_
 
 typedef enum { IPV4, IPV6, DOMAIN } http_host_type;
 
+// Estructura que maneja la maquina para saber, desde su estado actual, cual sera el siguiente de acuerdo al caracter leido y cual
+// es la funcion a ejecutar
 typedef struct {
 	char when;
 	char upper_bound; // con limite incluido
@@ -98,7 +101,7 @@ typedef struct {
 	http_request_target request_target;
 	http_host_type host_type;
 	char port[MAX_PORT_LENGTH + 1];
-	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1]; // ojo no se guarda con primer /
+	char relative_path[MAX_RELATIVE_PATH_LENGTH + 1]; // nota: no se guarda con la / del inicio
 } http_target;
 
 typedef struct {
@@ -110,29 +113,33 @@ typedef struct {
 	char value[MAX_HEADER_VALUE_LENGTH + 1];
 } http_authorization;
 
+// Estructura que contiene la informacion parseada de la request HTTP
 typedef struct {
 	char method[MAX_METHOD_LENGTH + 1];
 	char schema[MAX_SCHEMA_LENGTH + 1]; // schema del request
 	http_target target;
 	http_version version;
-	http_header header; // header actual(por si no se completo)
+	http_header header; // ultimo header leido
 	http_authorization authorization;
 } http_request_data;
 
+// Estructura que utiliza el parser HTTP para guardar estados y poder retomar la ejecucion correctamente
 typedef struct {
 	http_parser_state parser_state; // estado actual
 	size_t copy_index;				// indice auxiliar para saber la posicion en la cual se debe copiar en el buffer objetivo
 	http_request_status_code request_status;  // codigo que indica el estado de los recursos leidos
 	http_request_target_status target_status; // estado del hostname en el parseo
-	buffer *parsed_request;		   // request parseada lista para enviar
+	buffer *parsed_request;					  // request parseada lista para enviar
 } http_request_parser_data;
 
+// Estructura con los datos para parsear una interaccion en protocolo POP3
 typedef struct {
 	pop3_command_parser command;
 	pop3_response_parser response;
 	size_t line_count;
 } http_pop3_parser;
 
+// Estructura con todos los datos de parseo necesarios
 typedef struct {
 	http_request_data request;	   // datos de la request parseada
 	http_request_parser_data data; // datos de la maquina

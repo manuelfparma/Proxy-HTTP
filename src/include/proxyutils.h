@@ -17,15 +17,19 @@ typedef enum { CHARS_BEFORE_STATUS_CODE = 9 , STATUS_CODE_LENGTH = 3} proxy_util
 
 int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]);
 
+// Funcion que genera el socket para el nuevo cliente
 int accept_connection(int passive_sock, char *buffer_address, char *buffer_port);
 
+// Funcion que realiza la escritura o lectura
 ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *log_file);
 
 int setup_connection(connection_node *node, fd_set *writeFdSet);
 
+// Funcion que atiende la escritura y lectura del nodo del cliente, en caso de ser necesario
 int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
+// Funcion que atiende la escritura y lectura del nodo del servidor, en caso de ser necesario
 int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 

@@ -74,22 +74,31 @@ typedef struct {
 	FILE *proxy_log;
 } connection_header;
 
+// Funcion que crea un nuevo nodo para una conexion
 connection_node *setup_connection_resources(int client_sock, int server_sock);
 
+// Funcion que agrega un nodo a la lista de nodos
 void add_to_connections(connection_node *node);
 
+// Funcion que libera los campos adjudicados al servidor y lo saca de los fd que atiende select
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
+// Funcion que libera el nodo y saca al cliente y al servidor de los fd que atiende el select
 void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
+// Funcion que crea el pop3 command parser
 int setup_pop3_command_parser(connection_node *node);
 
+// Funcion que crea el pop3 response parser
 int setup_pop3_response_parser(connection_node *node);
 
+// Funcion que libera el parser pop3 y modifica el estado del request a CONNECT
 void close_pop3_parser(connection_node *node);
 
+// Funcion que libera el parser pop3 command
 void close_pop3_command_parser(connection_node *node);
 
+// Funcion que libera el buffer pasado por parametro
 void close_buffer(buffer *buff);
 
 #endif
