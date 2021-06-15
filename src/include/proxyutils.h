@@ -1,40 +1,38 @@
-//  DEPRECATED
-#ifndef _PROXY_UTILS_H_
-#define _PROXY_UTILS_H_
+#ifndef __PROXY_UTILS_H__
+#define __PROXY_UTILS_H__
 
-#define MAX_PENDING 10
-#define MAX_CLIENTS 510
-#define BUFFER_SIZE 1024
-#define MAX_ADDR_BUFFER 128
-// Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select
-#define BASE 0
-#define TMP 1
-#define FD_SET_ARRAY_SIZE 2
-
-#include "connection.h"
+#include <connection.h>
+#include <proxy.h>
 #include <stddef.h>
+#include <stdio.h>
 
-typedef struct {
-	char *host;
-	char *service;
-	pthread_t *main_thread_id;
-	ConnectionNode *connection;
-} ThreadArgs;
+typedef enum {
+	ACCESS,
+	PASSWORD,
+} register_type;
 
-int setupPassiveSocket(const char *service);
+typedef enum { WRITE, READ } operation;
 
-void *resolve_addr(void *args);
+typedef enum { CHARS_BEFORE_STATUS_CODE = 9 , STATUS_CODE_LENGTH = 3} proxy_utils_constraints;
 
-int acceptConnection(int passiveSock);
+int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]);
 
-typedef enum { WRITE, READ } OPERATION;
-typedef enum { CLIENT, SERVER } PEER;
+// Funcion que genera el socket para el nuevo cliente
+int accept_connection(int passive_sock, char *buffer_address, char *buffer_port);
 
-int handleConnection(ConnectionNode *node, ConnectionNode *prev, fd_set readFdSet[FD_SET_ARRAY_SIZE],
-					 fd_set writeFdSet[FD_SET_ARRAY_SIZE], PEER peer);
+// Funcion que realiza la escritura o lectura
+ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer);
 
-size_t handleOperation(int fd, buffer *buffer, OPERATION operation);
+int setup_connection(connection_node *node, fd_set *writeFdSet);
 
-int setup_connection(ConnectionNode *node, fd_set *writeFdSet);
+// Funcion que atiende la escritura y lectura del nodo del cliente, en caso de ser necesario
+int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que atiende la escritura y lectura del nodo del servidor, en caso de ser necesario
+int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
+							 fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+int try_next_addr(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) ;
 
 #endif

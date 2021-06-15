@@ -1,3 +1,6 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
 /**
  * buffer.c - buffer con acceso directo (útil para I/O) que mantiene
  *            mantiene puntero de lectura y de escritura.
@@ -6,7 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "include/buffer.h"
+#include <buffer.h>
 
 inline void buffer_reset(buffer *b) {
 	b->read = b->data;

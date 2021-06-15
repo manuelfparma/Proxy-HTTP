@@ -1,12 +1,14 @@
-#include "include/logger.h"
-#include "include/proxyutils.h"
+// This is a personal academic project. Dear PVS-Studio, please check it.
 
-char *getLevelDescription(LEVEL level) {
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
+#include "include/logger.h"
+
+char *get_level_description(level level) {
 	char *description[] = {"[DEBUG]", "[INFO]", "[ERROR]", "[FATAL]"};
 	return description[level];
 }
 
-char *getPeerDescription(PEER peer) {
+char *get_peer_description(peer peer) {
 	char *description[] = {"[CLIENT]", "[SERVER]"};
 	return description[peer];
 }

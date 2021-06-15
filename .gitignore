@@ -1,16 +1,28 @@
 # Executable
 httpd
+httpdctl
 
 # VSCode
-.vscode/*
+.vscode
 *.json
 
-
 # JetBrains
-.idea/*
+.idea
 
 # GDB Config
 .gdbinit
 
 # Other
 *.dSYM
+
+.DS_Store
+
+# Objects files
+src/*.o
+
+# Output files
+log_connection_*
+proxy_log
+PVS-Studio.log
+report.tasks
+strace_out
