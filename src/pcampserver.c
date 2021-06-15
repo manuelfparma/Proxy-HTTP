@@ -199,8 +199,6 @@ static int resolve_pcamp_config() {
 
 	if (config_type >= PCAMP_CONFIG_TYPE_COUNT) return PCAMP_UNSUPPORTED_CONFIG_TYPE;
 
-	// TODO: estos cambios (CUIDADO: Las funciones deberian retornar un estado PCAMP_SUCCESS o de error)
-	// TODO: Validar los config values que llegan
 	uint16_t aux;
 	switch (config_type) {
 		case BUFFER_SIZE_CONFIG:
