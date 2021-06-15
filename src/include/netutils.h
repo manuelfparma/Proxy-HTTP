@@ -13,7 +13,6 @@
 #define SIZE_32 4
 #define SIZE_64 8
 
-// TODO: Meter esto en addr_info_node en connection.h
 typedef union {
 	struct sockaddr_storage storage;
 	struct sockaddr addr;

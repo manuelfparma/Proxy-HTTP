@@ -140,7 +140,6 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 			return -1;
 		} else if (read == 0) {
 			// Caso: no hay response DoH, suponemos que no va a venir
-			// TODO: implementar un timeout???
 			return 1;
 		}
 
@@ -167,7 +166,6 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 					result = parse_dns_message(node);
 					if (result == DOH_PARSE_COMPLETE) node->data.doh->state = DNS_READY;
 					break;
-					// TODO: Atajar parsing complete
 				case DNS_READY:
 					break;
 				default:
@@ -178,10 +176,10 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 			//	Necesito esperar al resto de la DoH response
 			if (result == DOH_PARSE_INCOMPLETE) break;
 			else if (result == DOH_PARSE_ERROR) {
-				return -1; // TODO manejo de error
+				return -1;
 			}
 
-			if (node->data.doh->state == DNS_READY) // TODO otro estado?
+			if (node->data.doh->state == DNS_READY)
 				return 1;
 		}
 	}

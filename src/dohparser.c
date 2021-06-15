@@ -22,8 +22,6 @@ extern dns_header dns_header_template;
 // Función que dado un FD de un socket lee de este, esperando una respuesta
 // de DoH, y vuelca el mensaje DNS en una esctructura dns_answer.
 int read_doh_response(connection_node *node) {
-	// TODO: Pasar a select con socket no bloqueante
-	// TODO: Manejar estados para recibir de a chunks
 	buffer *buff = node->data.doh->doh_buffer;
 
 	if (!buffer_can_write(buff)) {
@@ -172,7 +170,6 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 
 	// Obtenemos el id y validamos
 	header_info.id = ntohs(*(uint16_t *)message->read);
-//	read_big_endian_16(&header_info.id, message->read, 1);
 
 	if (header_info.id != dns_header_template.id) {
 		// No es nuestra current_request
@@ -210,10 +207,8 @@ static int parse_dns_header(connection_node *node, uint16_t *qdcount, uint16_t *
 	consume_buffer_bytes(node, SIZE_8);
 
 	*qdcount = ntohs(*(uint16_t *)message->read);
-//	read_big_endian_16(qdcount, message->read, 1);
 	consume_buffer_bytes(node, SIZE_16);
 	*ancount = ntohs(*(uint16_t *)message->read);
-//	read_big_endian_16(ancount, message->read, 1);
 
 	return 0;
 }
@@ -249,12 +244,10 @@ static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 		// Aca ya pasamos el name
 		// Vemos si coincide el type con el solicitado en la query
 		uint16_t type = ntohs(*(uint16_t *)message->read);
-//		read_big_endian_16(&type, message->read, 1);
 
 		// Vemos lo mismo con class
 		consume_buffer_bytes(node, SIZE_16);
 		uint16_t class = ntohs(*(uint16_t *)message->read);
-//		read_big_endian_16(&class, message->read, 1);
 
 		if (class != IN_CLASS) {
 			logger(ERROR, "parse_dns_message(): expected class %d record, got class = %d", IN_CLASS, class);
@@ -266,7 +259,6 @@ static int parse_dns_answers(connection_node *node, uint16_t ancount) {
 		consume_buffer_bytes(node, 3 * SIZE_16);
 
 		uint16_t rdlength = ntohs(*(uint16_t *)message->read);
-//		read_big_endian_16(&rdlength, message->read, 1);
 
 		consume_buffer_bytes(node, SIZE_16);
 

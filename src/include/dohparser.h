@@ -4,7 +4,8 @@
 
 #include <connection.h>
 
-// TODO: Comentar funciones
+// Estas funciones se encargan de las distintas etapas del parseo de una respuesta DoH
+
 int read_doh_response(connection_node *node);
 
 int parse_doh_status_code(connection_node *node);

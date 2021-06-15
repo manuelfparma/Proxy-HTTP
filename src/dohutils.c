@@ -35,7 +35,6 @@ EXIT:
 	return -1;
 }
 
-// TODO: Mandar a otro .c mas generico
 int add_ip_address(connection_node *node, int addr_family, void *addr) {
 
 	addr_info_node *new = malloc(sizeof(addr_info_node));

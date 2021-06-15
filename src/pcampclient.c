@@ -8,19 +8,6 @@
 #include <string.h>
 #include <ctype.h>
 
-// TODO: 0-	 printear menu de ayuda
-// DONE: 1- 	 recibo la IP del proxy por STDIN
-// DONE: 2- 	 armar socket
-// DONE: 3- 	 pedis por STDIN si quiere configurar o consultar registros de acceso (multiple choice)
-// DONE: 4- 	 pedis por STDIN que cosa quiere consultar / configurar
-// DONE: 5- 	 pedis parametro de config
-// DONE: 6- 	 armas paquete en binario y lo envias
-// DONE: 7- 	 loader (print de '.' cada segundo)
-// TODO: 8.1-  si no recibis respuesta en 3 seg -> retransmitis
-// TODO: 8.2 - a los 10 seg timeout
-// TODO: 9 -	 recibis la respuesta, la parseas, y la mostras
-// TODO: 10 -  repetir 3
-
 extern ssize_t config_value_length[PCAMP_CONFIG_TYPE_COUNT];
 extern ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT];
 
@@ -275,7 +262,6 @@ static bool parse_buffer_size(char *value) {
 
 	current_request.config.config_value = malloc(config_value_length[BUFFER_SIZE_CONFIG]);
 	*(uint16_t *)(current_request.config.config_value) = htons(aux);
-//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -291,7 +277,6 @@ static bool parse_max_clients(char *value) {
 
 	current_request.config.config_value = malloc(config_value_length[MAX_CLIENTS_CONFIG]);
 	*(uint16_t *)(current_request.config.config_value) = htons(aux);
-//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -337,7 +322,6 @@ static bool parse_doh_port(char *value) {
 
 	current_request.config.config_value = malloc(config_value_length[DOH_PORT_CONFIG]);
 	*(uint16_t *)current_request.config.config_value = htons(aux);
-//	write_big_endian_16(current_request.config.config_value, &aux, 1);
 
 	return true;
 }
@@ -361,7 +345,6 @@ static ssize_t prepare_query_request(query_type type) {
 
 	current_request.id = current_id;
 	*(uint16_t *)(io_buffer + i) = htons(current_id);
-//	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
 
@@ -383,7 +366,6 @@ static ssize_t prepare_config_request(config_type type, char *value) {
 
 	current_request.id = current_id;
 	*(uint16_t *)(io_buffer + i) = htons(current_id);
-//	write_big_endian_16(io_buffer + i, &current_id, 1);
 	i += 2;
 	current_id++;
 
@@ -421,7 +403,6 @@ static bool parse_pcamp_response(uint8_t *response, ssize_t recv_bytes) {
 
 	response_idx += SIZE_8;
 	uint16_t id = ntohs(*(uint16_t *)(response + response_idx));
-//	read_big_endian_16(&id, response + response_idx, 1);
 	if (id != current_request.id) return false;
 
 	response_idx += SIZE_16;
@@ -483,7 +464,6 @@ static void print_query_response() {
 		case BYTES_TO_CLIENT_QUERY:
 		case BYTES_VIA_CONNECT_QUERY:
 			value = ntoh64(*(uint64_t *)current_response.query.response);
-//			read_big_endian_64(&value, current_response.query.response, 1);
 			printf("%s: %" PRId64 "\n", query_type_strings[current_response.query.query_type], value);
 		default:
 			// No debería pasar nunca
