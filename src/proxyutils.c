@@ -569,7 +569,7 @@ static void print_register(register_type register_wanted, connection_node *node,
 	ssize_t actual_length = 0;
 	time_t timer = time(NULL);
 	struct tm local_time = *localtime(&timer);
-	char output[MAX_OUTPUT_REGISTER_LENGTH] = {0};
+	char output[MAX_OUTPUT_REGISTER_LENGTH + MAX_HEADER_VALUE_LENGTH] = {0};
 	// only for PASSWORD register
 	char aux_buffer_schema[MAX_SCHEMA_LENGTH] = {0};
 	char *schema = node->data.parser->request.schema;
