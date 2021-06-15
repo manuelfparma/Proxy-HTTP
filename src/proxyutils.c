@@ -25,7 +25,8 @@ extern connection_header connections;
 extern proxy_arguments args;
 extern proxy_settings settings;
 
-// Funcion que parsea el request target guardado como string en nodo para almacenarlo en la estructura apropiada para realizar la conexion
+// Funcion que parsea el request target guardado como string en nodo para almacenarlo en la estructura apropiada para realizar la
+// conexion
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
 
 // Funcion que verifica si se concreto la conexion, o si esta en progreso o si fallo maneja el error
@@ -296,7 +297,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			node->data.timestamp = time(NULL);
 
 			increase_connect_method_bytes(node, result_bytes);
-			if (node->data.connection_state < CLIENT_READ_CLOSE && read_fd_set != NULL && fd_server != -1) FD_SET(fd_server, &read_fd_set[BASE]);
+			if (node->data.connection_state < CLIENT_READ_CLOSE && read_fd_set != NULL && fd_server != -1)
+				FD_SET(fd_server, &read_fd_set[BASE]);
 			connections.statistics.total_proxy_to_clients_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
 			if (!buffer_can_read(aux_buffer)) { FD_CLR(fd_client, &write_fd_set[BASE]); }
@@ -476,7 +478,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 		node->data.connection_state = CONNECTED;
 		free_doh_resources(node);
 		// en caso que el server mande un primer mensaje, quiero leerlo
-		if(read_fd_set != NULL) FD_SET(node->data.server_sock, &read_fd_set[BASE]);
+		if (read_fd_set != NULL) FD_SET(node->data.server_sock, &read_fd_set[BASE]);
 		switch (node->data.parser->data.request_status) {
 			case PARSE_CONNECT_METHOD_POP3:
 				setup_pop3_response_parser(node);

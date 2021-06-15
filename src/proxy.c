@@ -66,7 +66,7 @@ int main(const int argc, char **argv) {
 
 		timeout.tv_sec = PROXY_TIMEOUT;
 		select(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, &timeout);
-		
+
 		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
 			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read,
 										 connections.stdout_buffer->write - connections.stdout_buffer->read);
@@ -239,8 +239,7 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 
 				if (node->data.connection_state == SERVER_READ_CLOSE && !buffer_can_read(node->data.server_to_client_buffer)) {
 					// Ya se cerro el servidor y no hay informacion pendiente para el cliente
-					if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, read_fd_set, write_fd_set, SERVER) <
-						0)
+					if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, read_fd_set, write_fd_set, SERVER) < 0)
 						// para que no intente seguir atendiendo a un nodo borrado
 						break;
 				}
