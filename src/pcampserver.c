@@ -17,14 +17,17 @@ extern ssize_t query_answer_length[PCAMP_QUERY_TYPE_COUNT];
 static int parse_pcamp_request(uint8_t *request);
 static bool is_passphrase_correct(uint8_t *hashed_request_pass);
 static int resolve_pcamp_query(uint8_t *query_answer);
-static ssize_t prepare_pcamp_query_response(uint8_t *query_answer, uint8_t *body);
+static ssize_t prepare_pcamp_query_response(uint8_t *query_answer);
 static int resolve_pcamp_config();
-static void parse_pcamp_config(uint8_t *request_buffer);
-static void copy_response_header(uint8_t *response_buffer);
+static void parse_pcamp_config();
+static void copy_response_header();
 static bool doh_addr_config();
 static void doh_port_config();
 
 static pcamp_request_info current_request = {0};
+
+static uint8_t request_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
+static uint8_t response_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 
 static const char *passphrase = "12341234";
 
@@ -78,8 +81,6 @@ void handle_pcamp_request(int fd) {
 
 	memset(&current_request, 0, sizeof(current_request));
 
-	uint8_t request_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
-	uint8_t response_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 	struct sockaddr src_addr;
 	socklen_t src_addr_len;
 
@@ -90,7 +91,7 @@ void handle_pcamp_request(int fd) {
 
 	uint8_t status_code = parse_pcamp_request(request_buffer);
 
-	copy_response_header(response_buffer);
+	copy_response_header();
 
 	// considerando el header y el status code
 	ssize_t response_len = PCAMP_HEADER_LENGTH + 1;
@@ -103,10 +104,10 @@ void handle_pcamp_request(int fd) {
 				status_code = resolve_pcamp_query(query_answer);
 				if (status_code != PCAMP_SUCCESS) break;
 
-				response_len += prepare_pcamp_query_response(query_answer, response_buffer + response_len);
+				response_len += prepare_pcamp_query_response(query_answer);
 				break;
 			case PCAMP_CONFIG:
-				parse_pcamp_config(request_buffer);
+				parse_pcamp_config();
 				status_code = resolve_pcamp_config();
 				break;
 			default:
@@ -177,7 +178,8 @@ static int resolve_pcamp_query(uint8_t *query_answer) {
 	return PCAMP_SUCCESS;
 }
 
-static ssize_t prepare_pcamp_query_response(uint8_t *query_answer, uint8_t *body) {
+static ssize_t prepare_pcamp_query_response(uint8_t *query_answer) {
+	uint8_t *body = response_buffer + PCAMP_HEADER_LENGTH + 1;
 	ssize_t body_len = 0;
 	body[body_len] = current_request.query.query_type;
 	body_len += SIZE_8;
@@ -189,7 +191,7 @@ static ssize_t prepare_pcamp_query_response(uint8_t *query_answer, uint8_t *body
 	return body_len;
 }
 
-static void parse_pcamp_config(uint8_t *request_buffer) {
+static void parse_pcamp_config() {
 	size_t request_index = PCAMP_HEADER_LENGTH + SHA256_DIGEST_LENGTH;
 
 	uint8_t config_type = request_buffer[request_index];
@@ -246,7 +248,7 @@ static int resolve_pcamp_config() {
 }
 
 static bool doh_addr_config() {
-	uint16_t port;
+	uint16_t port = 0;
 
 	switch (settings.doh_addr_info.addr.sa_family) {
 		case AF_INET:
@@ -293,7 +295,7 @@ static bool is_passphrase_correct(uint8_t *hashed_request_pass) {
 	return strncmp((char *)hashed_server_pass, (char *)hashed_request_pass, SHA256_DIGEST_LENGTH) == 0;
 }
 
-static void copy_response_header(uint8_t *response_buffer) {
+static void copy_response_header() {
 	response_buffer[0] = SERVER_PCAMP_VERSION;
 
 	uint8_t flags = (current_request.method << 1) + PCAMP_RESPONSE;

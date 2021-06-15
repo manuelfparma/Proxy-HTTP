@@ -87,7 +87,7 @@ int main(const int argc, char **argv) {
 
 		if (server_sock < 0) logger(FATAL, "%s", strerror(errno));
 
-		socklen_t len;
+		socklen_t len = 0;
 		switch (current_addr.addr.sa_family) {
 			case AF_INET:
 				len = sizeof(current_addr.in4);

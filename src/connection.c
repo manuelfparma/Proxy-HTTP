@@ -311,6 +311,10 @@ int setup_pop3_command_parser(connection_node *node) {
 }
 
 void close_buffer(buffer *buff) {
-	free(buff->data);
-	free(buff);
+	if(buff != NULL) {
+		if(buff->data != NULL) {
+			free(buff->data);
+		}
+		free(buff);
+	}
 }

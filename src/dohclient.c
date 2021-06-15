@@ -129,7 +129,7 @@ bool is_connected_to_doh(connection_node *node) {
 
 int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 	int doh_sock = node->data.doh->sock;
-	doh_parser_status_code result;
+	doh_parser_status_code result = DOH_PARSE_ERROR;
 
 	if (FD_ISSET(doh_sock, &read_fd_set[TMP])) {
 

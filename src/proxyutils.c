@@ -180,7 +180,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node, write_fd_set);
 			increase_connect_method_bytes(node, result_bytes);
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
-			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_client, &read_fd_set[BASE]);
+			if (node->data.connection_state < CLIENT_READ_CLOSE && read_fd_set != NULL) FD_SET(fd_client, &read_fd_set[BASE]);
 
 			connections.statistics.total_proxy_to_origins_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
@@ -279,7 +279,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			node->data.timestamp = time(NULL);
 
 			increase_connect_method_bytes(node, result_bytes);
-			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
+			if (node->data.connection_state < CLIENT_READ_CLOSE && read_fd_set != NULL && fd_server != -1) FD_SET(fd_server, &read_fd_set[BASE]);
 			connections.statistics.total_proxy_to_clients_bytes += result_bytes;
 			// si el buffer de salida se vacio, no nos interesa intentar escribir
 			if (!buffer_can_read(aux_buffer)) { FD_CLR(fd_client, &write_fd_set[BASE]); }
@@ -314,7 +314,7 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 	struct addr_info_node aux_addr_info = *node->data.addr_info_current;
 
 	// fixme addrinfo length
-	socklen_t length;
+	socklen_t length = 0;
 	switch (aux_addr_info.addr.sa_family) {
 		case AF_INET:
 			length = sizeof(aux_addr_info.in4);
@@ -460,7 +460,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 		node->data.connection_state = CONNECTED;
 		free_doh_resources(node);
 		// en caso que el server mande un primer mensaje, quiero leerlo
-		FD_SET(node->data.server_sock, &read_fd_set[BASE]);
+		if(read_fd_set != NULL) FD_SET(node->data.server_sock, &read_fd_set[BASE]);
 		switch (node->data.parser->data.request_status) {
 			case PARSE_CONNECT_METHOD_POP3:
 				setup_pop3_response_parser(node);

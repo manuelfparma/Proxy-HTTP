@@ -96,9 +96,8 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			}
 			break;
 		default:
-			// TODO manejo de error
-			limit = -1;
-			break;
+			tr_parse_error(current_char);
+			return;
 	}
 
 	if (*idx < limit) {

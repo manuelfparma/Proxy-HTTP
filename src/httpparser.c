@@ -398,6 +398,7 @@ static void parse_header_line(char current_char) {
 				unsigned char *base64_decoded =
 					unbase64(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH, length, &base64_decoded_length);
 				if (base64_decoded == NULL || base64_decoded_length == -1) {
+					free(base64_decoded);
 					logger(ERROR, "Base64 decoder failed");
 					goto COPY_HEADER;
 				}

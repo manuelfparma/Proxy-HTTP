@@ -59,6 +59,7 @@ int add_ip_address(connection_node *node, int addr_family, void *addr) {
 			new->in6.sin6_port = htons(parsed_port);
 			break;
 		default:
+			free(new);
 			return -1;
 	}
 
