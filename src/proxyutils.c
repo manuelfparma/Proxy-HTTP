@@ -25,13 +25,28 @@ extern connection_header connections;
 extern proxy_arguments args;
 extern proxy_settings settings;
 
+// Funcion que parsea el request target guardado como string en nodo para almacenarlo en la estructura apropiada para realizar la conexion
 static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que verifica si se concreto la conexion, o si esta en progreso o si fallo maneja el error
 static int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE], fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que resuelve la respuesta del llamado al parser de la response pop3
 static void handle_pop3_response(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
+// Funcion que pasa la direccion a string
 static int copy_address_info(struct sockaddr *address, char *buffer_address, char *buffer_port);
+
+// Funcion que imprime los registros
 static void print_register(register_type register_wanted, connection_node *node, fd_set *write_fd_set);
+
+// Funcion que copia el host objetivo en el string buffer
 static int copy_host(char *buffer, http_target target);
+
+// Funcion que envia a STDOUT el status code de la nueva conexion
 static void print_status_code(connection_node *node, fd_set *write_fd_set);
+
+// Funcion que incrementa los bytes del metodo connect en las estadisticas
 static void increase_connect_method_bytes(connection_node *node, ssize_t result_bytes);
 
 /*
@@ -226,7 +241,6 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 							parse_pop3_command(&node->data.parser->pop3->command, node->data.client_to_server_buffer);
 						break;
 					}
-					node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 					close_pop3_parser(node);
 				case PARSE_BODY_INCOMPLETE:
 				case PARSE_CONNECT_METHOD:
@@ -337,7 +351,6 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 
 	logger(DEBUG, "Connecting to server from client with fd: %d", node->data.client_sock);
 	node->data.connection_state = CONNECTING;
-	// TODO: lista de estadisticas
 	// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
 	// agrego como escritura el fd activo
 	FD_SET(node->data.server_sock, &write_fd_set[BASE]);
@@ -526,7 +539,6 @@ static void handle_pop3_response(connection_node *node, fd_set write_fd_set[FD_S
 			// copio las respuestas al buffer original
 			copy_from_buffer_to_buffer(node->data.server_to_client_buffer, node->data.parser->pop3->response.response_buffer);
 			close_pop3_parser(node);
-			node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 		} else {
 			// dio acceso no autorizado, reseteo la busqueda de credentials
 			node->data.parser->pop3->command.credentials_state = POP3_C_NOT_FOUND;
@@ -630,7 +642,6 @@ static int copy_host(char *buffer, http_target target) {
 			sprintf(buffer, "    %s", target.request_target.host_name);
 			break;
 		default:
-			// TODO: unkown host type
 			return -1;
 			break;
 	}

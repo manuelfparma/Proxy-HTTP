@@ -1,8 +1,8 @@
 // This is a personal academic project. Dear PVS-Studio, please check it.
 
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
-#include <pop3responseparser.h>
 #include <logger.h>
+#include <pop3responseparser.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -10,10 +10,18 @@ pop3_response_parser *current_pop3_response_parser;
 buffer *current_pop3_response_read_buffer, *current_pop3_response_write_buffer;
 size_t lines_read;
 
-// Transiciones entre nodos
+//----------- PROTOTIPOS DE LAS FUNCIONES DE TRANSICION -----------//
+
+// Funcion que setea si el estado fue positivo o negativo en los datos del parser
 static void tr_set_status(char current_char);
+
+// Funcion que solo consume el caracter
 static void tr_adv(char current_char);
+
+// Funcion que indica la finalizacion de una linea, incrementara el contador de lineas leidas
 static void tr_line_ended(char current_char);
+
+// Funcion que maneja los errores
 static void tr_parse_error(char current_char);
 
 //----------- ESTRUCTURAS QUE REPRESENTAN LOS NODOS DEL GRAFO -----------//
@@ -54,33 +62,28 @@ static const size_t states_n[] = {
 	N(ST_STATUS), N(ST_POSITIVE), N(ST_NEGATIVE), N(ST_POSITIVE_CR), N(ST_NEGATIVE_CR),
 };
 
-//----------- FUNCIONES AUXILIARES PARA LAS TRANSICIONES -----------//
+//----------- FUNCIONES DE TRANSICION ENTRE LOS ESTADOS -----------//
 
 static void tr_set_status(char current_char) {
 	switch (current_char) {
 		case '+':
-            current_pop3_response_parser->data.status = POP3_R_POSITIVE_STATUS;
+			current_pop3_response_parser->data.status = POP3_R_POSITIVE_STATUS;
 			break;
 		case '-':
-            current_pop3_response_parser->data.status = POP3_R_NEGATIVE_STATUS;
+			current_pop3_response_parser->data.status = POP3_R_NEGATIVE_STATUS;
 			break;
 		default:
 			break;
 	}
 }
 
-static void tr_line_ended(char current_char) { 
-	lines_read++;
-}
+static void tr_line_ended(char current_char) { lines_read++; }
 
 static void tr_adv(char current_char) {}
 
-static void tr_parse_error(char current_char) {
-	current_pop3_response_parser->parser_state = POP3_R_PS_ERROR;
-	// TODO: MEJORAR
-}
+static void tr_parse_error(char current_char) { current_pop3_response_parser->parser_state = POP3_R_PS_ERROR; }
 
-//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
+//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA DE ESTADOS -----------//
 
 int parse_pop3_response(pop3_response_parser *parser, buffer *read_buffer) {
 	current_pop3_response_parser = parser;
@@ -88,10 +91,10 @@ int parse_pop3_response(pop3_response_parser *parser, buffer *read_buffer) {
 	char current_char;
 	pop3_response_parser_state current_state;
 	lines_read = 0;
-	
+
 	while (buffer_can_read(read_buffer) && current_pop3_response_parser->parser_state != POP3_R_PS_ERROR) {
 		current_char = buffer_read(read_buffer);
-		buffer_write(current_pop3_response_parser->response_buffer, current_char); // todo lo que leo lo escribo en la salida
+		buffer_write(current_pop3_response_parser->response_buffer, current_char);
 		current_state = current_pop3_response_parser->parser_state;
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (current_char == states[current_state][i].when || states[current_state][i].when == (char)POP3_R_ANY) {

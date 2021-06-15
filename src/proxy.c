@@ -219,7 +219,6 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 						handle = try_next_addr(node, write_fd_set);
 						if (handle == 0) break;
 					}
-					// TODO: mejorar el manejo de esta desconexion
 					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, read_fd_set, write_fd_set, CLIENT);
 					break;
 				}

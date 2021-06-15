@@ -11,38 +11,74 @@
 #include <stdlib.h>
 #include <string.h>
 
-// FIXME: DEBERIA ESTAR EN netutils.h
-#include <proxyutils.h>
-
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 #define IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 
 extern proxy_arguments args;
 extern proxy_settings settings;
+http_parser *current_parser;
 
+//----------- PROTOTIPOS DE FUNCIONES AUXILIARES -----------//
+
+// Funcion que copia un string de longitud maxima de bytes a un buffer
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
+
+// Funcion que copia en el buffer de salida la startline con path relativo y el header 'Host:' en caso de haberse identificado el origin server
 static void parse_start_line(char current_char);
+
+// Funcion parsea un header completo buscando informacion relevante(campo 'Host:' o 'Authorization:') y lo copia en el buffer de salida
 static void parse_header_line(char current_char);
+
+// Funcion que chequea si hay un puerto, caso contrario setea un default dependiendo del schema indicado
 static void check_port();
 
-// Transiciones entre nodos
+//----------- PROTOTIPOS DE LAS FUNCIONES DE TRANSICION -----------//
+
+// Funcion que copia en un buffer, determinado por el estado actual, el caracter
 static void tr_copy_byte_to_buffer(char current_char);
+
+// Funcion que establece que el request target es relativo
 static void tr_solve_relative_request_target(char current_char);
+
+// Funcion que verifica si se esta conectando a un puerto 110 con el metodo CONNECT
 static void tr_solve_port_request_target(char current_char);
+
+// Funcion que indica que se resolvio a quien se quiere conectar
 static void tr_solve_request_target(char current_char);
+
+// Funcion que se ejecuta cuando se finalizo una linea
 static void tr_line_ended(char current_char);
+
+// Funcion que se ejecuta cuando se lee un nuevo header
 static void tr_new_header(char current_char);
+
+// Funcion que guarda el tipo del request target de la first line
 static void tr_set_http_path_type(char current_char);
+
+// Funcion que guarda el tipo del host
 static void tr_set_host_type(char current_char);
+
+// Funcion que guarda la version HTTP del request
 static void tr_http_version(char current_char);
+
+// Funcion que resetea el indice auxiliar del parser
 static void tr_reset_copy_index(char current_char);
-static void tr_parse_error(char current_char);
+
+// Funcion que solo consume el caracter
 static void tr_adv(char current_char);
+
+// Funcion que se ejecuta al finalizar los headers, realiza el pasaje a la lectura del body
 static void tr_headers_ended(char current_char);
+
+// Funcion que chequea si el metodo fue CONNECT y en cuyo caso cambia la ejecucion de la maquina
 static void tr_check_method(char current_char);
+
+// Funcion que chequea que el metodo sea OPTIONS
 static void tr_check_asterisk_form(char current_char);
 
-http_parser *current_parser;
+// Funcion que maneja los errores
+static void tr_parse_error(char current_char);
+
 
 //----------- ESTRUCTURAS QUE REPRESENTAN LOS NODOS DEL GRAFO -----------//
 
@@ -209,7 +245,11 @@ static const http_parser_state_transition ST_LF[2] = {
 
 static const http_parser_state_transition ST_CR_END[2] = {
 	{.when = '\n', .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_BODY, .transition = tr_headers_ended},
-	{.when = ANY, .lower_bound = EMPTY, .upper_bound = EMPTY, .destination = PS_HEADER_VALUE, .transition = tr_copy_byte_to_buffer},
+	{.when = ANY,
+	 .lower_bound = EMPTY,
+	 .upper_bound = EMPTY,
+	 .destination = PS_HEADER_VALUE,
+	 .transition = tr_copy_byte_to_buffer},
 };
 
 //----------- ESTRUCTURAS PARA SABER LAS TRANSICIONES DE CADA NODO -----------//
@@ -520,7 +560,7 @@ static void tr_copy_byte_to_buffer(char current_char) {
 			(*idx)++;
 		}
 	} else {
-		tr_parse_error(current_char); // TODO: MEJORAR
+		tr_parse_error(current_char);
 	}
 }
 
@@ -548,7 +588,6 @@ static void tr_line_ended(char current_char) {
 	tr_reset_copy_index(current_char);
 	switch (current_parser->data.request_status) {
 		case PARSE_START_LINE_INCOMPLETE:
-			// rellenar parse_state con start line
 			parse_start_line(current_char);
 			current_parser->data.request_status = PARSE_START_LINE_COMPLETE;
 			break;
@@ -557,7 +596,7 @@ static void tr_line_ended(char current_char) {
 			current_parser->data.request_status = PARSE_HEADER_LINE_COMPLETE;
 			break;
 		default:
-			logger(ERROR, "State error"); // TODO: mejorar
+			tr_parse_error(current_char);
 	}
 }
 
@@ -590,13 +629,10 @@ static void tr_set_host_type(char current_char) {
 
 static void tr_http_version(char current_char) {
 	if ('9' >= current_char && current_char >= '0') {
-		// TODO chequear inicializacion en NULL
 		if (current_parser->request.version.major == EMPTY_VERSION) {
 			current_parser->request.version.major = current_char;
 		} else if (current_parser->request.version.minor == EMPTY_VERSION) {
 			current_parser->request.version.minor = current_char;
-		} else {
-			// version no soportada
 		}
 	}
 }
@@ -610,7 +646,7 @@ static void tr_parse_error(char current_char) { current_parser->data.request_sta
 
 static void tr_adv(char current_char) {}
 
-//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
+//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA DE ESTADOS -----------//
 
 int parse_request(http_parser *parser, buffer **read_buffer) {
 	current_parser = parser;
@@ -648,8 +684,12 @@ int parse_request(http_parser *parser, buffer **read_buffer) {
 	}
 
 	if (current_parser->data.request_status == PARSE_BODY_INCOMPLETE) {
-		if (current_parser->data.target_status == NOT_FOUND) tr_parse_error(' ');
+		if (current_parser->data.target_status == NOT_FOUND)
+			// se terminaron los headers y no se reconocio la uri objetivo
+			tr_parse_error(' ');
 		else {
+			// se pasa a leer el body, como no se parsea esta informacion no se ejecutara denuevo esta maquina, por lo que guardamos
+			// toda la informacion ya parseada en el buffer de salida del cliente, en conjunto con la que no se parseo
 			copy_from_buffer_to_buffer(parser->data.parsed_request, *read_buffer);
 			close_buffer(*read_buffer);
 			*read_buffer = parser->data.parsed_request;

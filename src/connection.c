@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <time.h>
+#include <unistd.h>
 
 extern connection_header connections;
 extern proxy_settings settings;
@@ -144,7 +144,7 @@ ERROR:
 }
 
 void add_to_connections(connection_node *node) {
-	if(connections.last == NULL) {
+	if (connections.last == NULL) {
 		// Caso lista vacia
 		connections.first = node;
 		connections.last = node;
@@ -203,6 +203,7 @@ void close_pop3_parser(connection_node *node) {
 	close_pop3_command_parser(node);
 	close_pop3_response_parser(node);
 	free(node->data.parser->pop3);
+	node->data.parser->data.request_status = PARSE_CONNECT_METHOD; // pasa a ser un connect normal
 }
 
 void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
@@ -210,7 +211,7 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
 	if (server_fd >= 0) {
 		close_server_connection(node, read_fd_set, write_fd_set);
-	} else if (server_fd == -1){
+	} else if (server_fd == -1) {
 		free(node->data.parser);
 		close_buffer(node->data.client_to_server_buffer);
 	}
@@ -223,8 +224,7 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 	if (node->previous == NULL) {
 		// Caso primer nodo
 		connections.first = node->next;
-		if (connections.first != NULL)
-			connections.first->previous = NULL;
+		if (connections.first != NULL) connections.first->previous = NULL;
 	} else {
 		node->previous->next = node->next;
 	}
@@ -232,8 +232,7 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 	if (node->next == NULL) {
 		// Caso ultimo nodo
 		connections.last = node->previous;
-		if (connections.last != NULL)
-			connections.last->next = NULL;
+		if (connections.last != NULL) connections.last->next = NULL;
 	} else {
 		node->next->previous = node->previous;
 	}
@@ -256,14 +255,12 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 int setup_pop3_response_parser(connection_node *node) {
 	node->data.parser->pop3->response.response_buffer = malloc(sizeof(buffer));
 	if (node->data.parser->pop3->response.response_buffer == NULL) {
-		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 		close_pop3_parser(node);
 		return -1;
 	}
 
 	node->data.parser->pop3->response.response_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (node->data.parser->pop3->response.response_buffer->data == NULL) {
-		node->data.parser->data.request_status = PARSE_CONNECT_METHOD;
 		close_pop3_parser(node);
 		return -1;
 	}
@@ -314,10 +311,8 @@ int setup_pop3_command_parser(connection_node *node) {
 }
 
 void close_buffer(buffer *buff) {
-	if(buff != NULL) {
-		if(buff->data != NULL) {
-			free(buff->data);
-		}
+	if (buff != NULL) {
+		if (buff->data != NULL) { free(buff->data); }
 		free(buff);
 	}
 }

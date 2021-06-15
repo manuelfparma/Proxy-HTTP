@@ -3,9 +3,9 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
 #include <buffer.h>
 #include <logger.h>
+#include <netutils.h>
 #include <pop3commandparser.h>
 #include <stdio.h>
-#include <netutils.h>
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -14,12 +14,23 @@ buffer *current_pop3_command_read_buffer;
 buffer *current_pop3_command_write_buffer;
 size_t line_count;
 
-// Transiciones entre nodos
+//----------- PROTOTIPOS DE LAS FUNCIONES DE TRANSICION -----------//
+
+// Funcion que chequea el prefijo para saber si el valor de la linea es de interes o no
 static void tr_check_prefix(char current_char);
+
+// Funcion que copia en un buffer, determinado por el estado actual, el caracter
 static void tr_copy_byte_to_buffer(char current_char);
+
+// Funcion que indica la finalizacion de una linea, incrementara el contador de lineas leidas e identifica
+// si se encontro un par completo de credenciales
 static void tr_line_ended(char current_char);
-static void tr_parse_error(char current_char);
+
+// Funcion que resetea el indice auxiliar del parser
 static void tr_reset_copy_index(char current_char);
+
+// Funcion que maneja los errores
+static void tr_parse_error(char current_char);
 
 //----------- ESTRUCTURAS QUE REPRESENTAN LOS NODOS DEL GRAFO -----------//
 
@@ -49,7 +60,7 @@ static const size_t states_n[] = {
 	N(ST_CR),
 };
 
-//----------- FUNCIONES AUXILIARES PARA LAS TRANSICIONES -----------//
+//----------- FUNCIONES DE TRANSICION ENTRE LOS ESTADOS -----------//
 
 static void tr_line_ended(char current_char) {
 	if (current_pop3_command_parser->prefix_type == POP3_C_PASS) {
@@ -61,7 +72,6 @@ static void tr_line_ended(char current_char) {
 }
 
 static void tr_check_prefix(char current_char) {
-	// TODO: case-insensitive segun RFC
 	int strcmp_prefix = strcmp_case_insensitive("USER", current_pop3_command_parser->line.prefix);
 	if (strcmp_prefix == 0) {
 		current_pop3_command_parser->prefix_type = POP3_C_USER;
@@ -122,7 +132,7 @@ static void tr_parse_error(char current_char) {
 	tr_reset_copy_index(current_char);
 }
 
-//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
+//----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA DE ESTADOS -----------//
 
 int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
 	current_pop3_command_parser = pop3_parser;
@@ -130,10 +140,11 @@ int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
 	char current_char;
 	pop3_command_parser_state current_state;
 	line_count = 0;
-	if (current_pop3_command_parser->parser_state == POP3_C_PS_ERROR) current_pop3_command_parser->parser_state = POP3_C_PS_PREFIX;
+	if (current_pop3_command_parser->parser_state == POP3_C_PS_ERROR)
+		current_pop3_command_parser->parser_state = POP3_C_PS_PREFIX;
 	while (buffer_can_read(current_pop3_command_read_buffer)) {
 		current_char = buffer_read(read_buffer);
-		buffer_write(current_pop3_command_parser->command_buffer, current_char); // todo lo que leo lo escribo en la salida
+		buffer_write(current_pop3_command_parser->command_buffer, current_char);
 		current_state = current_pop3_command_parser->parser_state;
 		for (size_t i = 0; current_pop3_command_parser->parser_state != POP3_C_PS_ERROR && i < states_n[current_state]; i++) {
 			if (current_char == states[current_state][i].when || states[current_state][i].when == (char)POP3_C_ANY) {
@@ -143,7 +154,9 @@ int parse_pop3_command(pop3_command_parser *pop3_parser, buffer *read_buffer) {
 			}
 		}
 		// condicion de salida pues encontre un par USER - PASS
-		if (current_pop3_command_parser->parser_state == POP3_C_PS_PREFIX && current_pop3_command_parser->prefix_type == POP3_C_PASS) break;
+		if (current_pop3_command_parser->parser_state == POP3_C_PS_PREFIX &&
+			current_pop3_command_parser->prefix_type == POP3_C_PASS)
+			break;
 	}
 	return line_count;
 }
