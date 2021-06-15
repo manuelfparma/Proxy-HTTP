@@ -74,14 +74,14 @@ Para ejecutar el servidor proxy de HTTP/1.1, ejecutar
     - Establece  la  dirección  donde  servirá  el proxy HTTP. Por defecto escucha en todas las interfaces.
 
 - `-L dirección-de-management`
-    - Establece la direcciA3n donde servirá el  servicio  de  management. Por defecto escucha únicamente en `loopback`.
+    - Establece la dirección donde servirá el  servicio  de  management. Por defecto escucha únicamente en `loopback`.
 
 - `-o puerto-de-management`
     - Puerto  donde  se  encuentra  el  servidor  de  management.  Por
 defecto el valor es `9090`.
 
 - `-p puerto-local`
-    - Puerto TCP donde escucharAi por conexiones entrantes HTTP. Por defecto el valor es `8080`.
+    - Puerto TCP donde escuchará por conexiones entrantes HTTP. Por defecto el valor es `8080`.
 
 - `-v`
     - Imprime información sobre la versión y termina.
