@@ -23,10 +23,12 @@ http_parser *current_parser;
 // Funcion que copia un string de longitud maxima de bytes a un buffer
 static void copy_to_request_buffer(buffer *target, char *source, ssize_t bytes);
 
-// Funcion que copia en el buffer de salida la startline con path relativo y el header 'Host:' en caso de haberse identificado el origin server
+// Funcion que copia en el buffer de salida la startline con path relativo y el header 'Host:' en caso de haberse identificado el
+// origin server
 static void parse_start_line(char current_char);
 
-// Funcion parsea un header completo buscando informacion relevante(campo 'Host:' o 'Authorization:') y lo copia en el buffer de salida
+// Funcion parsea un header completo buscando informacion relevante(campo 'Host:' o 'Authorization:') y lo copia en el buffer de
+// salida
 static void parse_header_line(char current_char);
 
 // Funcion que chequea si hay un puerto, caso contrario setea un default dependiendo del schema indicado
@@ -78,7 +80,6 @@ static void tr_check_asterisk_form(char current_char);
 
 // Funcion que maneja los errores
 static void tr_parse_error(char current_char);
-
 
 //----------- ESTRUCTURAS QUE REPRESENTAN LOS NODOS DEL GRAFO -----------//
 
@@ -313,10 +314,7 @@ static void copy_to_request_buffer_request_target() {
 static void check_port() {
 	if (current_parser->request.target.port[0] == '\0') {
 		char *port;
-		if (strcmp_case_insensitive("pop3", current_parser->request.schema) == 0) {
-			port = "110";
-			strcpy(current_parser->request.target.port, port);
-		} else if (strcmp_case_insensitive("https", current_parser->request.schema) == 0) {
+		if (strcmp_case_insensitive("https", current_parser->request.schema) == 0) {
 			port = "433";
 			strcpy(current_parser->request.target.port, port);
 		} else {
@@ -688,8 +686,8 @@ int parse_request(http_parser *parser, buffer **read_buffer) {
 			// se terminaron los headers y no se reconocio la uri objetivo
 			tr_parse_error(' ');
 		else {
-			// se pasa a leer el body, como no se parsea esta informacion no se ejecutara denuevo esta maquina, por lo que guardamos
-			// toda la informacion ya parseada en el buffer de salida del cliente, en conjunto con la que no se parseo
+			// se pasa a leer el body, como no se parsea esta informacion no se ejecutara denuevo esta maquina, por lo que
+			// guardamos toda la informacion ya parseada en el buffer de salida del cliente, en conjunto con la que no se parseo
 			copy_from_buffer_to_buffer(parser->data.parsed_request, *read_buffer);
 			close_buffer(*read_buffer);
 			*read_buffer = parser->data.parsed_request;
