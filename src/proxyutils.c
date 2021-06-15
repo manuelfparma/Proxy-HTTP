@@ -134,6 +134,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		if (buffer_can_write(node->data.server_to_client_buffer)) {
 			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+			node->data.timestamp = time(NULL);
 
 			if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) handle_pop3_response(node, write_fd_set);
 
@@ -174,6 +175,8 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		} else {
 			result_bytes = handle_operation(fd_server, aux_buffer, WRITE, SERVER, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+			node->data.timestamp = time(NULL);
+
 			if (node->data.parser->request.authorization.value[0] != '\0') print_register(PASSWORD, node, write_fd_set);
 			increase_connect_method_bytes(node, result_bytes);
 			// ahora que el buffer de entrada tiene espacio, intento leer del otro par solo si es posible
@@ -209,6 +212,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		} else {
 			result_bytes = handle_operation(fd_client, node->data.client_to_server_buffer, READ, CLIENT, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+			node->data.timestamp = time(NULL);
+
 			buffer *aux_buffer;
 			switch (node->data.parser->data.request_status) {
 				case PARSE_CONNECT_METHOD_POP3:
@@ -271,6 +276,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		if (buffer_can_read(aux_buffer)) {
 			result_bytes = handle_operation(fd_client, aux_buffer, WRITE, CLIENT, node->data.log_file);
 			if (result_bytes < 0) return result_bytes;
+			node->data.timestamp = time(NULL);
+
 			increase_connect_method_bytes(node, result_bytes);
 			if (node->data.connection_state < CLIENT_READ_CLOSE) FD_SET(fd_server, &read_fd_set[BASE]);
 			connections.statistics.total_proxy_to_clients_bytes += result_bytes;

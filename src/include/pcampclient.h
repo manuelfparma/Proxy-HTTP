@@ -19,7 +19,7 @@ typedef struct {
 
 char *method_strings[PCAMP_METHOD_COUNT] = {
 	"Query (get tracked access data from HTTP proxy server)",
-	"Configuration (modify HTTP proxy server settings at runtime",
+	"Configuration (modify HTTP proxy server settings at runtime)",
 };
 
 char *query_type_strings[PCAMP_QUERY_TYPE_COUNT] = {"Number of historic connections established",

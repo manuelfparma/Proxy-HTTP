@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 extern connection_header connections;
 extern proxy_settings settings;
@@ -57,7 +58,7 @@ static void set_node_default_values(connection_node *node) {
 	buffer_init(node->data.parser->data.parsed_request, settings.io_buffer_size, node->data.parser->data.parsed_request->data);
 
 	node->data.addr_info_first = node->data.addr_info_current = NULL;
-	node->data.timestamp = 0;
+	node->data.timestamp = time(NULL);
 }
 
 connection_node *setup_connection_resources(int client_sock, int server_sock) {

@@ -27,7 +27,6 @@ static void try_accept_proxy_client(int passive_sock, fd_set *read_fd_set);
 // Funcion que itera por lista de conexiones y trata a cada una de ellas
 static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]);
 
-
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
@@ -40,9 +39,6 @@ static void find_max_id();
 
 // Funcion para imprimir las estadisticas del server
 void write_proxy_statistics();
-
-//	Funcion que devuelve true si el timeout de una conexion ya pasó, false si no
-static bool check_connection_timeout(connection_node *node);
 
 connection_header connections = {0};
 proxy_settings settings = {.max_clients = MAX_CLIENTS, .io_buffer_size = BUFFER_SIZE};
@@ -67,7 +63,7 @@ int main(const int argc, char **argv) {
 
 		timeout.tv_sec = PROXY_TIMEOUT;
 		select(connections.max_fd, &read_fd_set[TMP], &write_fd_set[TMP], NULL, &timeout);
-
+		
 		if (FD_ISSET(STDOUT_FILENO, &write_fd_set[TMP]) && buffer_can_read(connections.stdout_buffer)) {
 			ssize_t result_bytes = write(STDOUT_FILENO, connections.stdout_buffer->read,
 										 connections.stdout_buffer->write - connections.stdout_buffer->read);
@@ -83,8 +79,7 @@ int main(const int argc, char **argv) {
 		}
 
 		for (int i = 0; i < SOCK_COUNT; i++)
-			if (proxy_passive_sockets[i] != -1)
-				try_accept_proxy_client(proxy_passive_sockets[i], read_fd_set);
+			if (proxy_passive_sockets[i] != -1) try_accept_proxy_client(proxy_passive_sockets[i], read_fd_set);
 
 		for (int i = 0; i < SOCK_COUNT; i++) {
 			if (management_sockets[i] != -1 && FD_ISSET(management_sockets[i], &read_fd_set[TMP])) {
@@ -199,7 +194,6 @@ static void try_accept_proxy_client(int passive_sock, fd_set *read_fd_set) {
 			FD_SET(client_sock, &read_fd_set[BASE]);
 			add_to_connections(new_connection);
 			if (client_sock >= connections.max_fd) connections.max_fd = client_sock + 1;
-
 		}
 	}
 }
@@ -212,16 +206,17 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 			case SENDING_DNS:
 			case FETCHING_DNS:
 				handle = handle_doh_exchange(node, read_fd_set, write_fd_set);
-				if (handle < 0)
-					handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
+				if (handle < 0) handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
 				break;
 			default:
-				if(check_connection_timeout(node)) {
-					handle = try_next_addr(node, write_fd_set);
-					if (handle == 0)
-						break;
+				if (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT) {
+					if (node->data.connection_state == CONNECTING) {
+						handle = try_next_addr(node, write_fd_set);
+						if (handle == 0) break;
+					}
 					// TODO: mejorar el manejo de esta desconexion
 					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, CLIENT);
+					break;
 				}
 
 				handle = handle_client_connection(node, read_fd_set, write_fd_set);
@@ -245,16 +240,12 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 						// para que no intente seguir atendiendo a un nodo borrado
 						break;
 				}
+
 				// Si no se borro el nodo llego aca, y asigno previous
 				previous = node;
 		}
 	}
 }
-
-static bool check_connection_timeout(connection_node *node) {
-	return node->data.connection_state == CONNECTING && node->data.timestamp != 0 && (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT);
-}
-
 // Cuando retorna un valor < 0, no se debe volver a atender al nodo en esta iteracion
 static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
 								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer) {
