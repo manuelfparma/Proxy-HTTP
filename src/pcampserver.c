@@ -50,17 +50,14 @@ int setup_pcamp_sockets(int management_sockets[SOCK_COUNT]) {
 		management_sockets[i] = socket(management_addr.addr.sa_family, SOCK_DGRAM, 0);
 
 		if (management_sockets[i] < 0) {
-			logger(ERROR, "socket() for UDP socket failed: %s", strerror(errno));
 			return -1;
 		}
 
 		if (setsockopt(management_sockets[i], SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-			logger(INFO, "setsockopt(): %s", strerror(errno));
 			return -1;
 		}
 
 		if (i == IPV6_SOCK && setsockopt(management_sockets[i], IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int)) < 0) {
-			logger(INFO, "setsockopt(): %s", strerror(errno));
 			return -1;
 		}
 

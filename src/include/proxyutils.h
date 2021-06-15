@@ -21,7 +21,7 @@ int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]);
 int accept_connection(int passive_sock, char *buffer_address, char *buffer_port);
 
 // Funcion que realiza la escritura o lectura
-ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *log_file);
+ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer);
 
 int setup_connection(connection_node *node, fd_set *writeFdSet);
 

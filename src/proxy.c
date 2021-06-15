@@ -40,9 +40,6 @@ static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_se
 // handle_connection_error
 static void find_max_id();
 
-// Funcion para imprimir las estadisticas del server
-void write_proxy_statistics();
-
 connection_header connections = {0};
 proxy_settings settings = {.max_clients = MAX_CLIENTS, .io_buffer_size = BUFFER_SIZE};
 
@@ -58,6 +55,8 @@ int main(const int argc, char **argv) {
 	}
 
 	struct timeval timeout = {PROXY_TIMEOUT, 0};
+
+	printf("Proxy up and running\n");
 
 	while (1) {
 		// resetear fd_set
@@ -101,41 +100,24 @@ static int proxy_init(int argc, char **argv, int management_sockets[SOCK_COUNT],
 	settings.doh_addr_info = args.doh_addr_info;
 	strcpy(settings.doh_host, args.doh_host);
 
-	// Liberamos STDIN ya que no lo usamos
+	// Liberamos STDIN y STDERR ya que no lo usamos
 	close(STDIN_FILENO);
-
-	// TODO: descomentar para entrega??? TBD
-	//	close(STDERR_FILENO);
+//	close(STDERR_FILENO);
 
 	if (setup_proxy_passive_sockets(proxy_sockets) < 0) {
-		logger(ERROR, "setup_proxy_passive_sockets() failed: %s", strerror(errno));
 		goto INIT_ERROR;
 	}
 
 	if (setup_pcamp_sockets(management_sockets) < 0) {
-		logger(ERROR, "setup_pcamp_sockets() failed: %s", strerror(errno));
 		goto CLOSE_PROXY_SOCKETS;
 	}
 
-	const char *name = "./logs/proxy_log";
-	connections.proxy_log = fopen(name, "w+");
-	if (connections.proxy_log == NULL) {
-		logger(ERROR, "fopen: %s", strerror(errno));
-		goto CLOSE_MANAGEMENT_SOCKETS;
-	}
-
-	logger(DEBUG, "Proxy file log with name %s created", name);
-	fprintf(connections.proxy_log, "Total connections\tCurrent connections\tTranferred bytes\tBytes to origins\tBytes to "
-								   "current_clients\tBytes through connect\n");
-
 	connections.stdout_buffer = malloc(sizeof(buffer));
 	if (connections.stdout_buffer == NULL) {
-		logger(ERROR, "malloc(): %s", strerror(errno));
-		goto CLOSE_PROXY_LOG;
+		goto CLOSE_MANAGEMENT_SOCKETS;
 	}
 	connections.stdout_buffer->data = malloc(settings.io_buffer_size * sizeof(uint8_t));
 	if (connections.stdout_buffer->data == NULL) {
-		logger(ERROR, "malloc(): %s", strerror(errno));
 		goto FREE_STDOUT_BUFFER;
 	}
 	buffer_init(connections.stdout_buffer, settings.io_buffer_size, connections.stdout_buffer->data);
@@ -165,8 +147,6 @@ static int proxy_init(int argc, char **argv, int management_sockets[SOCK_COUNT],
 
 FREE_STDOUT_BUFFER:
 	free(connections.stdout_buffer);
-CLOSE_PROXY_LOG:
-	fclose(connections.proxy_log);
 CLOSE_MANAGEMENT_SOCKETS:
 	for (int i = 0; i < SOCK_COUNT; i++)
 		if (management_sockets[i] != -1) close(management_sockets[i]);
@@ -187,7 +167,6 @@ static void try_accept_proxy_client(int passive_sock, fd_set *read_fd_set) {
 			connection_node *new_connection = setup_connection_resources(client_sock, -1);
 			if (new_connection == NULL) {
 				close(client_sock);
-				logger(ERROR, "setup_connection_resources() failed with NULL value");
 				return;
 			}
 
@@ -251,19 +230,13 @@ static int handle_connection_error(connection_error_code error_code, connection_
 								   fd_set *write_fd_set, peer peer) {
 	switch (error_code) {
 		case BAD_REQUEST_ERROR:
-			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
 			send_message("HTTP/1.1 400 Bad Request\r\n\r\n", node, write_fd_set, STATUS_400);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;
 		case RECV_ERROR_CODE:
 			// dio error el receive, lo dejamos para intentar denuevo luego
-			logger_peer(peer, "recv(): error for server_fd: %d and client_fd: %d, READ operation", node->data.server_sock,
-						node->data.client_sock);
-			return 0;
 		case SEND_ERROR_CODE:
 			// el SEND dio algun error inesperado, lo dejo para intentar denuevo en la proxima iteracion
-			logger_peer(peer, "send(): error for server_fd: %d and client_fd: %d, WRITE operation", node->data.server_sock,
-						node->data.client_sock);
 			return 0;
 		case DOH_ERROR_CODE:
 			FD_CLR(node->data.doh->sock, &read_fd_set[BASE]);
@@ -294,7 +267,6 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			FD_SET(node->data.client_sock, &write_fd_set[BASE]);
 			return -1;
 		default:
-			logger(ERROR, "UNKNOWN ERROR CODE");
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set, STATUS_500);
 			break;
 	}
@@ -355,15 +327,6 @@ static void find_max_id() {
 		if (node->data.client_sock >= connections.max_fd) connections.max_fd = node->data.client_sock;
 		if (node->data.server_sock >= connections.max_fd) connections.max_fd = node->data.server_sock;
 	}
-}
-
-void write_proxy_statistics() {
-	uint64_t proxy_to_origins = connections.statistics.total_proxy_to_origins_bytes;
-	uint64_t proxy_to_clients = connections.statistics.total_proxy_to_clients_bytes;
-	fprintf(connections.proxy_log,
-			"%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\t\t\t%" PRIu64 "\n",
-			connections.statistics.total_connections, connections.current_clients, proxy_to_clients + proxy_to_origins,
-			proxy_to_origins, proxy_to_clients, connections.statistics.total_connect_method_bytes);
 }
 
 void send_message(char *message, connection_node *node, fd_set *write_fd_set, unsigned short status_code) {

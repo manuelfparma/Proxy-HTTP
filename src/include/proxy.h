@@ -58,6 +58,4 @@ typedef struct {
 	addr_info doh_addr_info;
 } proxy_settings;
 
-void write_proxy_statistics();
-
 #endif

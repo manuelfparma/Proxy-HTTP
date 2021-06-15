@@ -43,7 +43,6 @@ typedef struct {
 	int server_sock;				   // socket activo con servidor
 	connection_state connection_state; // estado de la busqueda DNS
 	http_parser *parser;			   // estructura donde se guarda el estado del parseo
-	FILE *log_file;
 	addr_info_node *addr_info_first;   // primer resultado de la consulta doh
 	addr_info_node *addr_info_current; // ip para conectarse utilizada actualmente
 	information client_information;	   // ip y puerto del cliente, ya formateados
@@ -71,7 +70,6 @@ typedef struct {
 	connection_node *first;
 	connection_node *last;
 	buffer *stdout_buffer;
-	FILE *proxy_log;
 } connection_header;
 
 // Funcion que crea un nuevo nodo para una conexion

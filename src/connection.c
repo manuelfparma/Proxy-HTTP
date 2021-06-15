@@ -16,25 +16,6 @@
 extern connection_header connections;
 extern proxy_settings settings;
 
-static size_t connection_number = 1;
-
-static size_t power(size_t base, size_t exp) {
-	size_t ret = 1;
-	for (size_t i = 0; i < exp; i++) {
-		ret *= base;
-	}
-	return ret;
-}
-
-static void number_to_str(size_t n, char *buffer) {
-	size_t copy_n = n, length = 0;
-	for (; copy_n > 0; copy_n /= 10, length++) {};
-	copy_n = n;
-	for (size_t i = 0; copy_n > 0; i++, copy_n /= 10) {
-		buffer[i] = '0' + ((n / power(10, length - i - 1)) % 10);
-	}
-}
-
 static void set_node_default_values(connection_node *node) {
 	node->data.client_information.status_code = NO_STATUS;
 	node->data.client_information.ip[0] = '\0';
@@ -106,18 +87,6 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 
 	set_node_default_values(new);
 
-	char file_name[1024] = {0};
-	const char *name = "./logs/log_connection_";
-	strcpy(file_name, name);
-	char number[1024] = {0};
-	number_to_str(connection_number++, number);
-	strcpy(file_name + strlen(name), number);
-	new->data.log_file = fopen(file_name, "w+");
-	if (new->data.log_file == NULL) {
-		logger(ERROR, "fopen: %s", strerror(errno));
-		goto FREE_REQUEST_BUFFER;
-	}
-
 	return new;
 
 FREE_REQUEST_BUFFER:
@@ -139,7 +108,6 @@ FREE_CLIENT_IP:
 FREE_NEW:
 	free(new);
 ERROR:
-	logger(ERROR, "malloc(): %s", strerror(errno));
 	return NULL;
 }
 
@@ -160,7 +128,6 @@ void add_to_connections(connection_node *node) {
 
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
-	logger_peer(SERVER, "Socket with fd: %d disconnected", server_fd);
 	close_buffer(node->data.client_to_server_buffer);
 
 	switch (node->data.parser->data.request_status) {
@@ -208,7 +175,6 @@ void close_pop3_parser(connection_node *node) {
 
 void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
-	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
 	if (server_fd >= 0) {
 		close_server_connection(node, read_fd_set, write_fd_set);
 	} else if (server_fd == -1) {
@@ -228,7 +194,6 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 	free(node->data.server_to_client_buffer);
 	free(node->data.client_information.ip);
 	free(node->data.client_information.port);
-	fclose(node->data.log_file);
 
 	if (node->previous == NULL) {
 		// Caso primer nodo
@@ -258,7 +223,6 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 		logger(FATAL, "close_connection called when current_clients = 0");
 	}
 
-	write_proxy_statistics();
 }
 
 int setup_pop3_response_parser(connection_node *node) {
@@ -315,7 +279,6 @@ int setup_pop3_command_parser(connection_node *node) {
 	node->data.parser->pop3->line_count = 1;
 	// El servidor responde primero con un accepted connection, por lo que ya hay una linea para leer
 	buffer_reset(node->data.client_to_server_buffer);
-	logger(DEBUG, "POP3 PARSER MALLOQUEADO");
 	return 0;
 }
 

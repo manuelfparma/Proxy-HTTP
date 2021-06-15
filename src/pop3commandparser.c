@@ -64,7 +64,6 @@ static const size_t states_n[] = {
 
 static void tr_line_ended(char current_char) {
 	if (current_pop3_command_parser->prefix_type == POP3_C_PASS) {
-		logger(DEBUG, "FOUND CREDENTIALS");
 		current_pop3_command_parser->credentials_state = POP3_C_FOUND;
 	}
 	line_count++;

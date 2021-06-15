@@ -51,23 +51,19 @@ int connect_to_doh_server(connection_node *node, fd_set *write_fd_set) {
 	int doh_sock = socket(doh_addr.addr.sa_family, SOCK_STREAM, 0);
 
 	if (doh_sock < 0) {
-		logger(ERROR, "connect_to_doh_server :: socket(): %s", strerror(errno));
 		return -1;
 	}
 
 	if (fcntl(doh_sock, F_SETFL, O_NONBLOCK) == -1) {
-		logger(ERROR, "connect_to_doh_server :: fcntl(): %s", strerror(errno));
 		goto ERROR;
 	}
 
 	socklen_t len = (doh_addr.addr.sa_family == AF_INET6) ? sizeof(doh_addr.in6) : sizeof(doh_addr.in4);
 	if (connect(doh_sock, &doh_addr.addr, len) == -1 && errno != EINPROGRESS) {
-		logger(ERROR, "connect(): %s", strerror(errno));
 		goto ERROR;
 	}
 
 	if (setup_doh_resources(node, doh_sock) == -1) {
-		logger(ERROR, "setup_doh_resources(): couldn't set up DoH connection resources");
 		goto ERROR;
 	}
 
@@ -96,7 +92,6 @@ int handle_doh_request(connection_node *node, fd_set *write_fd_set) {
 				if (is_connected_to_doh(node)) {
 					node->data.doh->state = PREPARING_DOH_PACKET;
 				} else {
-					logger(ERROR, "handle_doh_request :: is_connected_to_doh(): cannot connect to DoH server");
 					return DOH_SEND_ERROR;
 				}
 			case PREPARING_DOH_PACKET:
@@ -123,7 +118,6 @@ bool is_connected_to_doh(connection_node *node) {
 	int error_code = 0;
 	socklen_t error_code_size = sizeof(error_code);
 	if (getsockopt(doh_sock, SOL_SOCKET, SO_ERROR, &error_code, &error_code_size) < 0 || error_code == ECONNREFUSED) {
-		logger(ERROR, "is_connected_to_doh :: getsockopt(): %s", strerror(error_code));
 		return false;
 	}
 
@@ -139,7 +133,6 @@ int handle_doh_response(connection_node *node, fd_set *read_fd_set) {
 		int read = read_doh_response(node);
 
 		if (read < 0) {
-			logger(ERROR, "handle_doh_response(): unable to read DoH response");
 			return -1;
 		} else if (read == 0) {
 			// Caso: no hay response DoH, suponemos que no va a venir

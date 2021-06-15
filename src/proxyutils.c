@@ -71,23 +71,19 @@ int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]) {
 		// Create a TCP socket
 		proxy_sockets[i] = socket(proxy_addr.addr.sa_family, SOCK_STREAM, 0);
 		if (proxy_sockets[i] < 0) {
-			logger(INFO, "socket() for passive socket failed");
 			return -1;
 		}
 
 		if (setsockopt(proxy_sockets[i], SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-			logger(INFO, "setsockopt(): %s", strerror(errno));
 			return -1;
 		}
 
 		if (i == IPV6_SOCK && setsockopt(proxy_sockets[i], IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int)) < 0) {
-			logger(INFO, "setsockopt(): %s", strerror(errno));
 			return -1;
 		}
 
 		// Non blocking socket
 		if (fcntl(proxy_sockets[i], F_SETFL, O_NONBLOCK) == -1) {
-			logger(INFO, "fcntl(): %s", strerror(errno));
 			return -1;
 		}
 
@@ -98,10 +94,8 @@ int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]) {
 			struct sockaddr_storage local_addr;
 			socklen_t addr_size = sizeof(local_addr);
 			if (getsockname(proxy_sockets[i], (struct sockaddr *)&local_addr, &addr_size) >= 0) {
-				logger(INFO, "Binding and listening...");
 			}
 		} else {
-			logger(INFO, "bind() or listen() failed for passive socket");
 			close(proxy_sockets[i]);
 			return -1;
 		}
@@ -117,21 +111,17 @@ int accept_connection(int passive_sock, char *buffer_address, char *buffer_port)
 	// Wait for a client to connect
 	int clnt_sock = accept(passive_sock, (struct sockaddr *)&clnt_addr, &clnt_addrLen);
 	if (clnt_sock < 0) {
-		logger(ERROR, "accept(): %s", strerror(errno));
 		return ACCEPT_CONNECTION_ERROR;
 	}
 	// Non blocking
 	if (fcntl(clnt_sock, F_SETFL, O_NONBLOCK) < 0) {
-		logger(ERROR, "fcntl(): %s", strerror(errno));
 		close(clnt_sock);
 		return ACCEPT_CONNECTION_ERROR;
 	}
 	// clnt_sock is connected to a client!
-	logger(DEBUG, "Created active socket for client with fd: %d", clnt_sock);
 
 	// guardar registro del cliente
 	if (copy_address_info((struct sockaddr *)&clnt_addr, buffer_address, buffer_port) < 0) {
-		logger(ERROR, "copy_address_info() failed");
 		close(clnt_sock);
 		return ACCEPT_CONNECTION_ERROR;
 	}
@@ -151,7 +141,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 	// (siempre y cuando haya espacio en el buffer)
 	if (read_fd_set != NULL && FD_ISSET(fd_server, &read_fd_set[TMP])) {
 		if (buffer_can_write(node->data.server_to_client_buffer)) {
-			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER, node->data.log_file);
+			result_bytes = handle_operation(fd_server, node->data.server_to_client_buffer, READ, SERVER);
 			if (result_bytes < 0) return result_bytes;
 			node->data.timestamp = time(NULL);
 
@@ -160,7 +150,6 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 			// lo prendo pues hay nueva informacion
 			FD_SET(fd_client, &write_fd_set[BASE]);
 		} else {
-			// logger_peer(SERVER, "Server with fd: %d has buffer full", fd_server);
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd_server, &read_fd_set[BASE]);
 		}
@@ -192,7 +181,7 @@ int handle_server_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 		if (!buffer_can_read(aux_buffer)) {
 			FD_CLR(fd_server, &write_fd_set[BASE]);
 		} else {
-			result_bytes = handle_operation(fd_server, aux_buffer, WRITE, SERVER, node->data.log_file);
+			result_bytes = handle_operation(fd_server, aux_buffer, WRITE, SERVER);
 			if (result_bytes < 0) return result_bytes;
 			node->data.timestamp = time(NULL);
 
@@ -225,11 +214,10 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				// se lleno el buffer, nunca voy a poder recibir la informacion con el target
 				return BAD_REQUEST_ERROR;
 			}
-			// logger_peer(CLIENT, "Client with fd: %d has buffer full", fd_server);
 			// si el buffer esta lleno, dejo de leer del socket
 			FD_CLR(fd_client, &read_fd_set[BASE]);
 		} else {
-			result_bytes = handle_operation(fd_client, node->data.client_to_server_buffer, READ, CLIENT, node->data.log_file);
+			result_bytes = handle_operation(fd_client, node->data.client_to_server_buffer, READ, CLIENT);
 			if (result_bytes < 0) return result_bytes;
 			node->data.timestamp = time(NULL);
 
@@ -256,7 +244,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 						// seteo los argumentos necesarios para conectarse al server
 						if (node->data.parser->request.target.host_type == DOMAIN) {
 							if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
-								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
+
 								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
 							}
 						} else {
@@ -291,7 +279,7 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 				break;
 		}
 		if (buffer_can_read(aux_buffer)) {
-			result_bytes = handle_operation(fd_client, aux_buffer, WRITE, CLIENT, node->data.log_file);
+			result_bytes = handle_operation(fd_client, aux_buffer, WRITE, CLIENT);
 			if (result_bytes < 0) return result_bytes;
 			node->data.timestamp = time(NULL);
 
@@ -309,20 +297,17 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 
 int setup_connection(connection_node *node, fd_set *write_fd_set) {
 	if (node->data.addr_info_current == NULL) {
-		logger(INFO, "No more addresses to connect to for client with fd %d", node->data.client_sock);
 		return SETUP_CONNECTION_ERROR_CODE;
 	}
 
 	node->data.server_sock = socket(node->data.addr_info_current->addr.sa_family, SOCK_STREAM, 0);
 
 	if (node->data.server_sock < 0) {
-		logger(ERROR, "setup_connection :: socket(): %s", strerror(errno));
 		return SETUP_CONNECTION_ERROR_CODE;
 	}
 
 	// configuracion para socket no bloqueante
 	if (fcntl(node->data.server_sock, F_SETFL, O_NONBLOCK) == -1) {
-		logger(INFO, "fcntl(): %s", strerror(errno));
 		return SETUP_CONNECTION_ERROR_CODE;
 	}
 
@@ -342,13 +327,12 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 
 	if (connect(node->data.server_sock, &aux_addr_info.addr, length) != 0 && errno != EINPROGRESS) {
 		// error inesperado en connect
-		logger(ERROR, "setup_connection :: connect(): %s", strerror((errno)));
+
 		close(node->data.server_sock);
 		close(node->data.client_sock);
 		return SETUP_CONNECTION_ERROR_CODE;
 	}
 
-	logger(DEBUG, "Connecting to server from client with fd: %d", node->data.client_sock);
 	node->data.connection_state = CONNECTING;
 	// el cliente puede haber escrito algo y el proxy crear la conexion despues, por lo tanto
 	// agrego como escritura el fd activo
@@ -360,7 +344,7 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 }
 
 // Leer o escribir a un socket
-ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer, FILE *file) {
+ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer) {
 	ssize_t result_bytes = 0;
 	ssize_t bytes_to_send = 0;
 	switch (operation) {
@@ -370,19 +354,12 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
-					logger_peer(peer, "fd = %d - send: %s", fd, strerror(errno));
 					if (errno == EPIPE) { return BROKEN_PIPE_ERROR_CODE; }
 					return SEND_ERROR_CODE;
 				} else
 					// no envie nada, me desperte innecesariamente
 					return 0;
 			} else {
-				// logger(DEBUG, "Sent info on fd: %d", fd);
-				uint8_t aux_buffer[BUFFER_SIZE] = {0};
-				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
-				fprintf(file, "-------------------	PROXY %s SERVER	-------------------\n", peer == SERVER ? "CLIENT" : "ORIGIN");
-				fprintf(file, "%s\n", aux_buffer);
-				fprintf(file, "---------------------------------------------------------\n");
 				buffer_read_adv(buffer, result_bytes);
 			}
 			break;
@@ -391,7 +368,6 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
-					logger_peer(peer, "handle_operation :: recv(): %s", strerror(errno));
 					return RECV_ERROR_CODE;
 				}
 				// no lei nada, me desperte innecesariamente
@@ -400,26 +376,15 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 				// como es no bloqueante, un 0 indica cierre prematuro de conexion
 
 				if (peer == SERVER) {
-					logger(INFO, "Server with fd: %d closing connection", fd);
 					return SERVER_CLOSE_READ_ERROR_CODE;
 				}
-				//				logger(DEBUG, "errno: %s [%d]", strerror(errno), errno);
 				return CLIENT_CLOSE_READ_ERROR_CODE;
 
 			} else {
-				// logger(DEBUG, "Received info on fd: %d", fd);
 				buffer_write_adv(buffer, result_bytes);
-
-				// logeo, TODO: sacar para la entrega
-				uint8_t aux_buffer[BUFFER_SIZE] = {0};
-				strncpy((char *)aux_buffer, (char *)buffer->read, (size_t)(buffer->write - buffer->read));
-				fprintf(file, "-------------------	%s SERVER	-------------------\n", peer == SERVER ? "ORIGIN" : "CLIENT");
-				fprintf(file, "%s\n", aux_buffer);
-				fprintf(file, "---------------------------------------------------------\n");
 			}
 			break;
 		default:
-			logger(ERROR, "Unknown operation on socket with fd: %d", fd);
 			result_bytes = CLOSE_CONNECTION_ERROR_CODE;
 	}
 
@@ -441,15 +406,12 @@ static int set_node_request_target(connection_node *node, fd_set write_fd_set[FD
 			aux_addr_in = &addr_in6.sin6_addr;
 			break;
 		default:
-			logger(ERROR, "Undefined host type");
 			return BAD_REQUEST_ERROR;
 	}
 	if (inet_pton(aux_af_inet, node->data.parser->request.target.request_target.ip_addr, aux_addr_in) != 1) {
-		logger(ERROR, "handle_client_connection(): bad IP address");
 		return BAD_REQUEST_ERROR;
 	}
 	if (add_ip_address(node, aux_af_inet, aux_addr_in) == -1) {
-		logger(ERROR, "handle_client_connection(): bad port number");
 		return BAD_REQUEST_ERROR;
 	}
 	return setup_connection(node, &write_fd_set[BASE]);
@@ -465,13 +427,10 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 			return try_next_addr(node, write_fd_set);
 		} else {
 			// error de getsockopt respecto al server, liberamos todos los recursos
-			logger(ERROR, "handle_server_connection :: getsockopt(): %s", strerror(error_code));
 			free_doh_resources(node);
 			return SETUP_CONNECTION_ERROR_CODE;
 		}
 	} else {
-		logger_peer(SERVER, "Connected to server with fd %d for client with fd %d", node->data.server_sock,
-					node->data.client_sock);
 		node->data.connection_state = CONNECTED;
 		free_doh_resources(node);
 		// en caso que el server mande un primer mensaje, quiero leerlo
@@ -481,7 +440,6 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				setup_pop3_response_parser(node);
 			case PARSE_CONNECT_METHOD:
 				// enviamos al cliente que nos conectamos satisfactoriamente al servidor
-				logger(INFO, "Connection established");
 				send_message("HTTP/1.1 200 Connection Established\r\n\r\n", node, write_fd_set, STATUS_200);
 				node->data.client_information.status_code = STATUS_200;
 				print_register(ACCESS, node, write_fd_set);
@@ -504,7 +462,6 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 int try_next_addr(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
 	node->data.addr_info_current = node->data.addr_info_current->next;
 	// intentara con la proxima direccion
-	logger(INFO, "Connection to address failed from client with fd: %d", node->data.client_sock);
 
 	FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
 	close(node->data.server_sock);
@@ -513,7 +470,6 @@ int try_next_addr(connection_node *node, fd_set write_fd_set[FD_SET_ARRAY_SIZE])
 
 	if (ans == SETUP_CONNECTION_ERROR_CODE) {
 		// nos quedamos sin addresses en la lista
-		logger(ERROR, "try_next_addr(): no more address to connect to server");
 		free_doh_resources(node);
 		return ans;
 	}
@@ -562,18 +518,15 @@ static int copy_address_info(struct sockaddr *address, char *buffer_address, cha
 			port = ((struct sockaddr_in6 *)address)->sin6_port;
 			break;
 		default:
-			logger(DEBUG, "Unkown address family");
 			return -1;
 	}
 
 	if (inet_ntop(address->sa_family, ip_address, buffer_address, INET6_ADDRSTRLEN) == NULL) {
-		logger(ERROR, "inet_ntop(): %s", strerror(errno));
 		return -1;
 	} else {
 		if (port > 0) {
 			sprintf(buffer_port, "%u", port);
 		} else {
-			logger(DEBUG, "Invalid port number");
 			return -1;
 		}
 	}
@@ -597,7 +550,6 @@ static void print_register(register_type register_wanted, connection_node *node,
 					node->data.client_information.port, node->data.parser->request.method);
 			actual_length += strlen(output + actual_length);
 			if (copy_host(output + actual_length, node->data.parser->request.target) < 0) {
-				logger(ERROR, "copy_host(): failed");
 				return;
 			}
 			actual_length += strlen(output + actual_length);
@@ -612,7 +564,6 @@ static void print_register(register_type register_wanted, connection_node *node,
 			sprintf(output + actual_length, "    P    %s", aux_buffer_schema);
 			actual_length += strlen(output + actual_length);
 			if (copy_host(output + actual_length, node->data.parser->request.target) < 0) {
-				logger(ERROR, "copy_host(): failed");
 				return;
 			}
 			actual_length += strlen(output + actual_length);

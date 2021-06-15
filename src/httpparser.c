@@ -374,7 +374,6 @@ static int parse_request_target() {
 			if (idx_port == -1) {
 				check_port();
 			} else if (idx_port > MAX_PORT_LENGTH) {
-				logger(ERROR, "Port excedeed length in header type Host");
 				tr_parse_error(' ');
 			} else {
 				// almaceno en la estructura el puerto
@@ -423,7 +422,6 @@ static void parse_header_line(char current_char) {
 	if (strcmp_header_type == 0) {
 		if (current_parser->data.target_status == NOT_FOUND && current_parser->request.target.path_type != ABSOLUTE) {
 			if (parse_request_target() == -1) {
-				logger(ERROR, "Request target in header Host invalid");
 				tr_parse_error(current_char);
 				return;
 			}
@@ -442,7 +440,6 @@ static void parse_header_line(char current_char) {
 					unbase64(current_parser->request.header.value + BASIC_CREDENTIAL_LENGTH, length, &base64_decoded_length);
 				if (base64_decoded == NULL || base64_decoded_length == -1) {
 					free(base64_decoded);
-					logger(ERROR, "Base64 decoder failed");
 					goto COPY_HEADER;
 				}
 				memcpy(current_parser->request.authorization.value, base64_decoded, base64_decoded_length);
@@ -450,7 +447,6 @@ static void parse_header_line(char current_char) {
 				puts(current_parser->request.authorization.value);
 				free(base64_decoded);
 			} else {
-				logger(DEBUG, "Header type Authorization : unknown credentials");
 			}
 			goto COPY_HEADER;
 		}
@@ -657,7 +653,6 @@ int parse_request(http_parser *parser, buffer **read_buffer) {
 		   current_parser->data.parser_state != PS_END && current_parser->data.request_status != PARSE_BODY_INCOMPLETE) {
 		current_char = buffer_read(*read_buffer);
 		current_state = current_parser->data.parser_state;
-		// logger(DEBUG, "current_char: %c, current_state: %u", current_char, current_state);
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (states[current_state][i].when != EMPTY) {
 				if (current_char == states[current_state][i].when || states[current_state][i].when == (char)ANY) {

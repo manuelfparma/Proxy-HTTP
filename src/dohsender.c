@@ -48,7 +48,6 @@ int send_doh_request(connection_node *node, fd_set *write_fd_set) {
 
 	if (sent_bytes < request->write - request->read) {
 		if (sent_bytes < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
-			logger(ERROR, "send_doh_request :: send(): %s", strerror(errno));
 			return DOH_SEND_ERROR;
 		}
 		buffer_read_adv(request, sent_bytes);
