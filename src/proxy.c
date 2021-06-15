@@ -28,8 +28,8 @@ static void try_accept_proxy_client(int passive_sock, fd_set *read_fd_set);
 static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]);
 
 // Funcion que se encarga de liberar los recursos de una conexion entre un cliente y servidor
-static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
-								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer);
+static int handle_connection_error(connection_error_code error_code, connection_node *node, fd_set *read_fd_set,
+								   fd_set *write_fd_set, peer peer);
 // Funcion que se encarga de manejar la conexion con el doh para resolver la current_request dns
 static int handle_doh_exchange(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
@@ -200,13 +200,15 @@ static void try_accept_proxy_client(int passive_sock, fd_set *read_fd_set) {
 
 static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]) {
 	int handle;
+	connection_node *next;
 	// itero por todas las conexiones cliente-servidor
-	for (connection_node *node = connections.first, *previous = NULL; node != NULL; node = node->next) {
+	for (connection_node *node = connections.first; node != NULL; node = next) {
+		next = node->next;
 		switch (node->data.connection_state) {
 			case SENDING_DNS:
 			case FETCHING_DNS:
 				handle = handle_doh_exchange(node, read_fd_set, write_fd_set);
-				if (handle < 0) handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT);
+				if (handle < 0) handle_connection_error(handle, node, read_fd_set, write_fd_set, CLIENT);
 				break;
 			default:
 				if (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT) {
@@ -215,40 +217,37 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 						if (handle == 0) break;
 					}
 					// TODO: mejorar el manejo de esta desconexion
-					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, CLIENT);
+					handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, read_fd_set, write_fd_set, CLIENT);
 					break;
 				}
 
 				handle = handle_client_connection(node, read_fd_set, write_fd_set);
 
-				if (handle < 0 && handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, CLIENT) < 0)
+				if (handle < 0 && handle_connection_error(handle, node, read_fd_set, write_fd_set, CLIENT) < 0)
 					// para que no intente seguir atendiendo a un nodo borrado
 					break; // para que no atienda al servidor
 
 				if (node->data.server_sock >= 0) {
 					handle = handle_server_connection(node, read_fd_set, write_fd_set);
 
-					if (handle < 0 && handle_connection_error(handle, node, previous, read_fd_set, write_fd_set, SERVER) < 0)
+					if (handle < 0 && handle_connection_error(handle, node, read_fd_set, write_fd_set, SERVER) < 0)
 						// para que no intente seguir atendiendo a un nodo borrado
 						break;
 				}
 
 				if (node->data.connection_state == SERVER_READ_CLOSE && !buffer_can_read(node->data.server_to_client_buffer)) {
 					// Ya se cerro el servidor y no hay informacion pendiente para el cliente
-					if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, previous, read_fd_set, write_fd_set, SERVER) <
+					if (handle_connection_error(CLOSE_CONNECTION_ERROR_CODE, node, read_fd_set, write_fd_set, SERVER) <
 						0)
 						// para que no intente seguir atendiendo a un nodo borrado
 						break;
 				}
-
-				// Si no se borro el nodo llego aca, y asigno previous
-				previous = node;
 		}
 	}
 }
 // Cuando retorna un valor < 0, no se debe volver a atender al nodo en esta iteracion
-static int handle_connection_error(connection_error_code error_code, connection_node *node, connection_node *previous,
-								   fd_set *read_fd_set, fd_set *write_fd_set, peer peer) {
+static int handle_connection_error(connection_error_code error_code, connection_node *node, fd_set *read_fd_set,
+								   fd_set *write_fd_set, peer peer) {
 	switch (error_code) {
 		case BAD_REQUEST_ERROR:
 			logger(DEBUG, "Invalid request for server_fd: %d and client_fd: %d", node->data.server_sock, node->data.client_sock);
@@ -301,7 +300,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 	int aux_client_sock = node->data.client_sock;
 	// guardo copias de los sockets a borrar, para compararlos con el maximo actual(luego de ser borrados) y decidir
 	// si se debe buscar otro maximo
-	close_connection(node, previous, read_fd_set, write_fd_set);
+	close_connection(node, read_fd_set, write_fd_set);
 	if (aux_server_sock >= connections.max_fd || aux_client_sock >= connections.max_fd) find_max_id();
 	return -1;
 }

@@ -68,6 +68,7 @@ connection_node *setup_connection_resources(int client_sock, int server_sock) {
 	if (new == NULL) goto ERROR;
 
 	new->next = NULL;
+	new->previous = NULL;
 	new->data.client_sock = client_sock;
 	new->data.server_sock = server_sock;
 
@@ -140,16 +141,16 @@ ERROR:
 }
 
 void add_to_connections(connection_node *node) {
-	//	busqueda para la insercion
-	connection_node *last = connections.first;
-	if (last != NULL) {
-		while (last->next != NULL) {
-			last = last->next;
-		}
-		last->next = node;
-	} else {
+	if(connections.last == NULL) {
+		// Caso lista vacia
 		connections.first = node;
+		connections.last = node;
+	} else {
+		connections.last->next = node;
+		node->previous = connections.last;
+		connections.last = node;
 	}
+
 	connections.statistics.total_connections++;
 	connections.current_clients++;
 }
@@ -201,7 +202,7 @@ void close_pop3_parser(connection_node *node) {
 	free(node->data.parser->pop3);
 }
 
-void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set) {
+void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set) {
 	int client_fd = node->data.client_sock, server_fd = node->data.server_sock;
 	logger_peer(CLIENT, "Socket with fd: %d disconnected", client_fd);
 	if (server_fd >= 0) {
@@ -216,11 +217,22 @@ void close_connection(connection_node *node, connection_node *previous, fd_set *
 	free(node->data.client_information.port);
 	fclose(node->data.log_file);
 
-	if (previous == NULL) {
+	if (node->previous == NULL) {
 		// Caso primer nodo
 		connections.first = node->next;
+		if (connections.first != NULL)
+			connections.first->previous = NULL;
 	} else {
-		previous->next = node->next;
+		node->previous->next = node->next;
+	}
+
+	if (node->next == NULL) {
+		// Caso ultimo nodo
+		connections.last = node->previous;
+		if (connections.last != NULL)
+			connections.last->next = NULL;
+	} else {
+		node->next->previous = node->previous;
 	}
 
 	free(node);
