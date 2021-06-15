@@ -10,6 +10,8 @@
 #define IPV4_SOCK 0
 #define IPV6_SOCK 1
 
+#define PROXY_TIMEOUT 10
+
 typedef enum { CLIENT, SERVER } peer;
 
 // Constantes para acceder a los FdSets, BASE para el persistente, TMP para el que varia con select

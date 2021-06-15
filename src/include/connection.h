@@ -48,11 +48,13 @@ typedef struct {
 	addr_info_node *addr_info_current; // ip para conectarse utilizada actualmente
 	information client_information;	   // ip y puerto del cliente, ya formateados
 	doh_data *doh;
+	time_t timestamp;				   // timestamp de creacion de la conexion
 } connection_data;
 
 typedef struct connection_node {
 	connection_data data;
 	struct connection_node *next;
+	struct connection_node *previous;
 } connection_node;
 
 typedef struct {
@@ -67,6 +69,7 @@ typedef struct {
 	uint64_t current_clients;
 	proxy_statistics statistics;
 	connection_node *first;
+	connection_node *last;
 	buffer *stdout_buffer;
 	FILE *proxy_log;
 } connection_header;
@@ -77,7 +80,7 @@ void add_to_connections(connection_node *node);
 
 void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
-void close_connection(connection_node *node, connection_node *previous, fd_set *read_fd_set, fd_set *write_fd_set);
+void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_fd_set);
 
 int setup_pop3_command_parser(connection_node *node);
 
