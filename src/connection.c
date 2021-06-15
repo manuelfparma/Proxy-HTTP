@@ -172,9 +172,9 @@ void close_server_connection(connection_node *node, fd_set *read_fd_set, fd_set 
 			break;
 		default:
 			close_buffer(node->data.parser->data.parsed_request);
+			node->data.parser->data.parsed_request = NULL;
 	}
 
-	free(node->data.parser);
 	FD_CLR(client_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &read_fd_set[BASE]);
 	FD_CLR(server_fd, &write_fd_set[BASE]);
@@ -212,9 +212,18 @@ void close_connection(connection_node *node, fd_set *read_fd_set, fd_set *write_
 	if (server_fd >= 0) {
 		close_server_connection(node, read_fd_set, write_fd_set);
 	} else if (server_fd == -1) {
-		free(node->data.parser);
 		close_buffer(node->data.client_to_server_buffer);
 	}
+
+	if (node->data.parser != NULL && node->data.parser->data.parsed_request != NULL) {
+		close_buffer(node->data.parser->data.parsed_request);
+		node->data.parser->data.parsed_request = NULL;
+	}
+	if (node->data.parser != NULL) {
+		free(node->data.parser);
+		node->data.parser = NULL;
+	}
+
 	free(node->data.server_to_client_buffer->data);
 	free(node->data.server_to_client_buffer);
 	free(node->data.client_information.ip);

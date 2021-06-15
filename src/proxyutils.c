@@ -371,7 +371,7 @@ ssize_t handle_operation(int fd, buffer *buffer, operation operation, peer peer,
 			if (result_bytes < 0) {
 				if (errno != EWOULDBLOCK && errno != EAGAIN) {
 					// si hubo error y no sale por ser no bloqueante, corto la conexion
-					logger_peer(peer, "send: %s", strerror(errno));
+					logger_peer(peer, "fd = %d - send: %s", fd, strerror(errno));
 					if (errno == EPIPE) { return BROKEN_PIPE_ERROR_CODE; }
 					return SEND_ERROR_CODE;
 				} else
@@ -489,6 +489,7 @@ int try_connection(connection_node *node, fd_set read_fd_set[FD_SET_ARRAY_SIZE],
 				buffer_reset(node->data.client_to_server_buffer); // por si quedaron cosas sin parsear del request, las borro
 				FD_CLR(node->data.server_sock, &write_fd_set[BASE]);
 				close_buffer(node->data.parser->data.parsed_request);
+				node->data.parser->data.parsed_request = NULL;
 				break;
 			default:
 				// ya que estoy conectado, me fijo si quedo algo para parsear

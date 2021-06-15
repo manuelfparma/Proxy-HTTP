@@ -284,6 +284,7 @@ static int handle_connection_error(connection_error_code error_code, connection_
 			// Cierra toda la conexion
 			break;
 		case BROKEN_PIPE_ERROR_CODE:
+			if (node->data.connection_state == SERVER_READ_CLOSE) break;
 			send_message("HTTP/1.1 500 Internal Server Error\r\n\r\n", node, write_fd_set, STATUS_500);
 			node->data.connection_state = SERVER_READ_CLOSE;
 			return 0;

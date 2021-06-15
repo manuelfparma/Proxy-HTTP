@@ -693,6 +693,7 @@ int parse_request(http_parser *parser, buffer **read_buffer) {
 			copy_from_buffer_to_buffer(parser->data.parsed_request, *read_buffer);
 			close_buffer(*read_buffer);
 			*read_buffer = parser->data.parsed_request;
+			parser->data.parsed_request = NULL;
 		}
 	}
 
