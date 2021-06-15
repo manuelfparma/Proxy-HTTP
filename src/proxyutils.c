@@ -50,6 +50,9 @@ static void print_status_code(connection_node *node, fd_set *write_fd_set);
 // Funcion que incrementa los bytes del metodo connect en las estadisticas
 static void increase_connect_method_bytes(connection_node *node, ssize_t result_bytes);
 
+// Funcion que maneja el parseo de la request http
+int handle_parse_request(connection_node *node, buffer *aux_buffer, fd_set write_fd_set[FD_SET_ARRAY_SIZE]);
+
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
@@ -237,24 +240,8 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 					break;
 				default:
 					aux_buffer = node->data.parser->data.parsed_request;
-					parse_request(node->data.parser, &node->data.client_to_server_buffer);
-					if (node->data.parser->data.request_status == PARSE_ERROR) return BAD_REQUEST_ERROR;
-					if (node->data.parser->data.parser_state == PS_END) { return CLIENT_CLOSE_READ_ERROR_CODE; }
-					if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
-						// seteo los argumentos necesarios para conectarse al server
-						if (node->data.parser->request.target.host_type == DOMAIN) {
-							if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
-
-								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
-							}
-						} else {
-							int connect_ret = set_node_request_target(node, write_fd_set);
-							if (connect_ret < 0) return connect_ret;
-						}
-						if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) setup_pop3_command_parser(node);
-
-						break;
-					}
+					int ret = handle_parse_request(node, aux_buffer, write_fd_set);
+					if (ret < 0) return ret;
 			}
 			// Si el parser cargo algo y el servidor esta seteado, activamos la escritura al origin server
 			if (buffer_can_read(aux_buffer) && fd_server != -1) FD_SET(fd_server, &write_fd_set[BASE]);
@@ -483,13 +470,16 @@ static void handle_pop3_response(connection_node *node, fd_set write_fd_set[FD_S
 	if (node->data.parser->pop3->line_count == 0 && node->data.parser->pop3->command.credentials_state == POP3_C_FOUND) {
 		if (node->data.parser->pop3->response.data.status == POP3_R_POSITIVE_STATUS) {
 			// una vez que encontre la password y es correcta, cambio el estado a connect, asi no sniffeo mas
-			strcpy(node->data.parser->request.authorization.value, node->data.parser->pop3->command.credentials.username);
-			size_t length = strlen(node->data.parser->pop3->command.credentials.username);
-			strcpy(node->data.parser->request.authorization.value + length, "    ");
-			length += strlen("    ");
+			strcpy(node->data.parser->request.authorization.value, "<");
+			strcpy(node->data.parser->request.authorization.value + 1, node->data.parser->pop3->command.credentials.username);
+			size_t length = strlen(node->data.parser->pop3->command.credentials.username) + 1;
+			strcpy(node->data.parser->request.authorization.value + length, ">:<");
+			length += 3;
 			strcpy(node->data.parser->request.authorization.value + length,
 				   node->data.parser->pop3->command.credentials.password);
 			length += strlen(node->data.parser->pop3->command.credentials.password);
+			strcpy(node->data.parser->request.authorization.value + length, ">");
+			length += 1;
 			node->data.parser->request.authorization.value[length] = '\0';
 			print_register(PASSWORD, node, write_fd_set);
 			// copio las respuestas al buffer original
@@ -619,4 +609,25 @@ static void increase_connect_method_bytes(connection_node *node, ssize_t result_
 	if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD ||
 		node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3)
 		connections.statistics.total_connect_method_bytes += result_bytes;
+}
+
+int handle_parse_request(connection_node *node, buffer *aux_buffer, fd_set write_fd_set[FD_SET_ARRAY_SIZE]) {
+	parse_request(node->data.parser, &node->data.client_to_server_buffer);
+	if (node->data.parser->data.request_status == PARSE_ERROR) return BAD_REQUEST_ERROR;
+	if (node->data.parser->data.parser_state == PS_END) { return CLIENT_CLOSE_READ_ERROR_CODE; }
+	if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
+		// seteo los argumentos necesarios para conectarse al server
+		if (node->data.parser->request.target.host_type == DOMAIN) {
+			// TODO: Obtener doh addr, hostname y port de args
+			if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
+				logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
+				return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
+			}
+		} else {
+			int connect_ret = set_node_request_target(node, write_fd_set);
+			if (connect_ret < 0) return connect_ret;
+		}
+		if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) setup_pop3_command_parser(node);
+	}
+	return 0;
 }

@@ -193,7 +193,8 @@ static void handle_connection_list(fd_set read_fd_set[2], fd_set write_fd_set[2]
 				if (handle < 0) handle_connection_error(handle, node, read_fd_set, write_fd_set, CLIENT);
 				break;
 			default:
-				if (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT) {
+				if (time(NULL) - node->data.timestamp >= PROXY_TIMEOUT &&
+					node->data.parser->data.request_status != PARSE_CONNECT_METHOD_POP3) {
 					if (node->data.connection_state == CONNECTING) {
 						handle = try_next_addr(node, write_fd_set);
 						if (handle == 0) break;
@@ -333,8 +334,13 @@ void send_message(char *message, connection_node *node, fd_set *write_fd_set, un
 	int bytes_available = node->data.server_to_client_buffer->limit - node->data.server_to_client_buffer->write;
 	int bytes_to_copy = strlen(message);
 	int bytes_copied = (bytes_available > bytes_to_copy) ? bytes_to_copy : bytes_available;
-	strncpy((char *)node->data.server_to_client_buffer->write, message, bytes_copied);
-	buffer_write_adv(node->data.server_to_client_buffer, bytes_copied);
+	if (node->data.parser->data.request_status == PARSE_CONNECT_METHOD_POP3) {
+		strncpy((char *)node->data.parser->pop3->response.response_buffer->write, message, bytes_copied);
+		buffer_write_adv(node->data.parser->pop3->response.response_buffer, bytes_copied);
+	} else {
+		strncpy((char *)node->data.server_to_client_buffer->write, message, bytes_copied);
+		buffer_write_adv(node->data.server_to_client_buffer, bytes_copied);
+	}
 	FD_SET(node->data.client_sock, &write_fd_set[BASE]);
 	node->data.client_information.status_code = status_code;
 }
