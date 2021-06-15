@@ -4,7 +4,7 @@
 #include <pcamputils.h>
 
 #define CLIENT_PCAMP_VERSION 1
-#define PCAMP_BUFFER_SIZE 512
+#define PCAMP_USER_BUFFER_SIZE 512
 #define PCAMP_CLIENT_MAX_RECV_ATTEMPS 5
 #define PCAMP_CLIENT_TIMEOUT 3
 

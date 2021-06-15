@@ -48,14 +48,14 @@ int main(const int argc, char **argv) {
 
 	while (1) {
 		memset(&current_request, 0, sizeof(current_request));
-		memset(&io_buffer, 0, PCAMP_BUFFER_SIZE);
+		memset(&io_buffer, 0, MAX_PCAMP_PACKET_LENGTH);
 
 		uint8_t method = get_option(PCAMP_METHOD_COUNT, method_strings, "\nSelect a method:\n");
 		current_request.method = method;
 
 		uint8_t type;
 		ssize_t packet_size = 0;
-		char input[PCAMP_BUFFER_SIZE + 1];
+		char input[PCAMP_USER_BUFFER_SIZE + 1];
 		switch (method) {
 			case PCAMP_QUERY:
 				type = get_option(PCAMP_QUERY_TYPE_COUNT, query_type_strings, "\nSelect query type:\n");
@@ -157,12 +157,12 @@ static void flush_stdin(const char *buffer, ssize_t recv_bytes) {
 }
 
 static void get_passphrase() {
-	char input[PCAMP_BUFFER_SIZE];
+	char input[PCAMP_USER_BUFFER_SIZE];
 
 	printf("\nEnter the passphrase:");
 	print_prompt();
 
-	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
+	ssize_t read_bytes = read(STDIN_FILENO, input, PCAMP_USER_BUFFER_SIZE);
 	flush_stdin(input, read_bytes);
 
 	read_bytes--; // Para ignorar el \n
@@ -172,7 +172,7 @@ static void get_passphrase() {
 
 static long get_option(long options_count, char **options_strings, const char *instruction) {
 	ssize_t read_bytes;
-	char input[PCAMP_BUFFER_SIZE + 1];
+	char input[PCAMP_USER_BUFFER_SIZE + 1];
 	bool is_input_valid = false;
 	long parsed_option;
 
@@ -184,7 +184,7 @@ static long get_option(long options_count, char **options_strings, const char *i
 
 		print_prompt();
 
-		read_bytes = read(STDIN_FILENO, input, PCAMP_BUFFER_SIZE);
+		read_bytes = read(STDIN_FILENO, input, PCAMP_USER_BUFFER_SIZE);
 		flush_stdin(input, read_bytes);
 		input[--read_bytes] = 0;
 
@@ -223,7 +223,7 @@ static void get_config_value(config_type type, char *value) {
 		printf("Enter new value:\n");
 		print_prompt();
 
-		ssize_t read_bytes = read(STDIN_FILENO, value, PCAMP_BUFFER_SIZE);
+		ssize_t read_bytes = read(STDIN_FILENO, value, PCAMP_USER_BUFFER_SIZE);
 		flush_stdin(value, read_bytes);
 		value[read_bytes-1] = 0;
 

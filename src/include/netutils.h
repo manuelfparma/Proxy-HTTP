@@ -32,8 +32,8 @@ bool parse_port(const char *port_str, uint16_t *port);
 // Valor de retorno: str1 == str2 -> 0, str1 > str2 -> 1, str1 < str2 -> -1
 int strcmp_case_insensitive(char *str1, char *str2);
 
+//	Funciones para convertir 64 bits entre formato memoria para el host y big-endian para network
 uint64_t hton64(uint64_t host_64);
-
 uint64_t ntoh64(uint64_t network_64);
 
 // Funcion que copia el maximo de bytes posibles del buffer source al buffer destino
