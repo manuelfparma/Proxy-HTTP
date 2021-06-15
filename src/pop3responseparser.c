@@ -3,8 +3,8 @@
 
 #define N(x) (sizeof(x) / sizeof((x)[0]))
 
-pop3_response_parser *current_parser;
-buffer *current_read_buffer, *current_write_buffer;
+pop3_response_parser *current_pop3_response_parser;
+buffer *current_pop3_response_read_buffer, *current_pop3_response_write_buffer;
 size_t lines_read;
 
 // Transiciones entre nodos
@@ -56,10 +56,10 @@ static const size_t states_n[] = {
 static void tr_set_status(char current_char) {
 	switch (current_char) {
 		case '+':
-            current_parser->data.status = POP3_R_POSITIVE_STATUS;
+            current_pop3_response_parser->data.status = POP3_R_POSITIVE_STATUS;
 			break;
 		case '-':
-            current_parser->data.status = POP3_R_NEGATIVE_STATUS;
+            current_pop3_response_parser->data.status = POP3_R_NEGATIVE_STATUS;
 			break;
 		default:
 			break;
@@ -73,26 +73,26 @@ static void tr_line_ended(char current_char) {
 static void tr_adv(char current_char) {}
 
 static void tr_parse_error(char current_char) {
-	current_parser->parser_state = POP3_R_PS_ERROR;
+	current_pop3_response_parser->parser_state = POP3_R_PS_ERROR;
 	// TODO: MEJORAR
 }
 
 //----------- FUNCION QUE REALIZA LA EJECUCION DE LA MAQUINA -----------//
 
 int parse_pop3_response(pop3_response_parser *parser, buffer *read_buffer) {
-	current_parser = parser;
-	current_read_buffer = read_buffer;
+	current_pop3_response_parser = parser;
+	current_pop3_response_read_buffer = read_buffer;
 	char current_char;
 	pop3_response_parser_state current_state;
 	lines_read = 0;
 	
-	while (buffer_can_read(read_buffer) && current_parser->parser_state != POP3_R_PS_ERROR) {
+	while (buffer_can_read(read_buffer) && current_pop3_response_parser->parser_state != POP3_R_PS_ERROR) {
 		current_char = buffer_read(read_buffer);
-		buffer_write(current_parser->response_buffer, current_char); // todo lo que leo lo escribo en la salida
-		current_state = current_parser->parser_state;
+		buffer_write(current_pop3_response_parser->response_buffer, current_char); // todo lo que leo lo escribo en la salida
+		current_state = current_pop3_response_parser->parser_state;
 		for (size_t i = 0; i < states_n[current_state]; i++) {
 			if (current_char == states[current_state][i].when || states[current_state][i].when == (char)POP3_R_ANY) {
-				current_parser->parser_state = states[current_state][i].destination;
+				current_pop3_response_parser->parser_state = states[current_state][i].destination;
 				states[current_state][i].transition(current_char);
 				break;
 			}
