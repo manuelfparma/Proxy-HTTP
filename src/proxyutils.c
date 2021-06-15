@@ -54,7 +54,7 @@ static void increase_connect_method_bytes(connection_node *node, ssize_t result_
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
 int setup_proxy_passive_sockets(int proxy_sockets[SOCK_COUNT]) {
-	addr_info proxy_addr;
+	addr_info proxy_addr = {0};
 
 	// Ciclo para crear sockets y escuchar tanto en IPv4 como en IPv6
 	for (int i = 0; i < SOCK_COUNT; i++) {

@@ -35,7 +35,7 @@ static uint8_t response_buffer[MAX_PCAMP_PACKET_LENGTH] = {0};
 static const char *passphrase = "12341234";
 
 int setup_pcamp_sockets(int management_sockets[SOCK_COUNT]) {
-	addr_info management_addr;
+	addr_info management_addr = {0};
 
 	for (int i = 0; i < SOCK_COUNT; i++) {
 		if (i == IPV4_SOCK) management_addr.in4 = args.management_addr4;
@@ -84,8 +84,8 @@ void handle_pcamp_request(int fd) {
 
 	memset(&current_request, 0, sizeof(current_request));
 
-	struct sockaddr src_addr;
-	socklen_t src_addr_len;
+	struct sockaddr src_addr = {0};
+	socklen_t src_addr_len = sizeof(src_addr);
 
 	ssize_t recv_bytes = recvfrom(fd, request_buffer, MAX_PCAMP_PACKET_LENGTH, 0, &src_addr, &src_addr_len);
 
