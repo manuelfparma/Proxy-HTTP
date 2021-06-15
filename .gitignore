@@ -23,4 +23,6 @@ src/*.o
 # Output files
 log_connection_*
 proxy_log
-
+PVS-Studio.log
+report.tasks
+strace_out

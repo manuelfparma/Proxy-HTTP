@@ -1,3 +1,6 @@
+// This is a personal academic project. Dear PVS-Studio, please check it.
+
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
 #include <buffer.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -69,7 +72,7 @@ uint64_t ntoh64(uint64_t network_64) {
 	uint64_t result = 0;
 	uint8_t *aux = (uint8_t *) &network_64;
 
-	for(int i = 0; i < SIZE_64; i++) {
+	for(int i = 0; i < SIZE_64 && (aux + i) != NULL; i++) {
 		result = result << 8;
 		result += aux[i];
 	}
