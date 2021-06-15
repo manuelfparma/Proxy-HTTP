@@ -4,8 +4,6 @@
 #include "netutils.h"
 #include <connection.h>
 
-// TODO: Comentar funciones, enums y estructuras
-
 #define SOCK_COUNT 2
 #define IPV4_SOCK 0
 #define IPV6_SOCK 1
@@ -21,7 +19,7 @@ typedef enum {
 	FD_SET_ARRAY_SIZE = 2,
 	MAX_PENDING = 10,
 	MAX_CLIENTS = 510,
-	BUFFER_SIZE = 65000, // TODO cambiar a variable para poder editarlo
+	BUFFER_SIZE = 65000,
 	MAX_ADDR_BUFFER = 128,
 	MAX_OUTPUT_REGISTER_LENGTH = 256,
 } proxy_utils_constants;

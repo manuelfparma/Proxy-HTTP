@@ -84,7 +84,6 @@ static size_t prepare_dns_question(dns_question question_info, uint8_t *question
 	const char *label = question_info.name;
 
 	while (*label != 0) {
-		// TODO: Verificar que name sea null terminated
 		// avanzamos hasta encontrar un punto o hasta que corte el string
 		uint8_t i;
 		for (i = 0; label[i] != '.' && label[i] != 0; i++)

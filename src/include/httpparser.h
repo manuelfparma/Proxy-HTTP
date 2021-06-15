@@ -24,7 +24,6 @@ typedef enum {
 	PARSE_CONNECT_METHOD_POP3,
 } http_request_status_code;
 
-// TODO: Mover a netutils.h
 typedef enum {
 	MAX_HOST_NAME_LENGTH = 255,
 	MAX_HEADER_TYPE_LENGTH = 64,

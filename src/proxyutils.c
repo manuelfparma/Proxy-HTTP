@@ -255,7 +255,6 @@ int handle_client_connection(connection_node *node, fd_set read_fd_set[FD_SET_AR
 					if (node->data.connection_state == DISCONNECTED && node->data.parser->data.target_status == SOLVED) {
 						// seteo los argumentos necesarios para conectarse al server
 						if (node->data.parser->request.target.host_type == DOMAIN) {
-							// TODO: Obtener doh addr, hostname y port de args
 							if (connect_to_doh_server(node, &write_fd_set[BASE]) == -1) {
 								logger(ERROR, "connect_to_doh_server(): error while connecting to DoH. %s", strerror(errno));
 								return CLOSE_CONNECTION_ERROR_CODE; // cierro todas las conexiones
@@ -314,7 +313,6 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 		return SETUP_CONNECTION_ERROR_CODE;
 	}
 
-	// TODO: está bien hardcodear SOCK_STREAM y el protocolo?
 	node->data.server_sock = socket(node->data.addr_info_current->addr.sa_family, SOCK_STREAM, 0);
 
 	if (node->data.server_sock < 0) {
@@ -332,7 +330,6 @@ int setup_connection(connection_node *node, fd_set *write_fd_set) {
 
 	struct addr_info_node aux_addr_info = *node->data.addr_info_current;
 
-	// fixme addrinfo length
 	socklen_t length = 0;
 	switch (aux_addr_info.addr.sa_family) {
 		case AF_INET:
@@ -660,7 +657,6 @@ static void print_status_code(connection_node *node, fd_set *write_fd_set) {
 			status_response += CHARS_BEFORE_STATUS_CODE;
 			unsigned short status_response_code = 0;
 			sscanf((const char *)status_response, "%hu ", &status_response_code);
-			// TODO: agregar chequeos
 			node->data.client_information.status_code = (unsigned short)status_response_code;
 		}
 		print_register(ACCESS, node, write_fd_set);
