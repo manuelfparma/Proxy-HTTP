@@ -86,6 +86,11 @@ defecto el valor es `9090`.
 - `-v`
     - Imprime información sobre la versión y termina.
   
+
+Para más información del programa, ejecutar dentro de la carpeta raíz
+
+    man ./httpd.8
+
 ------------------------------------------------------------
 
 ## Cómo ejecutar cliente de monitoreo
